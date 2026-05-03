@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
-import { LayoutGrid, BarChart3, CheckSquare } from "lucide-react";
+import { LayoutGrid, BarChart3, CheckSquare, FileText } from "lucide-react";
 
-type Tab = "crm" | "dashboard" | "tarefas";
+type Tab = "crm" | "phc" | "painel" | "tarefas";
 
 interface BottomNavBarProps {
   activeTab: Tab;
@@ -9,8 +9,9 @@ interface BottomNavBarProps {
 }
 
 const tabs: { id: Tab; label: string; icon: typeof LayoutGrid }[] = [
-  { id: "crm", label: "CRM", icon: LayoutGrid },
-  { id: "dashboard", label: "Dashboard", icon: BarChart3 },
+  { id: "crm",     label: "CRM",     icon: LayoutGrid },
+  { id: "phc",     label: "PHC",     icon: FileText },
+  { id: "painel",  label: "Painel",  icon: BarChart3 },
   { id: "tarefas", label: "Tarefas", icon: CheckSquare },
 ];
 

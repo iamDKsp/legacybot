@@ -1,11 +1,11 @@
-import { Lead } from "@/modules/crm/types/crm";
+import { Lead } from "@/services/api";
 import LeadCard from "./LeadCard";
 import { motion } from "framer-motion";
 
 interface KanbanColumnProps {
   stageId: string;
   stageLabel: string;
-  leads: Lead[];
+  leads: (Lead & Record<string, unknown>)[];
   index: number;
 }
 
@@ -27,7 +27,7 @@ const KanbanColumn = ({ stageLabel, leads, index }: KanbanColumnProps) => {
           </span>
         </div>
       </div>
-      <div className="p-2 flex flex-col gap-2 overflow-y-auto scrollbar-thin flex-1">
+      <div className="p-2 flex flex-col gap-2 overflow-y-auto kanban-scroll-y flex-1">
         {leads.map((lead, i) => (
           <LeadCard key={lead.id} lead={lead} index={i} />
         ))}

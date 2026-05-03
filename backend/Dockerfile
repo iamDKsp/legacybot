@@ -30,7 +30,9 @@ COPY --from=builder /app/.env.example ./.env.example
 
 # Security: run as non-root
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodeapp -u 1001 -G nodejs
+    adduser -S nodeapp -u 1001 -G nodejs && \
+    mkdir -p /app/uploads/knowledge && \
+    chown -R nodeapp:nodejs /app/uploads
 USER nodeapp
 
 EXPOSE 3001

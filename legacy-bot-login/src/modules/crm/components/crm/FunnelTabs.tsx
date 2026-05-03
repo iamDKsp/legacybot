@@ -12,7 +12,7 @@ export function FunnelTabs({ funnels, activeFunnelId, onSelect, leads }: FunnelT
   return (
     <div className="flex items-center gap-2">
       {funnels.map((funnel) => {
-        const count = leads.filter((l) => l.funnel_id === funnel.id).length;
+        const count = funnel.lead_count ?? leads.filter((l) => l.funnel_id === funnel.id).length;
         const isActive = activeFunnelId === funnel.id;
         return (
           <button

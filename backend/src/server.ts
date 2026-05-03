@@ -17,6 +17,10 @@ import leadsRoutes from './routes/leads.routes';
 import tasksRoutes from './routes/tasks.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import webhookRoutes from './routes/webhook.routes';
+import databaseRoutes from './routes/database.routes';
+import aiConfigRoutes from './routes/ai-config.routes';
+import usersRoutes from './routes/users.routes';
+import phcRoutes from './routes/phc.routes';
 
 // ============================================================
 // Express App Setup
@@ -25,11 +29,24 @@ const app = express();
 const server = http.createServer(app);
 
 // ============================================================
+// CORS — allowed origins (production + dev)
+// ============================================================
+const allowedOrigins = [
+    config.frontendUrl,
+    'http://localhost',
+    'http://localhost:80',
+    'http://127.0.0.1',
+    'http://localhost:8080',
+    'http://localhost:5173',
+    'http://localhost:3000',
+].filter(Boolean);
+
+// ============================================================
 // Socket.IO Setup
 // ============================================================
 const io = new SocketIOServer(server, {
     cors: {
-        origin: config.frontendUrl,
+        origin: allowedOrigins,
         methods: ['GET', 'POST'],
     },
 });
@@ -43,7 +60,7 @@ app.use(helmet({
 }));
 
 app.use(cors({
-    origin: config.frontendUrl,
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -69,7 +86,7 @@ app.use('/api/webhook', webhookLimiter);
 // ============================================================
 // Body Parsing
 // ============================================================
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // ============================================================
@@ -100,6 +117,10 @@ app.use('/api/leads', leadsRoutes);
 app.use('/api/tasks', tasksRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/webhook', webhookRoutes);
+app.use('/api/database', databaseRoutes);
+app.use('/api/ai-config', aiConfigRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/phc', phcRoutes);
 
 // ============================================================
 // 404 Handler

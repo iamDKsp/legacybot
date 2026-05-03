@@ -39,15 +39,17 @@ export function useFunnels() {
     });
 }
 
-// ── Fetch stages list ─────────────────────────────────────────
-export function useStages() {
+// ── Fetch stages list (optionally filtered by funnel) ─────────
+export function useStages(funnelSlug?: string | null) {
     return useQuery({
-        queryKey: ['stages'],
+        queryKey: ['stages', funnelSlug ?? 'all'],
         queryFn: async () => {
-            const response = await leadsApi.getStages();
+            const params = funnelSlug ? { funnel_slug: funnelSlug } : {};
+            const response = await leadsApi.getStages(params);
             return response.data.data;
         },
         staleTime: 5 * 60_000,
+        enabled: true,
     });
 }
 
@@ -207,5 +209,16 @@ export function useLeadDocuments(leadId: number) {
         queryKey: ['lead-documents', leadId],
         queryFn: async () => (await leadsApi.getDocuments(leadId)).data.data,
         enabled: !!leadId,
+    });
+}
+
+// ── Lead checklist (document collection progress) ─────────
+export function useLeadChecklist(leadId: number) {
+    return useQuery({
+        queryKey: ['lead-checklist', leadId],
+        queryFn: async () => (await leadsApi.getChecklist(leadId)).data.data,
+        enabled: !!leadId,
+        staleTime: 15_000,
+        refetchInterval: 15_000,
     });
 }

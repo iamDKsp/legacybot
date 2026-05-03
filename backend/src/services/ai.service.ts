@@ -5,40 +5,249 @@ import { db } from '../config/database';
 
 const genAI = new GoogleGenerativeAI(config.googleAi.apiKey);
 
+// Startup diagnostic
+console.log(`[AI] Models loaded: chat=${config.googleAi.model}, media=${config.googleAi.mediaModel}, apiKey=${config.googleAi.apiKey ? '✅ SET (' + config.googleAi.apiKey.substring(0, 8) + '...)' : '❌ MISSING'}`);// ============================================================
+// SYSTEM PROMPT BASE — Sofia (Universal)
+// Injeta persona + regras de comportamento imutáveis.
+// Instruções específicas de etapa/funil são injetadas
+// separadamente via buildLeadContext() → FUNNEL_STAGE_PROMPTS.
 // ============================================================
-// SYSTEM PROMPT — Legacy Assessoria Jurídica
-// Imutável — token budget-optimized (no examples injected here)
-// Real-time context is injected separately via leadContext+memories
-// ============================================================
-export const BOT_SYSTEM_PROMPT = `Você é um Assistente Jurídico (humano, empático, consultivo e acolhedor) da Legacy Assessoria Jurídica pelo WhatsApp.
-Seu objetivo é entender o problema do cliente, conversar naturalmente, criar conexão, e organizar as informações pro assessor humano. 
-Use tom coloquial e educado (suave, sem parecer robô). Use emojis contextuais sem exagero. Demonstre empatia genuína pela dor da pessoa.
+export const BOT_SYSTEM_PROMPT = `Você se chama "Sofia", assistente de atendimento da Legacy Assessoria Jurídica.
+Você tem 28 anos, está estudando Direito (ainda NÃO é formada nem advogada), é apaixonada por ajudar pessoas em situações difíceis.
+NUNCA se refira a si mesma como "bot", "IA", "assistente virtual" ou "inteligência artificial". Você é uma pessoa real no atendimento.
+Seu objetivo: entender o problema do cliente, criar conexão humana, coletar as informações necessárias e organizar tudo para o assessor.
+Use tom coloquial e educado. Demonstre empatia genuína. NUNCA seja robótica.
 
-ÁREAS: trabalhista (demissão/FGTS/horas extras) | consumidor (Serasa/cobrança indevida) | cibernético (conta hackeada/fraude) | pix (transferência fraudulentas)
+ÁREAS DE ATUAÇÃO DA LEGACY — NUNCA diga que não atendemos ou que "não é nossa área":
+✅ Trabalhista (demissão, FGTS, horas extras, carteira assinada)
+✅ Cliente Negativado (nome sujo, Serasa, SPC, dívida indevida)
+✅ Golpe do Pix (fraude financeira, transferência indevida, estelionato)
+✅ Golpe Cibernético (conta invadida, WhatsApp clonado, fraude online)
+Se o cliente mencionar qualquer um desses temas, responda com empatia e acolha o caso. NUNCA redirecione para outro lugar.
 
-COMO AGIR CONFORME A ETAPA ATUAL:
-[reception] → Cumprimente de forma educada e pergunte em que pode ajudar / o que trouxe ele até a Legacy. JAMAIS peça nome ou CPF.
-[case_identification] → O cliente relatou o problema. Se for algo vago (ex: "nome sujo", "tomei golpe"), ESCUTE com empatia ("Sinto muito...") e faça 1 PERGUNTA investigativa (ex: "Foi cobrança indevida de alguma empresa?", "Pra quem mandou o pix?"). NÃO PEÇA NOME E CPF AINDA.
-Se o cliente já se explicou bem na primeira mensagem, abrace com empatia e MUDE o assunto com foco em resolver: "Entendi que a sua situação é bem chata. Para eu te direcionar sobre o que podemos fazer e emitirmos procurações, vou precisar que você me mande..." -> (Vá pedindo os documentos listados em "document_request" logo abaixo). NUNCA peça CPF ainda!
-[document_request] → Aja de forma prestativa, diga: "Para darmos andamento na análise e ver se conseguimos reverter (ou limpar o nome), eu preciso que você me mande fotos legíveis (ou em PDF) destes documentos:..."
-- Trabalhista: RG ou CNH, Comprovante de Residência atualizado, 3 últimos Holerites e a Carteira de trabalho.
-- Golpe / Cibernético (Pix/Fraude): RG ou CNH, Comprovante de Residência atualizado, Carteira de trabalho e o principal: Comprovante Original do Pix/Prints da Fraude e o Boletim de Ocorrência (B.O).
-- Consumidor/Cível (Negativado): RG ou CNH, Comprovante de Residência atualizado e Carteira de Trabalho.
-(Dica Trabalhista: Se tiver dúvidas sobre a CTPS Digital ensine do App ou mande este vídeo https://youtube.com/shorts/9mDNswTXWRM).
-[cpf_collection] → O cliente JÁ ENVIOU os documentos que você pediu. ESTE É O MOMENTO DE PEDIR OS DADOS! Diga algo confirmando o recebimento: "Perfeito, documentos recebidos! Para finalizarmos a inclusão no nosso sistema de validação, me informe por favor o seu Nome Completo e o seu CPF.". NÃO USE a palavra "Aprovado", nem diga que vão entrar com a ação, isso é o consultor humano que dirá. Apenas peça para finalizar o cadastro interno.
-[payment_objection] → Se perguntarem sobre valores/formas de pagamento: "Não cobramos nada dos nossos clientes, nós trabalhamos em cima de resultado. Se ganhamos a Indenização você paga os Honorários Advocatícios, caso contrário você não tem que pagar NADA."
-[insecurity_handling] → Se suspeitarem: "Entendo totalmente seu receio, mas reforço: não cobramos NADINHA! Você não paga nada antecipado para iniciar o processo."
-[done] → Se a conversa encerrar aqui: "Seu caso foi triado. Mantenha os avisos do WhatsApp ligados que já vamos falar com você."
-[timeline_question] → "O processo costuma andar bem, não se preocupe que te mantemos a par!"
-[followup] → "Qualquer novidade, estamos aqui! 🙏"
-
-REGRAS DE OURO:
-1. NUNCA dê parecer jurídico ou garantia de ganho. Diga que o advogado vai dar o melhor direcionamento.
+REGRAS DE OURO (sempre, em qualquer etapa):
+1. NUNCA dê parecer jurídico ou garantia de ganho.
 2. NUNCA fale porcentagens ou valores de honorários.
 3. JAMAIS peça dados bancários, pix, senhas ou cartões.
-4. Mantenha mensagens curtas e fluídas (como uma pessoa normal no WhatsApp, máx 2 parágrafos curtos).
-5. CONTINUIDADE COMBATENDO ROBOTIZAÇÃO: Aja como um humano! Se o cliente já enviou CPF, NUNCA peça de novo. Se na hora de enviar os documentos ele tirar uma dúvida ou corrigir a área do caso (ex: "na verdade foi um golpe do pix", "só tenho o comprovante do pix, preciso fazer b.o?"), responda com naturalidade sobre o que ele disse e instrua-o sobre os documentos corretos, SEM reiniciar a conversa e SEM repetir scripts passados (como pedir nome/CPF ou saudações).
-6. ATENÇÃO AOS DOCUMENTOS: Se a última mensagem for "[Imagem ilegível]" ou "[Documento ilegível]", IGNORE a instrução padrão de sua etapa. VOCÊ DEVE APENAS avisar com simpatia o problema da foto (ex: "Poxa, a foto do seu documento ficou um pouquinho borrada...") e pedir gentilmente para mandar de novo mais nítido. Não repita a lista de documentos inteira de novo, foque só na foto ruim!`;
+4. Mensagens curtas, fluídas — como WhatsApp real. Máx 4 linhas por mensagem.
+5. CONTINUIDADE ABSOLUTA: Se o cliente já informou algo ou já enviou um documento, JAMAIS peça de novo. Se já temos o nome, CPF ou qualquer dado nos [Dados do lead], use o que temos sem perguntar novamente.
+6. NOME E CPF: Se os [Dados do lead] já incluem "Lead: [Nome Real]" (não é um número) e "CPF: [número]", NUNCA peça nome ou CPF ao cliente — você já os tem. Avance para a próxima etapa.
+7. DOCUMENTOS ILEGÍVEIS: Se a mensagem for "[Imagem ilegível]", ignore sua instrução de etapa. APENAS avise o problema da foto e peça nova foto só daquele documento.
+8. ÁUDIO SEM TRANSCRIÇÃO: Se a mensagem for "[Áudio recebido — transcrição não disponível]" ou "[Áudio]", NUNCA invente o conteúdo. Diga naturalmente que não conseguiu ouvir e peça para escrever.
+9. PAGAMENTO: Se perguntarem custo: "Não cobramos nada. Trabalhamos com êxito — se ganharmos você paga honorários, caso contrário não paga NADA."
+10. SUSPEITA/INSEGURANÇA (UNIVERSAL — vale em qualquer etapa ou funil): Se o cliente demonstrar desconfiança, medo de golpe, insegurança sobre a empresa ou dúvida sobre a legitimidade dos nossos serviços, siga SEMPRE esta ordem:
+    a) Valide o sentimento: "Entendo o receio, hoje tem muita gente mal-intencionada."
+    b) Reforce que não cobramos nada adiantado: "Aqui não cobramos nada antecipado. Se fosse golpe, estaria te pedindo dinheiro agora."
+    c) Convide educadamente a conhecer o site e separe OBRIGATORIAMENTE o link em um parágrafo isolado pulando duas linhas (para ele enviar como uma mensagem avulsa):
+    "Se quiser ter mais segurança, dá uma olhada no nosso site — lá você encontra depoimentos de pessoas reais que a gente já ajudou:
+
+    https://legacyassessoria-theta.vercel.app"
+    NUNCA pule direto para o link sem antes acolher o sentimento do cliente.
+11. BOAS-VINDAS (PRIMEIRO CONTATO): Na primeira mensagem com o cliente, você DEVE OBRIGATORIAMENTE dizer seu nome e dar boas-vindas. Use EXATAMENTE esta estrutura (adaptando o tom natural):
+    "Olá! Sou a Sofia, da Legacy Assessoria Jurídica. Seja muito bem-vindo(a)! [continua com pergunta gentil sobre o problema]"
+    NUNCA omita seu nome. NUNCA pule as boas-vindas. NUNCA faça perguntas antes de se apresentar.
+12. DOCUMENTOS — REGRA CRÍTICA: Peça SEMPRE um documento por vez. NUNCA liste todos de uma vez. Aguarde o cliente enviar e o sistema confirmar antes de pedir o próximo. Se o cliente perguntar "o que falta?" ou "quantos documentos faltam?", consulte [Documentos do lead] nos dados do lead e informe apenas o número e o próximo da fila. Exemplo: "Falta 1 documento — o comprovante de residência." Não repita documentos já recebidos.
+13. DOCUMENTOS DIGITAIS E SCREENSHOTS: Docuementos digitais, screenshots de apps de banco, CNH digital, CTPS digital são totalmente válidos. Se o cliente enviar um print/screenshot de um documento digitário, ACEITE sem questionar o formato. Só rejeite se estiver ilegível (muito escuro, cortado demais, borrado).
+VARIAÇÃO DE LINGUAGEM (anti-robô):
+- NUNCA repita a mesma abertura em duas mensagens seguidas. Varie: "Entendi", "Anotei", "Beleza", "Boa", "Perfeito", "Tranquilo".
+- NUNCA repita a mesma expressão de empatia. Varie: "Poxa", "Nossa", "Caramba", "Que barra", "Putz", "Eita".
+- Gírias naturais: "Fica tranquilo(a)", "Tô te ouvindo", "Pode deixar", "Tamo junto", "Fechou".
+
+EMOJIS — REGRAS RÍGIDAS:
+- Máx 1 emoji a cada 3 mensagens. Muitas mensagens DEVEM ser sem emoji.
+- NUNCA repita o mesmo emoji. Permitidos: 🙏 😊 📎 ✅ 💪 👋
+- PROIBIDO: ⚠️ 🚨 ❗ 🔥 💡
+- NUNCA use emoji em mensagens sobre documento ilegível.
+
+As instruções específicas do que fazer AGORA estão em [Instrução de Etapa] nos dados do lead. SIGA-AS com prioridade máxima.`;
+
+
+// ============================================================
+// FUNNEL STAGE PROMPTS — Instruções específicas por funil/etapa
+// Injetadas em buildLeadContext() como "[Instrução de Etapa]"
+// ============================================================
+export const FUNNEL_STAGE_PROMPTS: Record<string, Record<string, string>> = {
+
+    // ── Geral (Triagem Inicial) ─────────────────────────────
+    geral: {
+        reception:
+            `[Instrução de Etapa — RECEPÇÃO GERAL]
+O cliente acabou de entrar em contato. Seu objetivo aqui é fazer uma triagem. Pergunte de forma gentil o que aconteceu para que possamos ajudá-lo. NÃO peça documentos, CPF ou nome agora. Apenas procure entender o problema para identificar qual a área jurídica adequada (Trabalhista, Consumidor, Fraude, etc).`,
+    },
+
+    // ── Cliente Negativado ──────────────────────────────────
+    negativado: {
+        reception:
+            `[Instrução de Etapa — RECEPÇÃO - NEGATIVADO]
+O cliente acabou de entrar em contato. Cumprimente de forma calorosa e pergunte o que trouxe ele até a Legacy hoje. Seja natural. JAMAIS peça nome, CPF ou documentos agora.`,
+
+        approach:
+            `[Instrução de Etapa — ABORDAGEM - NEGATIVADO]
+O cliente relatou uma situação de nome sujo/negativação indevida. Siga esta ordem:
+1. Demonstre empatia genuína com o caso. (1 mensagem)
+2. Peça um depoimento detalhado: o que aconteceu, com qual empresa/credor, quanto deve (ou se não deve nada), há quanto tempo está negativado.
+3. Pergunte se tem algum comprovante ou prova (ex: carta de cobrança, print da consulta no Serasa, contrato). Se não tiver, tudo bem — registre que não tem provas.
+4. JAMAIS dê opinião jurídica ou diga que vão ganhar.
+ATENÇÃO: NÃO peça nome, CPF ou endereço — essas informações serão extraídas automaticamente dos documentos.`,
+
+        doc_request:
+            `[Instrução de Etapa — DOCUMENTAÇÃO - NEGATIVADO]
+O cliente já relatou o caso. Peça os documentos UM DE CADA VEZ nesta ordem exata. Aguarde o envio e validação do sistema antes de pedir o próximo:
+
+1. FRENTE DO RG/CNH: "Para formalizar o seu atendimento, preciso de uma foto do seu RG ou CNH. [IMAGEM_RG_GUIA] Vamos começar pela FRENTE do documento — pode tirar uma foto clara e bem iluminada?"
+   → Aguarde. Após receber e o sistema validar a extração do nome e CPF, passe para o passo 2.
+2. VERSO DO RG/CNH: "Perfeito! Agora me manda uma foto do VERSO do mesmo documento."
+   → Aguarde e valide.
+3. COMPROVANTE DE RESIDÊNCIA: "Ótimo! Por último: uma foto do comprovante de residência atualizado (últimos 2 meses). [IMAGEM_COMPROVANTE_GUIA] Pode ser conta de água, luz, gás ou telefone fixo."
+   → Após validar a extração do endereço, avise que temos tudo.
+NÃO peça nome, CPF ou endereço — essas informações são extraídas dos documentos. Peça UM DOCUMENTO POR VEZ.`,
+
+        analysis:
+            `[Instrução de Etapa — ANÁLISE - NEGATIVADO]
+Você já coletou nome, CPF, depoimento e documentos do cliente. Agora ENCERRE o seu atendimento de forma calorosa:
+"Perfeito! Já registrei todas as informações e documentos do seu caso. Um dos nossos assessores vai analisar e entrar em contato em breve. Qualquer dúvida é só chamar aqui. Fique tranquilo(a) que tamos junto nessa!"
+NÃO continue fazendo perguntas. NÃO dê prazo específico.`,
+    },
+
+    // ── Golpe do Pix ───────────────────────────────────────
+    'golpe-pix': {
+        reception:
+            `[Instrução de Etapa — RECEPÇÃO - GOLPE PIX]
+O cliente acabou de entrar em contato. Cumprimente com calor e pergunte o que trouxe ele à Legacy. Não peça nenhum dado ainda.`,
+
+        approach:
+            `[Instrução de Etapa — ABORDAGEM - GOLPE PIX]
+O cliente relatou um golpe via Pix. Siga a ordem:
+1. Empatia genuína: "Poxa, que situação difícil, sinto muito por isso."
+2. Entenda o básico: para quem mandou o Pix, qual valor, quando aconteceu.
+3. NÃO peça documentos ainda. Isso vem na próxima etapa.
+ATENÇÃO: NÃO peça nome, CPF ou endereço — essas informações serão extraídas dos documentos.`,
+
+        info_collection:
+            `[Instrução de Etapa — COLETA DE INFORMAÇÕES - GOLPE PIX]
+Agora é hora de coletar informações detalhadas do golpe. Siga ESTA ORDEM:
+1. PRIORIDADE MÁXIMA — Comprovante do Pix: "Para darmos andamento, o mais importante é o comprovante do Pix. Você tem a captura de tela ou o PDF do comprovante da transferência?"
+   - Se o cliente disser que NÃO tem: explique que é fundamental e oriente a buscar no app do banco (histórico de Pix).
+2. Após o comprovante, pergunte sobre o Boletim de Ocorrência (B.O.): "Você já fez um boletim de ocorrência sobre esse golpe?"
+   - Se não tiver: diga que ajuda muito ter, mas que podem continuar mesmo sem.
+3. Pergunte sobre contestação do Pix junto ao banco: "Você já tentou contestar essa transferência com o seu banco?"
+   - Registre a resposta, seja qual for.
+4. Colete o depoimento completo: como aconteceu o golpe, quem entrou em contato, o que foi prometido.`,
+
+        doc_request:
+            `[Instrução de Etapa — DOCUMENTAÇÃO - GOLPE PIX]
+Agora coletamos os documentos pessoais. Peça UM DE CADA VEZ nesta ordem exata. Aguarde e valide antes de pedir o próximo:
+
+1. FRENTE DO RG/CNH: "Para formalizar o seu atendimento, preciso de uma foto do seu RG ou CNH. [IMAGEM_RG_GUIA] Me manda primeiro a FRENTE do documento, com boa iluminação e sem cortar as bordas."
+   → Aguarde. Após o sistema validar a extração do nome e CPF, passe para o passo 2.
+2. VERSO DO RG/CNH: "Perfeito! Agora a foto do VERSO do mesmo documento."
+   → Aguarde e valide.
+3. COMPROVANTE DE RESIDÊNCIA: "Ótimo! Agora preciso de um comprovante de residência atualizado (últimos 2 meses). [IMAGEM_COMPROVANTE_GUIA] Pode ser conta de água, luz, gás ou telefone fixo, com o seu nome e endereço bem visíveis."
+   → Após validar a extração do endereço, passe para o próximo.
+4. CARTEIRA DE TRABALHO: "Perfeito! Por último, preciso da sua Carteira de Trabalho — pode ser a física ou a digital."
+   - Se for aposentado(a): "Pode mandar o comprovante de pagamento do INSS do mês atual."
+   - Se aceitar link: https://www.youtube.com/watch?v=JASht-CIvss
+NÃO peça nome, CPF ou endereço. Peça UM DOCUMENTO POR VEZ.`,
+
+
+        procuracao_docs:
+            `[Instrução de Etapa — PROCURAÇÃO - GOLPE PIX]
+Os documentos pessoais foram recebidos. Agora precisamos emitir uma procuração para que nosso escritório possa atuar. Explique apenas SE o cliente perguntar o que é procuração:
+"É um documento que autoriza nossos advogados a representar você no processo, de forma totalmente segura e controlada."
+
+Neste momento, informe ao cliente que os documentos foram recebidos e que estamos processando as informações. Diga que em breve um assessor entrará em contato para as próximas etapas (envio da procuração para assinatura).`,
+
+        analysis:
+            `[Instrução de Etapa — ANÁLISE - GOLPE PIX]
+Todos os documentos e informações foram coletados e validados. ENCERRE seu atendimento:
+"Tudo certo! Recebi todos os seus documentos. Vou passar o seu caso para análise agora — um dos nossos assessores vai entrar em contato em breve com as próximas etapas. Fique tranquilo(a) 🙏"
+NÃO continue fazendo perguntas. Seu trabalho neste atendimento está concluído.`,
+    },
+
+    // ── Trabalhista ────────────────────────────────────────
+    trabalhista: {
+        reception:
+            `[Instrução de Etapa — RECEPÇÃO - TRABALHISTA]
+O cliente acabou de entrar em contato. Cumprimente com calor e pergunte o que trouxe ele à Legacy. Não peça nenhum dado ainda.`,
+
+        approach:
+            `[Instrução de Etapa — ABORDAGEM - TRABALHISTA]
+O cliente tem um caso trabalhista. Siga a ordem:
+1. Demonstre empatia: cada situação trabalhista tem seu peso emocional.
+2. Peça um depoimento detalhado do caso: o que aconteceu no trabalho, quais foram os motivos (ex: demissão sem justa causa, horas extras não pagas, assédio, FGTS não depositado).
+3. Pergunte há quanto tempo isso aconteceu.
+4. NÃO peça documentos ainda. ATENÇÃO: NÃO peça nome, CPF ou endereço — essas informações serão extraídas dos documentos.`,
+
+        doc_request:
+            `[Instrução de Etapa — DOCUMENTAÇÃO - TRABALHISTA]
+Colete os documentos trabalhistas UM POR VEZ, na ordem abaixo. Valide cada um antes de pedir o próximo:
+
+1. HOLERITES: "Precisamos dos seus 3 últimos holerites (contracheques). Os mais recentes, por favor — pode mandar foto ou PDF."
+   → Só passe para o próximo após validar.
+2. CARTEIRA DE TRABALHO: "Obrigada! Agora preciso da sua Carteira de Trabalho — física ou digital."
+   - Se aposentado(a): "Pode mandar o comprovante de pagamento do INSS."
+   - Se aceitar: envie https://www.youtube.com/watch?v=JASht-CIvss
+3. FRENTE DO RG/CNH: "Perfeito! Agora preciso do seu RG ou CNH. [IMAGEM_RG_GUIA] Me manda primeiro a FRENTE do documento."
+   → Aguarde. Após validar extração de nome e CPF, peça o verso.
+4. VERSO DO RG/CNH: "Agora a foto do VERSO do mesmo documento."
+5. COMPROVANTE DE RESIDÊNCIA: "Quase lá! Por último: [IMAGEM_COMPROVANTE_GUIA] um comprovante de residência atualizado (últimos 2 meses)."
+
+NÃO peça nome, CPF ou endereço. Peça UM DOCUMENTO POR VEZ.`,
+
+        analysis:
+            `[Instrução de Etapa — ANÁLISE - TRABALHISTA]
+Todos os documentos foram recebidos e validados. ENCERRE seu atendimento:
+"Ótimo! Reuni tudo que precisávamos. Agora o caso vai para análise com nosso time — um assessor vai entrar em contato assim que tivermos novidades. Fique tranquilo(a), tamos junto nessa! 💪"
+NÃO continue fazendo perguntas.`,
+    },
+
+    // ── Golpe Cibernético ──────────────────────────────────
+    'golpe-cibernetico': {
+        reception:
+            `[Instrução de Etapa — RECEPÇÃO - GOLPE CIBERNÉTICO]
+ATENÇÃO: Este é um caso de golpe cibernético — conta bancária hackeada ou com acesso restrito indevido. O cliente pode estar em pânico ou muito preocupado com a segurança dos seus dados.
+Cumprimente com calor e transmita tranquilidade imediata. Pergunte o que aconteceu de forma empática. Não peça dados ainda.`,
+
+        approach:
+            `[Instrução de Etapa — ABORDAGEM - GOLPE CIBERNÉTICO]
+Caso de golpe cibernético. O cliente pode ter tido conta bancária invadida ou acesso bloqueado indevidamente. Siga a ordem:
+1. Empatia forte: "Nossa, que situação difícil. Deve ter sido um susto enorme."
+2. Entenda o caso: o que exatamente aconteceu? Foi acesso não autorizado à conta? Alerta de acesso em local diferente? Conta bloqueada? Transações que não reconhece?
+3. Pergunte se a pessoa ainda tem ou não tem acesso à sua conta bancária agora.
+4. NÃO peça documentos ainda. ATENÇÃO: NÃO peça nome, CPF ou endereço — essas informações serão extraídas dos documentos.`,
+
+        doc_request:
+            `[Instrução de Etapa — DOCUMENTAÇÃO - GOLPE CIBERNÉTICO]
+Colete os documentos UM POR VEZ nesta ordem exata:
+
+1. FRENTE DO RG/CNH: "Vou precisar do seu RG ou CNH. [IMAGEM_RG_GUIA] Me manda a FRENTE do documento — foto clara, sem cortar as bordas."
+   → Aguarde. Após o sistema validar extração de nome e CPF, passe ao verso.
+2. VERSO DO RG/CNH: "Perfeito! Agora o VERSO do mesmo documento."
+   → Aguarde e valide.
+3. COMPROVANTE DE RESIDÊNCIA: "Ótimo! Agora um comprovante de residência (últimos 2 meses). [IMAGEM_COMPROVANTE_GUIA] Pode ser conta de água, luz, gás ou telefone fixo."
+   → Após validar extração do endereço, continue.
+4. PRINTS DO GOLPE: "Se conseguir, me manda também: print do app do banco (se ainda acessar) OU print da mensagem de acesso negado. Se não tiver, sem problema."
+5. CARTEIRA DE TRABALHO: "Por último, sua Carteira de Trabalho se tiver. Se aposentado, pode ser o comprovante do INSS."
+
+NÃO peça nome, CPF ou endereço. Peça UM DOCUMENTO POR VEZ.`,
+
+        analysis:
+            `[Instrução de Etapa — ANÁLISE - GOLPE CIBERNÉTICO]
+Tudo coletado e validado. ENCERRE seu atendimento com urgência e cuidado:
+"Perfeito! Já tenho tudo o que precisamos. Seu caso vai para análise prioritária — um assessor vai entrar em contato em breve. Se acontecer alguma nova movimentação suspeita na conta, anote tudo para nos informar. Fique tranquilo(a), tamos cuidando 🙏"
+NÃO continue fazendo perguntas.`,
+    },
+};
+
+// Estágio interno padrão quando não há mapeamento específico
+export const DEFAULT_STAGE_PROMPT: Record<string, string> = {
+    reception:
+        `[Instrução de Etapa — RECEPÇÃO]
+O cliente acabou de entrar em contato. Cumprimente de forma calorosa e natural e pergunte o que trouxe ele à Legacy hoje. JAMAIS peça nome, CPF ou documentos agora.`,
+    analysis:
+        `[Instrução de Etapa — ANÁLISE]
+Todas as informações foram coletadas. Encerre seu atendimento anunciando que um assessor vai entrar em contato em breve. Seja calorosa e tranquilizadora.`,
+};
 
 // ============================================================
 // Build Compressed Conversation History (Token-Optimized)
@@ -144,6 +353,7 @@ export async function getRelevantMemories(userMessage: string): Promise<string> 
 
 // ============================================================
 // Build Lead Context String (token-light)
+// Injects per-funnel per-stage instructions as [Instrução de Etapa]
 // ============================================================
 export async function buildLeadContext(leadId: number): Promise<string> {
     try {
@@ -154,6 +364,7 @@ export async function buildLeadContext(leadId: number): Promise<string> {
                 'leads.name',
                 'leads.cpf',
                 'leads.bot_stage',
+                'leads.gender',
                 'leads.status',
                 'funnels.slug as funnel_slug'
             )
@@ -161,18 +372,71 @@ export async function buildLeadContext(leadId: number): Promise<string> {
                 name: string;
                 cpf: string | null;
                 bot_stage: string;
+                gender: string | null;
                 status: string;
                 funnel_slug: string | null;
             } | undefined;
 
         if (!lead) return '';
 
-        const parts = [`Lead: ${lead.name}`];
-        if (lead.cpf) parts.push(`CPF: ${lead.cpf}`);
-        if (lead.funnel_slug) parts.push(`Área: ${lead.funnel_slug}`);
-        parts.push(`Etapa atual: ${lead.bot_stage || 'reception'}`);
+        const botStage = lead.bot_stage || 'reception';
+        const funnelSlug = lead.funnel_slug || 'trabalhista';
 
-        return parts.join(' | ');
+        const parts: string[] = [];
+
+        // Core lead data
+        const hasRealName = lead.name && !/^\d+$/.test(String(lead.name).trim());
+        parts.push(`Lead: ${lead.name}`);
+        if (lead.cpf) parts.push(`CPF: ${lead.cpf}`);
+        parts.push(`Funil: ${funnelSlug}`);
+        parts.push(`Etapa bot: ${botStage}`);
+
+        // Explicit signals to prevent Sofia from re-asking collected data
+        if (hasRealName) {
+            parts.push(`[NOME JÁ COLETADO: "${lead.name}" — NÃO peça o nome ao cliente]`);
+        }
+        if (lead.cpf) {
+            parts.push(`[CPF JÁ COLETADO: ${lead.cpf} — NÃO peça o CPF ao cliente]`);
+        }
+
+        // Personalização por nome
+        const firstName = String(lead.name || '').split(' ')[0];
+        if (firstName && firstName !== String(leadId) && !/^\d+$/.test(firstName)) {
+            parts.push(`Primeiro nome: ${firstName} — use naturalmente, não em todo momento.`);
+        }
+
+        // Inject per-funnel per-stage instruction
+        const funnelPrompts = FUNNEL_STAGE_PROMPTS[funnelSlug];
+        const stageInstruction =
+            funnelPrompts?.[botStage] ??
+            DEFAULT_STAGE_PROMPT[botStage] ??
+            `[Instrução de Etapa] Você está na etapa ${botStage} do funil ${funnelSlug}. Aja conforme as regras gerais.`;
+
+        parts.push(stageInstruction);
+
+        // ── Knowledge Base injection (from uploaded files) ──────────────
+        // Fetch knowledge files for this funnel that have extracted text
+        try {
+            const knowledgeFiles = await db('knowledge_files')
+                .where('funnel_slug', funnelSlug)
+                .whereNotNull('extracted_text')
+                .whereRaw("extracted_text != ''") 
+                .orderBy('created_at', 'desc')
+                .limit(3)
+                .select('original_name', 'extracted_text');
+
+            if (knowledgeFiles.length > 0) {
+                const knowledgeContext = (knowledgeFiles as Array<{ original_name: string; extracted_text: string }>)
+                    .map((f) => `--- ${f.original_name} ---\n${f.extracted_text.slice(0, 8000)}`)
+                    .join('\n\n');
+
+                parts.push(`\n[Base de Conhecimento do Funil ${funnelSlug}]:\n${knowledgeContext}\n[Fim da Base de Conhecimento]`);
+            }
+        } catch {
+            // Never block the bot due to knowledge base errors
+        }
+
+        return parts.join('\n');
     } catch {
         return '';
     }
@@ -266,9 +530,9 @@ export async function generateBotReply(
             },
         });
 
-        // Add 15s timeout to prevent hanging
+        // Add 30s timeout to prevent hanging (increased for Docker latency)
         const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Gemini API timeout after 15s')), 15000)
+            setTimeout(() => reject(new Error('Gemini API timeout after 30s')), 30000)
         );
 
         const result = await Promise.race([
@@ -280,28 +544,70 @@ export async function generateBotReply(
         console.log(`[AI] ✅ Bot reply generated (${text.length} chars)`);
         return text;
     } catch (err) {
-        const error = err as Record<string, unknown>;
+        const error = err as Error & Record<string, unknown>;
         // Detailed error log to help diagnose API key / quota issues
         console.error('[AI] ❌ Bot reply error:', {
             message: error?.message,
             status: error?.status,
             code: error?.code,
-            details: JSON.stringify(error).slice(0, 300),
+            stack: error?.stack?.split('\n').slice(0, 5).join('\n'),
+            rawError: String(err).slice(0, 500),
         });
+        // If API key is missing, log a clear hint
+        if (!config.googleAi.apiKey) {
+            console.error('[AI] ❌ CRITICAL: GOOGLE_AI_API_KEY is empty! Check your .env file.');
+        }
         return 'Desculpe, tive um problema técnico. Um assessor vai entrar em contato com você em breve!';
     }
 }
 
 
 // ============================================================
-// Analyze IMAGE for legibility (documents, comprovantes)
+// Analyze IMAGE for legibility and document type identification
 // ============================================================
+export type DocumentType =
+    | 'RG'
+    | 'CNH'
+    | 'Holerite'
+    | 'Comprovante de Residência'
+    | 'Carteira de Trabalho'
+    | 'Comprovante Pix'
+    | 'Boletim de Ocorrência'
+    | 'Prints de Fraude'
+    | 'Outro'
+    | 'Desconhecido';
+
+export interface ImageAnalysisResult {
+    isLegible: boolean;
+    docType: DocumentType;
+    description: string;
+    extractedText: string;
+    issues: string;
+}
+
 export async function analyzeImage(
     imageBase64: string,
     mimeType: string,
     context = ''
-): Promise<{ isLegible: boolean; description: string; extractedText: string }> {
-    const model = genAI.getGenerativeModel({ model: config.googleAi.model });
+): Promise<ImageAnalysisResult> {
+    // ── Validate base64 before sending to Gemini ──
+    // A real document photo from WhatsApp is typically 30KB-2MB in base64
+    // If the base64 is too small (<5KB), it's likely corrupted/truncated
+    const base64SizeKB = Math.round(imageBase64.length * 0.75 / 1024);
+    if (imageBase64.length < 6000) { // ~4.5KB raw
+        console.warn(`[AI] ⚠️ Image base64 too small (${base64SizeKB}KB) — likely corrupted download`);
+        return {
+            isLegible: false,
+            docType: 'Desconhecido',
+            description: 'A imagem não foi recebida completamente',
+            extractedText: '',
+            issues: 'technical_error: imagem corrompida ou download incompleto',
+        };
+    }
+    console.log(`[AI] 🖼️ Analyzing image | mime: ${mimeType} | size: ${base64SizeKB}KB | model: ${config.googleAi.mediaModel}`);
+
+    // Use dedicated media model (supports vision/image analysis)
+    const model = genAI.getGenerativeModel({ model: config.googleAi.mediaModel });
 
     const imagePart: Part = {
         inlineData: {
@@ -310,56 +616,160 @@ export async function analyzeImage(
         },
     };
 
-    const prompt = `Você é um analista experiente verificando um documento (RG, CNH, Comprovante) enviado por cliente.${context ? ` Contexto: ${context}.` : ''}
-Responda rigorosamente em JSON:
-{"isLegible":boolean,"description":"1 frase amigável explicando o que é a imagem (ex: 'Foto da CNH')","extractedText":"Dados principais (nome/cpf/rg) ou vazio se ilegível","issues":"Qualquer problema visual ou vazio se perfeito"}
+    const prompt = `Você é um verificador de qualidade de fotos de documentos de um escritório jurídico.${context ? ` Contexto: ${context}.` : ''}
 
-REGRAS CRÍTICAS PARA "isLegible":
-1. O texto do documento NÃO PODE estar borrado/desfocado. Se os detalhes pequenos forem difíceis de ler, responda "isLegible": false.
-2. Não deve haver flash excessivo cobrindo dados importantes.
-3. CRÍTICO: Se a imagem for de um documento de identificação (RG, CNH), os números do documento e o rosto da foto DEVEM estar nítidos e visíveis. Se estiverem borrados, cortados ou cobertos, responda "isLegible": false.
-4. Se for ilegível, na "description" descreva o problema amigavelmente (ex: "A foto ficou nítida, mas o número do RG não dá pra ler direito").`;
+IMPORTANTE: Imagens vindas do WhatsApp passam por compressão JPEG. Leve compressão, ruído JPEG e leve perda de nitidez são NORMAIS e NÃO devem ser motivo de rejeição. Foque nos dados: se dá para LER o que está escrito, a imagem é legível.
 
-    try {
-        const result = await model.generateContent([prompt, imagePart]);
-        const text = result.response.text();
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
+Analise a imagem e responda APENAS em JSON puro (sem markdown, sem \`\`\`, sem texto fora do JSON):
+{
+  "isLegible": boolean,
+  "docType": "RG" | "CNH" | "Holerite" | "Comprovante de Residência" | "Carteira de Trabalho" | "Comprovante Pix" | "Boletim de Ocorrência" | "Prints de Fraude" | "Outro" | "Desconhecido",
+  "description": "1 frase descrevendo o que é a imagem",
+  "extractedText": "Dados principais visíveis (nome, CPF, RG, endereço) OU vazio se não dá para ler",
+  "issues": "Problemas REAIS detectados. Se nenhum, escreva 'nenhum'"
+}
+
+QUANDO MARCAR isLegible = true (APROVAR):
+- Os campos de texto principais do documento são LEGÍVEIS (nome, número do documento, datas)
+- O documento está enquadrado por inteiro ou quase inteiro na foto (até 10% de borda cortada é aceitável)
+- Mesmo com leve compressão JPEG, se consegue LER os dados → APROVE
+- Mesmo com leve variação de iluminação, se os dados são legíveis → APROVE
+- Foto de ângulo levemente inclinado mas legível → APROVE
+
+QUANDO MARCAR isLegible = false (REJEITAR) — apenas para problemas GRAVES:
+1. false se o documento está MUITO borrado/desfocado a ponto de NÃO conseguir ler o nome ou número
+2. false se GRANDE parte do documento está cortada (mais de 30% fora do enquadramento)
+3. false se flash/reflexo cobre texto ESSENCIAL (nome, número) tornando impossível ler
+4. false se está MUITO escuro, a ponto de NÃO distinguir o texto
+5. false APENAS se genuinamente NÃO DÁ PARA LER os dados importantes
+ATEÑÃO: Screenshots, prints de tela e documentos digitais SÃO VÁLIDOS. Se um screenshot de CNH digital, comprovante do banco, extrato ou qualquer documento digital está legível, marque isLegible=true.
+
+Resumo: Se dá para ler os dados principais → isLegible=true. Só rejeite se REALMENTE não dá para ler.
+
+REGRAS PARA docType:
+- Identifique o tipo mesmo que ilegível
+- "Desconhecido" apenas se não conseguir identificar de forma alguma`;
+
+    // ── Attempt analysis with retry ──
+    const MAX_ATTEMPTS = 2;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+            const timeoutMs = attempt === 1 ? 30000 : 45000; // Longer timeout on retry
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Image analysis timeout after ${timeoutMs / 1000}s`)), timeoutMs)
+            );
+            const result = await Promise.race([
+                model.generateContent([prompt, imagePart]),
+                timeoutPromise,
+            ]);
+            const text = result.response.text();
+            console.log(`[AI] 🖼️ Image analysis raw (attempt ${attempt}): ${text.substring(0, 500)}`);
+
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                const analysisResult: ImageAnalysisResult = {
+                    isLegible: parsed.isLegible ?? false,
+                    docType: (parsed.docType as DocumentType) ?? 'Desconhecido',
+                    description: parsed.description ?? 'Imagem recebida',
+                    extractedText: parsed.extractedText ?? '',
+                    issues: parsed.issues ?? '',
+                };
+                console.log(`[AI] 🖼️ Image analysis FINAL: isLegible=${analysisResult.isLegible} | docType=${analysisResult.docType} | issues=${analysisResult.issues} | extractedText=${(analysisResult.extractedText || '').substring(0, 100)}`);
+                return analysisResult;
+            }
+
+            // JSON not parseable — retry if possible
+            console.warn(`[AI] ⚠️ Could not parse JSON from Gemini response (attempt ${attempt})`);
+            if (attempt < MAX_ATTEMPTS) {
+                console.log(`[AI] 🔄 Retrying image analysis...`);
+                await new Promise(r => setTimeout(r, 2000)); // Brief pause before retry
+                continue;
+            }
+
+            // All attempts failed to parse JSON — technical error, NOT a rejection
             return {
-                isLegible: parsed.isLegible ?? false,
-                description: parsed.description ?? 'Imagem recebida',
-                extractedText: parsed.extractedText ?? '',
+                isLegible: false,
+                docType: 'Desconhecido',
+                description: 'Não foi possível analisar a imagem',
+                extractedText: '',
+                issues: 'technical_error: resposta da IA não pôde ser interpretada',
+            };
+        } catch (err) {
+            const errorMsg = (err as Error)?.message || String(err);
+            console.error(`[AI] ❌ Image analysis error (attempt ${attempt}):`, errorMsg);
+
+            if (attempt < MAX_ATTEMPTS) {
+                console.log(`[AI] 🔄 Retrying image analysis after error...`);
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+            }
+
+            // All attempts failed — return technical error (NOT "borrada")
+            return {
+                isLegible: false,
+                docType: 'Desconhecido',
+                description: 'Erro ao analisar imagem',
+                extractedText: '',
+                issues: `technical_error: ${errorMsg}`,
             };
         }
-        return { isLegible: false, description: 'Não foi possível analisar a imagem', extractedText: '' };
-    } catch (err) {
-        console.error('[AI] Image analysis error:', err);
-        return { isLegible: false, description: 'Erro ao analisar imagem', extractedText: '' };
     }
+
+    // Should never reach here, but TypeScript requires a return
+    return {
+        isLegible: false,
+        docType: 'Desconhecido',
+        description: 'Erro inesperado na análise',
+        extractedText: '',
+        issues: 'technical_error: fluxo inesperado',
+    };
 }
 
 // ============================================================
 // Transcribe AUDIO message
+// Uses gemini-1.5-pro for better multimodal audio support.
+// Normalizes mimetype (strips codec suffix that WhatsApp appends).
 // ============================================================
 export async function transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
-    const model = genAI.getGenerativeModel({ model: config.googleAi.model });
+    // WhatsApp sends 'audio/ogg; codecs=opus' — Gemini only accepts 'audio/ogg'
+    // Strip anything after the semicolon to get a clean MIME type
+    const cleanMimeType = mimeType.split(';')[0].trim();
+
+    // Use dedicated media model for audio transcription
+    const audioModel = config.googleAi.mediaModel;
+    console.log(`[AI] Transcribing audio | model: ${audioModel} | mime: ${cleanMimeType} | base64: ${audioBase64.length} chars`);
+
+    const model = genAI.getGenerativeModel({ model: audioModel });
 
     const audioPart: Part = {
         inlineData: {
             data: audioBase64,
-            mimeType: mimeType as 'audio/ogg' | 'audio/mpeg' | 'audio/mp4' | 'audio/webm',
+            mimeType: cleanMimeType as 'audio/ogg' | 'audio/mpeg' | 'audio/mp4' | 'audio/webm',
         },
     };
 
     try {
-        const result = await model.generateContent([
-            'Transcreva este áudio em português do Brasil. Responda apenas com a transcrição.',
-            audioPart,
+        // 30s timeout for audio transcription
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Audio transcription timeout after 30s')), 30000)
+        );
+        const result = await Promise.race([
+            model.generateContent([
+                'Transcreva este áudio em português do Brasil. Responda APENAS com a transcrição literal do que foi dito, sem prefixos, explicações ou pontuação extra.',
+                audioPart,
+            ]),
+            timeoutPromise,
         ]);
-        return result.response.text().trim();
+        const transcription = result.response.text().trim();
+        if (!transcription) {
+            console.warn('[AI] 🎤 Transcription returned empty string — Gemini could not process audio');
+        } else {
+            console.log(`[AI] 🎤 Transcription success (${transcription.length} chars): ${transcription.substring(0, 100)}`);
+        }
+        return transcription;
     } catch (err) {
-        console.error('[AI] Audio transcription error:', err);
+        console.error('[AI] 🎤 Audio transcription error:', (err as Error)?.message || err);
         return '';
     }
 }
@@ -395,7 +805,74 @@ ${msgSummary}`;
 }
 
 // ============================================================
-// Send WhatsApp message via Evolution API
+// Generate structured case summary (for CRM note at analysis stage)
+// ============================================================
+export async function generateCaseSummary(
+    leadName: string,
+    cpf: string | null,
+    funnelSlug: string,
+    allMessages: Array<{ direction: string; content: string; sender: string }>
+): Promise<string> {
+    if (!config.googleAi.apiKey) return `Caso de ${leadName} — verificar histórico de conversa.`;
+
+    try {
+        const model = genAI.getGenerativeModel({ model: config.googleAi.model });
+
+        const areaLabels: Record<string, string> = {
+            'negativado':        'Cliente Negativado (Limpeza de Nome)',
+            'golpe-pix':         'Golpe do Pix',
+            'trabalhista':       'Trabalhista',
+            'golpe-cibernetico': 'Golpe Cibernético',
+        };
+        const areaLabel = areaLabels[funnelSlug] || funnelSlug;
+
+        const msgSummary = allMessages
+            .filter(m => m.direction === 'inbound')
+            .slice(-12)
+            .map(m => m.content.slice(0, 150))
+            .join(' | ');
+
+        const prompt = `Você é um assistente jurídico. Com base nas mensagens abaixo de um cliente, gere uma anotação estruturada para o assessor humano analisar.
+
+Formate exatamente assim:
+📋 RESUMO DO CASO
+Cliente: [nome]
+CPF: [cpf ou "não informado"]
+Área: [área]
+
+📝 RELATO:
+[3-4 frases descrevendo o caso com base no que o cliente disse]
+
+📂 STATUS DOS DOCUMENTOS:
+[Liste o que foi coletado e o que falta]
+
+⚠️ OBSERVAÇÕES:
+[Pontos de atenção para o assessor]
+
+Dados:
+Nome: ${leadName}
+CPF: ${cpf || 'não informado'}
+Área: ${areaLabel}
+Mensagens do cliente: ${msgSummary}`;
+
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Case summary timeout after 20s')), 20000)
+        );
+
+        const result = await Promise.race([
+            model.generateContent(prompt),
+            timeoutPromise,
+        ]);
+
+        return result.response.text().trim();
+    } catch (err) {
+        console.error('[AI] generateCaseSummary error:', (err as Error)?.message);
+        return `📋 RESUMO DO CASO\nCliente: ${leadName}\nCPF: ${cpf || 'não informado'}\nÁrea: ${funnelSlug}\n\nVerificar histórico completo da conversa.`;
+    }
+}
+
+// ============================================================
+// Send WhatsApp message via Baileys Bridge
 // ============================================================
 export async function sendWhatsAppMessage(phone: string, message: string): Promise<void> {
     if (!config.whatsapp.apiUrl || !config.whatsapp.apiKey) {
@@ -411,14 +888,13 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
             {
                 number: phone.includes('@') ? phone : phone.replace(/\D/g, ''),
                 text: message,
-                delay: 1200,
             },
             {
                 headers: {
                     apikey: config.whatsapp.apiKey,
                     'Content-Type': 'application/json',
                 },
-                timeout: 10000,
+                timeout: 30000, // Increased for anti-ban delay
             }
         );
     } catch (err) {
@@ -428,34 +904,172 @@ export async function sendWhatsAppMessage(phone: string, message: string): Promi
 }
 
 // ============================================================
-// Download media from Evolution API and return base64
+// Send WhatsApp IMAGE via Baileys Bridge
+// imageBase64: base64-encoded image string
+// mimeType: e.g. 'image/png' or 'image/jpeg'
+// caption: optional text below the image
 // ============================================================
-export async function downloadEvolutionMedia(
-    messageId: string,
-    instance: string
-): Promise<{ base64: string; mimeType: string } | null> {
-    if (!config.whatsapp.apiUrl || !config.whatsapp.apiKey) return null;
+export async function sendWhatsAppImage(
+    phone: string,
+    imageBase64: string,
+    mimeType = 'image/png',
+    caption = ''
+): Promise<void> {
+    if (!config.whatsapp.apiUrl || !config.whatsapp.apiKey) {
+        console.warn('[WhatsApp] API not configured — skipping image send');
+        return;
+    }
+
+    const url = `${config.whatsapp.apiUrl}/message/sendImage/${config.whatsapp.instance}`;
 
     try {
-        const url = `${config.whatsapp.apiUrl}/chat/getBase64FromMediaMessage/${instance}`;
-        const response = await axios.post(
+        await axios.post(
             url,
-            { message: { key: { id: messageId } } },
             {
-                headers: { apikey: config.whatsapp.apiKey },
-                timeout: 15000,
+                number: phone.includes('@') ? phone : phone.replace(/\D/g, ''),
+                imageBase64,
+                mimetype: mimeType,
+                caption,
+            },
+            {
+                headers: {
+                    apikey: config.whatsapp.apiKey,
+                    'Content-Type': 'application/json',
+                },
+                timeout: 30000,
             }
         );
+        console.log(`[WhatsApp] 🖼️ Image sent to ${phone} (${Math.round(imageBase64.length * 0.75 / 1024)}KB)`);
+    } catch (err) {
+        const error = err as { message?: string };
+        console.error('[WhatsApp] Image send error:', error.message);
+    }
+}
 
-        if (response.data?.base64 && response.data?.mimetype) {
-            return {
-                base64: response.data.base64,
-                mimeType: response.data.mimetype,
-            };
+
+
+// ============================================================
+// Send typing presence ("composing...") via WhatsApp API
+// Makes it look like a human is typing before each message
+// ============================================================
+export async function sendTypingPresence(phone: string, durationMs = 2000): Promise<void> {
+    if (!config.whatsapp.apiUrl || !config.whatsapp.apiKey) return;
+    try {
+        await axios.post(
+            `${config.whatsapp.apiUrl}/chat/sendPresence/${config.whatsapp.instance}`,
+            {
+                number: phone.includes('@') ? phone : phone.replace(/\D/g, ''),
+                options: { presence: 'composing', delay: durationMs },
+            },
+            {
+                headers: { apikey: config.whatsapp.apiKey, 'Content-Type': 'application/json' },
+                timeout: 5000,
+            }
+        );
+    } catch {
+        // Silent — never block the flow for presence errors
+    }
+}
+
+// ============================================================
+// Send WhatsApp message in fragments (humanized delivery)
+// Splits by paragraph, sends each with variable delay + typing
+// ============================================================
+export async function sendFragmentedMessage(phone: string, message: string, abortSignal?: AbortSignal): Promise<void> {
+    // Split by one or more blank lines (\n\n or \r\n\r\n)
+    const fragments = message
+        .split(/\n{2,}|\r\n\r\n/)
+        .map((f) => f.trim())
+        .filter((f) => f.length > 0);
+
+    if (fragments.length <= 1) {
+        // Single message — still simulate typing
+        const typingDelay = Math.min(6000, 1000 + message.length * 25);
+        await sendTypingPresence(phone, typingDelay);
+        await new Promise((resolve) => setTimeout(resolve, typingDelay));
+
+        // 🛑 STOP & RESTART: Check before sending
+        if (abortSignal?.aborted) {
+            console.log(`[WhatsApp] 🛑 Fragment send cancelled (aborted) for ${phone}`);
+            return;
         }
+
+        await sendWhatsAppMessage(phone, message);
+        return;
+    }
+
+    console.log(`[WhatsApp] 📨 Sending ${fragments.length} fragments with variable delay`);
+
+    for (let i = 0; i < fragments.length; i++) {
+        // 🛑 STOP & RESTART: Check before each fragment
+        if (abortSignal?.aborted) {
+            console.log(`[WhatsApp] 🛑 Fragment ${i + 1}/${fragments.length} cancelled (aborted) for ${phone} — stopping`);
+            return;
+        }
+
+        // Variable delay based on fragment length (~30ms per char, 1.5s base, max 8s)
+        const typingDelay = Math.min(8000, 1500 + fragments[i].length * 30);
+
+        if (i > 0) {
+            // Simulate typing before each subsequent fragment
+            await sendTypingPresence(phone, typingDelay);
+            await new Promise((resolve) => setTimeout(resolve, typingDelay));
+        } else {
+            // First fragment: shorter typing indicator
+            await sendTypingPresence(phone, Math.min(3000, 800 + fragments[i].length * 20));
+            await new Promise((resolve) => setTimeout(resolve, Math.min(3000, 800 + fragments[i].length * 20)));
+        }
+
+        // 🛑 STOP & RESTART: Re-check after delay (message may have arrived during typing)
+        if (abortSignal?.aborted) {
+            console.log(`[WhatsApp] 🛑 Fragment ${i + 1}/${fragments.length} cancelled after delay (aborted) for ${phone}`);
+            return;
+        }
+
+        console.log(`[WhatsApp] Fragment ${i + 1}/${fragments.length} (${typingDelay}ms delay):`, fragments[i].substring(0, 60));
+        await sendWhatsAppMessage(phone, fragments[i]);
+    }
+}
+
+// Media download via Baileys Bridge
+// The bridge injects audioBase64/imageBase64 directly into the msgData payload.
+export async function downloadBridgeMedia(
+    msg: any,
+): Promise<{ base64: string; mimeType: string } | null> {
+    try {
+        // The bridge already downloaded the media and injected base64 data
+        // Check for audio
+        if (msg.audioBase64) {
+            const message = msg.message || {};
+            const audioMsg = message.audioMessage || message.pttMessage || {};
+            const mimeType = audioMsg.mimetype || 'audio/ogg; codecs=opus';
+            console.log(`[AI] downloadBridgeMedia: audio found | mime=${mimeType} | base64=${msg.audioBase64.length} chars`);
+            return { base64: msg.audioBase64, mimeType };
+        }
+
+        // Check for image
+        if (msg.imageBase64 || msg.mediaBase64) {
+            const base64 = msg.imageBase64 || msg.mediaBase64;
+            const message = msg.message || {};
+            const imageMsg = message.imageMessage || {};
+            const mimeType = imageMsg.mimetype || 'image/jpeg';
+            console.log(`[AI] downloadBridgeMedia: image found | mime=${mimeType} | base64=${base64.length} chars`);
+            return { base64, mimeType };
+        }
+
+        // Check for document (PDFs, etc.)
+        if (msg.documentBase64) {
+            const message = msg.message || {};
+            const docMsg = message.documentMessage || {};
+            const mimeType = docMsg.mimetype || 'application/pdf';
+            console.log(`[AI] downloadBridgeMedia: document found | mime=${mimeType} | base64=${msg.documentBase64.length} chars`);
+            return { base64: msg.documentBase64, mimeType };
+        }
+
+        console.log(`[AI] downloadBridgeMedia: no media found in payload. Keys: [${Object.keys(msg).filter(k => k !== 'message').join(', ')}]`);
         return null;
     } catch (err) {
-        console.error('[WhatsApp] Media download error:', err);
+        console.error('[AI] downloadBridgeMedia error:', (err as Error)?.message || err);
         return null;
     }
 }
@@ -466,9 +1080,12 @@ export async function downloadEvolutionMedia(
 export const aiService = {
     generateBotReply,
     sendWhatsAppMessage,
+    sendWhatsAppImage,
+    sendFragmentedMessage,
+    sendTypingPresence,
     analyzeImage,
     transcribeAudio,
-    downloadEvolutionMedia,
+    downloadBridgeMedia,
     buildCompressedHistory,
     getRelevantMemories,
     buildLeadContext,

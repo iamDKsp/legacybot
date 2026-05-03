@@ -4,10 +4,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { useNotifications } from "@/hooks/useNotifications";
 import Index from "./pages/Index";
 import CRM from "./pages/CRM";
 import ClientHub from "./pages/ClientHub";
 import Setup from "./pages/Setup";
+import AIConfig from "./pages/AIConfig";
+import DatabasePage from "./pages/DatabasePage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -27,6 +30,18 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Inner component always calls the hook (follows Rules of Hooks)
+function NotificationsActive() {
+  useNotifications();
+  return null;
+}
+
+// Boots up WebSocket notifications when user is authenticated
+function NotificationsBootstrap() {
+  const { isAuthenticated } = useAuth();
+  return isAuthenticated ? <NotificationsActive /> : null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -34,6 +49,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <NotificationsBootstrap />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route
@@ -53,10 +69,26 @@ const App = () => (
               }
             />
             <Route
+              path="/ai-config"
+              element={
+                <ProtectedRoute>
+                  <AIConfig />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/client-hub"
               element={
                 <ProtectedRoute>
                   <ClientHub />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/database"
+              element={
+                <ProtectedRoute>
+                  <DatabasePage />
                 </ProtectedRoute>
               }
             />

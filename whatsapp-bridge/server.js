@@ -1,215 +1,280 @@
 /**
- * Legacy WhatsApp Bridge — Lightweight Evolution API substitute
- * Uses @whiskeysockets/baileys directly. Exposes endpoints that
- * match what the Legacy CRM backend expects from Evolution API.
- *
- * Endpoints:
- *   POST /instance/create            → connects / starts QR
- *   GET  /instance/connect/:name     → returns QR code base64
- *   GET  /instance/connectionState/:name → returns state
- *   POST /message/sendText/:name     → sends text message
+ * Legacy WhatsApp Bridge v3 — Fixed
+ * - Stale instance guard removed (was blocking QR on reconnect)
+ * - Proper teardown before reconnect
+ * - /instance/qr/:name endpoint added
+ * - /instance/delete/:name endpoint added
+ * - Reconnection now clears instance map before retrying
+ * - Auto-start: reconnects saved sessions on boot (no QR needed if already paired)
+ * - Image download: injects imageBase64 in webhook payload for document validation
  */
 
 const express = require('express');
+const cors = require('cors');
 const makeWASocket = require('@whiskeysockets/baileys').default;
 const {
     useMultiFileAuthState,
     DisconnectReason,
     fetchLatestBaileysVersion,
-    makeCacheableSignalKeyStore,
 } = require('@whiskeysockets/baileys');
 const QRCode = require('qrcode');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 const axios = require('axios');
-const util = require('util');
-
-// --- DEBUG OVERRIDE TO FILE ---
-const logFile = fs.createWriteStream(path.join(__dirname, 'debug.log'), { flags: 'a' });
-const originalLog = console.log;
-const originalError = console.error;
-console.log = function () {
-    logFile.write(util.format.apply(null, arguments) + '\n');
-    originalLog.apply(console, arguments);
-};
-console.error = function () {
-    logFile.write('ERROR: ' + util.format.apply(null, arguments) + '\n');
-    originalError.apply(console, arguments);
-};
-// ------------------------------
 
 const app = express();
-app.use(express.json());
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
 
-// ── Config ────────────────────────────────────────────────────
 const PORT = process.env.PORT || 8081;
 const API_KEY = process.env.EVOLUTION_API_KEY || 'legacy-evolution-api-key-2026';
-// Force 127.0.0.1 instead of localhost to avoid IPv6 issues on Windows Node 18+
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://127.0.0.1:3001/api/webhook/whatsapp';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://backend:3001/api/webhook/whatsapp';
 const SESSIONS_DIR = path.join(__dirname, 'sessions');
 
 if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
-// ── State per instance ────────────────────────────────────────
 const instances = {};
+const clients = []; // SSE clients
 
-// ── Auth middleware ───────────────────────────────────────────
+// --- Utilities ---
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const randomDelay = () => Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
+
+function sendToClients(data) {
+    const payload = `data: ${JSON.stringify(data)}\n\n`;
+    clients.forEach(client => {
+        try { client.res.write(payload); } catch (_) { /* ignore dead clients */ }
+    });
+}
+
+// --- Auth Middleware ---
 function authCheck(req, res, next) {
     const key = req.headers['apikey'] || req.headers['api-key'] || req.query.apikey;
     if (key !== API_KEY) return res.status(401).json({ error: 'Unauthorized' });
     next();
 }
 
-// ── Create / connect instance ─────────────────────────────────
-async function connectInstance(instanceName) {
-    if (instances[instanceName]?.sock) {
-        const state = instances[instanceName].state;
-        if (state === 'open') return instances[instanceName];
-        // If already connecting but QR not ready yet, return current state
-        if (state === 'connecting') return instances[instanceName];
+// --- Teardown an in-memory instance (does NOT delete session files) ---
+async function teardownInstance(instanceName) {
+    const existing = instances[instanceName];
+    if (existing?.sock) {
+        try {
+            existing.sock.ev.removeAllListeners();
+            await existing.sock.end();
+        } catch (_) { /* ignore, socket may already be dead */ }
+    }
+    delete instances[instanceName];
+}
+
+// --- Delete session files from disk ---
+function deleteSessionFiles(instanceName) {
+    const authDir = path.join(SESSIONS_DIR, instanceName);
+    if (fs.existsSync(authDir)) {
+        try {
+            fs.rmSync(authDir, { recursive: true, force: true });
+            console.log(`[${instanceName}] Session files deleted.`);
+        } catch (err) {
+            console.error(`[${instanceName}] Failed to delete session files:`, err.message);
+        }
+    }
+}
+
+// --- Baileys Connection Logic ---
+async function connectInstance(instanceName, { clearSession = false } = {}) {
+    await teardownInstance(instanceName);
+
+    if (clearSession) {
+        deleteSessionFiles(instanceName);
     }
 
     const authDir = path.join(SESSIONS_DIR, instanceName);
-    if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
-
     const { state, saveCreds } = await useMultiFileAuthState(authDir);
-    const { version } = await fetchLatestBaileysVersion();
 
-    if (!instances[instanceName]) {
-        instances[instanceName] = { state: 'connecting', qrBase64: null, phone: null, sock: null };
-    } else {
-        instances[instanceName].state = 'connecting';
+    let version;
+    try {
+        const result = await fetchLatestBaileysVersion();
+        version = result.version;
+    } catch (_) {
+        version = [2, 3000, 1014080102]; // fallback version
     }
-
-    // The original `logger` variable is no longer needed as pino instances are created inline.
-    // const logger = pino({ level: 'silent' });
 
     const sock = makeWASocket({
         version,
-        auth: {
-            creds: state.creds,
-            keys: state.keys,
-        },
-        printQRInTerminal: true,   // Also print in terminal for debugging
-        logger: pino({ level: 'warn' }), // Change silent to warn to see Baileys errors
-        browser: ['Legacy CRM (Windows)', 'Chrome', '1.0.0'],
-        // Use Baileys default browser — avoids 515 rejection from WhatsApp
-        generateHighQualityLinkPreview: false,
-        syncFullHistory: false,
-        keepAliveIntervalMs: 10000,
+        auth: state,
+        printQRInTerminal: true,
+        logger: pino({ level: 'error' }),
+        browser: ['Legacy CRM', 'Chrome', '1.0.0'],
         connectTimeoutMs: 60000,
-        retryRequestDelayMs: 500,
-        defaultQueryTimeoutMs: undefined, // no timeout
-        maxMsgRetryCount: 5,
-        fireInitQueries: true,
-        emitOwnEvents: false,
+        retryRequestDelayMs: 2000,
     });
 
-    instances[instanceName].sock = sock;
+    instances[instanceName] = {
+        sock,
+        state: 'connecting',
+        qr: null,
+        instanceName,
+    };
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Handle QR code
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log(`[${instanceName}] QR Code received`);
+            console.log(`[${instanceName}] QR Code generated, broadcasting to ${clients.length} SSE clients`);
+            let qrBase64;
             try {
-                const qrBase64 = await QRCode.toDataURL(qr);
-                instances[instanceName].qrBase64 = qrBase64;
-                instances[instanceName].state = 'connecting';
-            } catch (e) {
-                console.error('QR generation error:', e);
+                qrBase64 = await QRCode.toDataURL(qr);
+            } catch (err) {
+                console.error(`[${instanceName}] QRCode.toDataURL error:`, err.message);
+                return;
             }
 
-            // Notify backend via webhook
-            try {
-                await axios.post(WEBHOOK_URL, {
-                    event: 'qrcode.updated',
-                    instance: instanceName,
-                    data: { qrcode: { base64: instances[instanceName].qrBase64 } },
-                }, { timeout: 5000 }).catch(() => { });
-            } catch { }
+            instances[instanceName].qr = qrBase64;
+            instances[instanceName].state = 'qr';
+
+            sendToClients({ event: 'qrcode.updated', instance: instanceName, qr: qrBase64 });
+
+            axios.post(WEBHOOK_URL, {
+                event: 'qrcode.updated',
+                instance: instanceName,
+                data: { qrcode: { base64: qrBase64 } },
+            }).catch(() => { });
         }
 
         if (connection === 'open') {
-            console.log(`[${instanceName}] ✅ WhatsApp connected!`);
-            const phone = sock.user?.id?.split(':')[0] || sock.user?.id;
             instances[instanceName].state = 'open';
-            instances[instanceName].phone = phone;
-            instances[instanceName].qrBase64 = null;
+            instances[instanceName].qr = null;
+            console.log(`[${instanceName}] Connected to WhatsApp!`);
 
-            // Notify backend
-            try {
-                await axios.post(WEBHOOK_URL, {
-                    event: 'connection.update',
-                    instance: instanceName,
-                    data: { state: 'open', phone },
-                }, { timeout: 5000 }).catch(() => { });
-            } catch { }
+            sendToClients({ event: 'connection.update', instance: instanceName, state: 'open' });
+
+            axios.post(WEBHOOK_URL, {
+                event: 'connection.update',
+                instance: instanceName,
+                data: { state: 'open' },
+            }).catch(() => { });
         }
 
         if (connection === 'close') {
-            const reason = lastDisconnect?.error?.output?.statusCode;
-            const errorMsg = String(lastDisconnect?.error?.message || '');
-            const shouldReconnect = reason !== DisconnectReason.loggedOut;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+            const shouldReconnect = !isLoggedOut;
 
-            // Only treat as bad session for genuine MAC/crypto corruption
-            // 515 = temporary WhatsApp server error (NOT a bad local session)
-            // 408 = QR timeout (normal — just reconnect)
-            const isBadSession = errorMsg.includes('Bad MAC') || errorMsg.includes('bad-session');
+            console.log(`[${instanceName}] Connection closed. Code: ${statusCode}. Reconnect: ${shouldReconnect}`);
 
-            console.log(`[${instanceName}] Connection closed. Reason: ${reason} | ${errorMsg || 'no message'}. BadSession: ${isBadSession}. Reconnect: ${shouldReconnect}`);
-            instances[instanceName].state = 'close';
+            sendToClients({ event: 'connection.update', instance: instanceName, state: 'close' });
 
-            if (isBadSession) {
-                console.log(`[${instanceName}] 🔄 Corrupted session — clearing and reconnecting...`);
-                try { fs.rmSync(authDir, { recursive: true, force: true }); } catch { }
-                instances[instanceName] = { state: 'connecting', qrBase64: null, phone: null, sock: null };
-                setTimeout(() => connectInstance(instanceName), 3000);
-            } else if (!shouldReconnect) {
-                // Explicitly logged out
-                console.log(`[${instanceName}] 🔴 Logged out — clearing session.`);
-                try { fs.rmSync(authDir, { recursive: true, force: true }); } catch { }
-                instances[instanceName] = { state: 'disconnected', qrBase64: null, phone: null, sock: null };
+            if (shouldReconnect) {
+                console.log(`[${instanceName}] Reconnecting in 3s...`);
+                delete instances[instanceName];
+                await delay(3000);
+                connectInstance(instanceName).catch(err =>
+                    console.error(`[${instanceName}] Reconnect error:`, err.message)
+                );
             } else {
-                // Normal disconnect (408 timeout, 515 server error, network issue etc.) — just reconnect
-                const delay = reason === 515 ? 8000 : 3000; // Wait longer after 515
-                console.log(`[${instanceName}] 🔄 Reconnecting in ${delay}ms...`);
-                setTimeout(() => connectInstance(instanceName), delay);
+                console.log(`[${instanceName}] Logged out. Cleaning up session files.`);
+                deleteSessionFiles(instanceName);
+                delete instances[instanceName];
+                sendToClients({ event: 'connection.update', instance: instanceName, state: 'disconnected' });
             }
-
-            // Notify backend
-            try {
-                await axios.post(WEBHOOK_URL, {
-                    event: 'connection.update',
-                    instance: instanceName,
-                    data: { state: 'close' },
-                }, { timeout: 5000 }).catch(() => { });
-            } catch { }
         }
     });
 
-    // Forward incoming messages to backend webhook
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
-        console.log(`[${instanceName}] 🔔 messages.upsert triggered | type:`, type, '| messages count:', messages.length);
-        // Sometimes new messages come as 'append' instead of 'notify' in newer Baileys versions
-        if (type !== 'notify' && type !== 'append') return;
+        if (type === 'notify') {
+            for (const msg of messages) {
+                if (!msg.key.fromMe) {
+                    // ── Create a CLEAN serializable copy of msg ──
+                    // Baileys msg is a protobuf object with non-serializable
+                    // properties that can cause axios to silently drop fields.
+                    let cleanData;
+                    try {
+                        cleanData = JSON.parse(JSON.stringify(msg));
+                    } catch (e) {
+                        console.error(`[${instanceName}] Failed to serialize msg:`, e.message);
+                        cleanData = { key: msg.key, message: msg.message, messageTimestamp: msg.messageTimestamp, pushName: msg.pushName };
+                    }
 
-        for (const msg of messages) {
-            console.log(`[${instanceName}] 📩 Received message. Upserting to webhook...`);
-            try {
-                await axios.post(WEBHOOK_URL, {
-                    event: 'messages.upsert',
-                    instance: instanceName,
-                    data: msg,
-                }, { timeout: 8000 }).catch((e) => {
-                    console.error(`[${instanceName}] ❌ Webhook post error:`, e.message);
-                });
-            } catch (err) {
-                console.error(`[${instanceName}] ❌ Webhook try-catch error:`, err.message);
+                    const webhookPayload = {
+                        event: 'messages.upsert',
+                        instance: instanceName,
+                        data: cleanData,
+                    };
+
+                    // ── Unwrap Baileys message wrappers for media detection ──
+                    // WhatsApp can wrap messages in ephemeralMessage, viewOnceMessage, etc.
+                    let innerMessage = msg.message || {};
+                    const wrapperKeys = ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage'];
+                    for (const wk of wrapperKeys) {
+                        if (innerMessage[wk]?.message) {
+                            console.log(`[${instanceName}] Unwrapping ${wk}`);
+                            innerMessage = innerMessage[wk].message;
+                        }
+                    }
+
+                    // ── Detect media types from unwrapped message ──
+                    const audioMsg = innerMessage.audioMessage || innerMessage.pttMessage || null;
+                    const imageMsg = innerMessage.imageMessage || null;
+
+                    // ── Audio: download and inject base64 ──
+                    if (audioMsg) {
+                        const audioMime = audioMsg.mimetype || 'audio/ogg';
+                        const isPtt = !!innerMessage.pttMessage;
+                        console.log(`[${instanceName}] Audio received | type: ${isPtt ? 'PTT' : 'audioMessage'} | mime: ${audioMime} | ${audioMsg.seconds || '?'}s`);
+                        try {
+                            const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+                            const buffer = await downloadMediaMessage(
+                                msg, 'buffer', {},
+                                { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage }
+                            );
+                            if (buffer && buffer.length > 0) {
+                                const base64 = buffer.toString('base64');
+                                webhookPayload.data.audioBase64 = base64;
+                                console.log(`[${instanceName}] Audio OK | ${Math.round(buffer.length / 1024)}KB | base64: ${base64.length} chars`);
+                            } else {
+                                console.warn(`[${instanceName}] Audio buffer empty`);
+                            }
+                        } catch (err) {
+                            console.error(`[${instanceName}] Audio download FAILED:`, err.message);
+                        }
+                    }
+
+                    // ── Image: download and inject base64 ──
+                    if (imageMsg && !audioMsg) {
+                        const imageMime = imageMsg.mimetype || 'image/jpeg';
+                        console.log(`[${instanceName}] Image received | mime: ${imageMime}`);
+                        try {
+                            const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+                            const buffer = await downloadMediaMessage(
+                                msg, 'buffer', {},
+                                { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage }
+                            );
+                            if (buffer && buffer.length > 0) {
+                                const base64 = buffer.toString('base64');
+                                webhookPayload.data.imageBase64 = base64;
+                                console.log(`[${instanceName}] Image OK | ${Math.round(buffer.length / 1024)}KB | base64: ${base64.length} chars`);
+                            } else {
+                                console.warn(`[${instanceName}] Image buffer empty`);
+                            }
+                        } catch (err) {
+                            console.error(`[${instanceName}] Image download FAILED:`, err.message);
+                        }
+                    }
+
+                    // Log payload size to verify serialization
+                    try {
+                        const payloadStr = JSON.stringify(webhookPayload);
+                        console.log(`[${instanceName}] Sending to backend | size: ${Math.round(payloadStr.length / 1024)}KB | hasAudio: ${!!webhookPayload.data.audioBase64} | hasImage: ${!!webhookPayload.data.imageBase64}`);
+                    } catch (e) {
+                        console.error(`[${instanceName}] ERROR: Payload NOT serializable:`, e.message);
+                    }
+
+                    axios.post(WEBHOOK_URL, webhookPayload).catch((err) => {
+                        console.error(`[${instanceName}] Webhook POST failed:`, err.message);
+                    });
+                }
             }
         }
     });
@@ -217,191 +282,212 @@ async function connectInstance(instanceName) {
     return instances[instanceName];
 }
 
-// ─────────────────────────────────────────────────────────────
-// API Routes (matching Evolution API structure)
-// ─────────────────────────────────────────────────────────────
+// =============================================================
+// API Routes
+// =============================================================
 
-// POST /instance/create — create or reconnect instance
-app.post('/instance/create', authCheck, async (req, res) => {
-    const { instanceName = 'legacy-crm' } = req.body;
-    console.log(`[API] Create/connect instance: ${instanceName}`);
-    try {
-        const inst = await connectInstance(instanceName);
-        res.json({
-            instance: { instanceName, state: inst.state },
-            hash: { apikey: API_KEY },
-            qrcode: inst.qrBase64 ? { base64: inst.qrBase64 } : undefined,
-        });
-    } catch (err) {
-        console.error('Create instance error:', err);
-        res.status(500).json({ error: String(err.message) });
-    }
-});
+// 1. Real-time Events (SSE)
+app.get('/events', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
 
-// GET /instance/connect/:name — get QR code
-app.get('/instance/connect/:name', authCheck, async (req, res) => {
-    const { name } = req.params;
-    const inst = instances[name];
+    const clientId = Date.now();
+    clients.push({ id: clientId, res });
+    console.log(`[SSE] Client connected. Total: ${clients.length}`);
 
-    if (!inst) {
-        // Auto-create if not exists
-        try {
-            const newInst = await connectInstance(name);
-            return res.json({ base64: newInst.qrBase64, state: newInst.state });
-        } catch (err) {
-            return res.status(500).json({ error: String(err.message) });
-        }
-    }
+    res.write(': ping\n\n');
 
-    // Poll a bit for QR if connecting
-    let waited = 0;
-    while (!inst.qrBase64 && inst.state !== 'open' && waited < 5000) {
-        await new Promise(r => setTimeout(r, 500));
-        waited += 500;
-    }
+    Object.values(instances).forEach(inst => {
+        const initialData = {
+            event: inst.qr ? 'qrcode.updated' : 'connection.update',
+            instance: inst.instanceName,
+            qr: inst.qr || undefined,
+            state: inst.state,
+        };
+        try { res.write(`data: ${JSON.stringify(initialData)}\n\n`); } catch (_) { }
+    });
 
-    res.json({ base64: inst.qrBase64 || null, state: inst.state });
-});
+    const heartbeat = setInterval(() => {
+        try { res.write(': ping\n\n'); } catch (_) { clearInterval(heartbeat); }
+    }, 25000);
 
-// GET /instance/connectionState/:name — get connection state
-app.get('/instance/connectionState/:name', authCheck, async (req, res) => {
-    const { name } = req.params;
-    const inst = instances[name];
-
-    if (!inst) {
-        return res.json({ instance: { instanceName: name, state: 'disconnected' } });
-    }
-
-    const phone = inst.phone;
-    res.json({
-        instance: { instanceName: name, state: inst.state },
-        state: inst.state,
-        phone,
+    req.on('close', () => {
+        clearInterval(heartbeat);
+        const index = clients.findIndex(c => c.id === clientId);
+        if (index !== -1) clients.splice(index, 1);
+        console.log(`[SSE] Client disconnected. Total: ${clients.length}`);
     });
 });
 
-// POST /message/sendText/:name — send a text message
-// Accepts Evolution API v1 format: { number, text } 
-// and v2 format: { number, textMessage: { text } }
+// 2. Instance Management
+app.post('/instance/create', authCheck, async (req, res) => {
+    const { instanceName } = req.body;
+    if (!instanceName) return res.status(400).json({ error: 'instanceName required' });
+
+    try {
+        await connectInstance(instanceName);
+        res.json({ success: true, message: 'Connecting...' });
+    } catch (err) {
+        console.error('[Bridge] connectInstance error:', err.message);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// 3. Delete instance + session (full reset)
+app.delete('/instance/delete/:name', authCheck, async (req, res) => {
+    const { name } = req.params;
+    await teardownInstance(name);
+    deleteSessionFiles(name);
+    sendToClients({ event: 'connection.update', instance: name, state: 'disconnected' });
+    res.json({ success: true, message: `Instance ${name} deleted and session cleared` });
+});
+
+// 4. Logout (graceful)
+app.delete('/instance/logout/:name', authCheck, async (req, res) => {
+    const instance = instances[req.params.name];
+    if (instance?.sock) {
+        try {
+            instance.sock.ev.removeAllListeners();
+            await instance.sock.logout();
+        } catch (_) { /* ignore */ }
+    }
+    await teardownInstance(req.params.name);
+    deleteSessionFiles(req.params.name);
+    res.json({ success: true });
+});
+
+// 5. Connection state
+app.get('/instance/connectionState/:name', authCheck, (req, res) => {
+    const instance = instances[req.params.name];
+    res.json({ state: instance?.state || 'disconnected' });
+});
+
+// 6. QR Code (poll endpoint)
+app.get('/instance/qr/:name', authCheck, (req, res) => {
+    const instance = instances[req.params.name];
+    if (!instance || !instance.qr) {
+        return res.status(404).json({ error: 'QR not available', state: instance?.state || 'disconnected' });
+    }
+    res.json({ qr: instance.qr, state: instance.state });
+});
+
+// 7. Send text message with anti-ban features
 app.post('/message/sendText/:name', authCheck, async (req, res) => {
     const { name } = req.params;
-    const { number, text, textMessage } = req.body;
-    const inst = instances[name];
+    const { number, text } = req.body;
+    const instance = instances[name];
 
-    if (!inst || inst.state !== 'open') {
-        return res.status(400).json({ error: 'Instance not connected' });
-    }
-
-    // Resolve text content from either format
-    const textContent = text || textMessage?.text || (typeof textMessage === 'string' ? textMessage : '') || '';
-
-    if (!textContent) {
-        console.warn(`[${name}] sendText called with empty content. Body:`, req.body);
-        return res.status(400).json({ error: 'Message text is empty' });
-    }
-
-    try {
-        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-        await inst.sock.sendMessage(jid, { text: textContent });
-        res.json({ success: true, message: 'Message sent' });
-    } catch (err) {
-        console.error('Send message error:', err);
-        res.status(500).json({ error: String(err.message) });
-    }
-});
-
-// POST /message/sendMedia/:name — send media (url or base64)
-app.post('/message/sendMedia/:name', authCheck, async (req, res) => {
-    const { name } = req.params;
-    const { number, mediaMessage } = req.body;
-    const inst = instances[name];
-
-    if (!inst || inst.state !== 'open') {
+    if (!instance || instance.state !== 'open') {
         return res.status(400).json({ error: 'Instance not connected' });
     }
 
     try {
+        console.log(`[${name}] Sending text message to ${number}`);
         const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-        const mediaType = mediaMessage?.mediatype || 'image';
-        const payload = {};
-
-        if (mediaMessage?.url) {
-            payload.url = mediaMessage.url;
-        } else if (mediaMessage?.base64) {
-            payload.base64 = mediaMessage.base64;
-        }
-        if (mediaMessage?.caption) payload.caption = mediaMessage.caption;
-
-        await inst.sock.sendMessage(jid, { [mediaType]: payload });
+        await instance.sock.sendPresenceUpdate('composing', jid);
+        await delay(randomDelay());
+        await instance.sock.sendMessage(jid, { text });
+        await instance.sock.sendPresenceUpdate('paused', jid);
+        console.log(`[${name}] Message sent successfully to ${jid}`);
         res.json({ success: true });
     } catch (err) {
-        res.status(500).json({ error: String(err.message) });
+        res.status(500).json({ error: err.message });
     }
 });
 
-// DELETE /instance/logout/:name — disconnect and clear session
-app.delete('/instance/logout/:name', authCheck, async (req, res) => {
+// 8. Send image message (base64 or URL)
+app.post('/message/sendImage/:name', authCheck, async (req, res) => {
     const { name } = req.params;
-    const inst = instances[name];
+    const { number, imageBase64, imageUrl, caption, mimetype } = req.body;
+    const instance = instances[name];
+
+    if (!instance || instance.state !== 'open') {
+        return res.status(400).json({ error: 'Instance not connected' });
+    }
+
+    if (!imageBase64 && !imageUrl) {
+        return res.status(400).json({ error: 'imageBase64 or imageUrl required' });
+    }
 
     try {
-        if (inst?.sock) {
-            try {
-                await inst.sock.logout();
-            } catch { /* already disconnected */ }
+        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+        await instance.sock.sendPresenceUpdate('composing', jid);
+        await delay(randomDelay());
+
+        let messagePayload;
+        if (imageBase64) {
+            const mime = mimetype || 'image/jpeg';
+            const buffer = Buffer.from(imageBase64, 'base64');
+            messagePayload = { image: buffer, mimetype: mime, caption: caption || '' };
+        } else {
+            messagePayload = { image: { url: imageUrl }, caption: caption || '' };
         }
 
-        // Clear session files
-        const authDir = path.join(SESSIONS_DIR, name);
-        if (fs.existsSync(authDir)) {
-            fs.rmSync(authDir, { recursive: true, force: true });
-        }
-
-        instances[name] = { state: 'disconnected', qrBase64: null, phone: null, sock: null };
-
-        // Notify backend
-        try {
-            await axios.post(WEBHOOK_URL, {
-                event: 'connection.update',
-                instance: name,
-                data: { state: 'close' },
-            }, { timeout: 5000 }).catch(() => { });
-        } catch { }
-
-        console.log(`[${name}] ✅ Logged out and session cleared`);
-        res.json({ success: true, message: 'Desconectado com sucesso' });
+        await instance.sock.sendMessage(jid, messagePayload);
+        await instance.sock.sendPresenceUpdate('paused', jid);
+        console.log(`[${name}] Image sent to ${jid}`);
+        res.json({ success: true });
     } catch (err) {
-        console.error('Logout error:', err);
-        res.status(500).json({ error: String(err.message) });
+        console.error(`[${name}] Image send error:`, err.message);
+        res.status(500).json({ error: err.message });
     }
 });
 
-// GET /instance/fetchInstances — list all
-app.get('/instance/fetchInstances', authCheck, (req, res) => {
-    const list = Object.entries(instances).map(([name, inst]) => ({
-        instance: { instanceName: name, state: inst.state },
-        phone: inst.phone,
-    }));
-    res.json(list);
-});
+
 
 // Health check
-app.get('/health', (req, res) => res.json({ status: 'ok', instances: Object.keys(instances).length }));
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        instances: Object.keys(instances).length,
+        sseClients: clients.length,
+        instanceStates: Object.fromEntries(
+            Object.entries(instances).map(([k, v]) => [k, v.state])
+        ),
+    });
+});
 
-// ─────────────────────────────────────────────────────────────
-// Start
-// ─────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-    console.log('');
-    console.log('╔══════════════════════════════════════════════════════╗');
-    console.log(`║  🤖 Legacy WhatsApp Bridge                           ║`);
-    console.log(`║  📡 Running on: http://localhost:${PORT}               ║`);
-    console.log(`║  🔑 API Key:    ${API_KEY.slice(0, 20)}...    ║`);
-    console.log(`║  📬 Webhook:    ${WEBHOOK_URL.slice(0, 30)}...    ║`);
-    console.log('╚══════════════════════════════════════════════════════╝');
-    console.log('');
-    console.log('Auto-connecting instance "legacy-crm"...');
+    console.log(`Legacy Baileys Bridge v3 running on port ${PORT}`);
 
-    // Auto-connect default instance on startup
-    connectInstance('legacy-crm').catch(console.error);
+    // ============================================================
+    // AUTO-START: reconnect all saved sessions on boot
+    // Scans sessions/ dir — if creds.json exists, reconnects
+    // silently (no QR needed). Only shows QR if session is new.
+    // ============================================================
+    setTimeout(async () => {
+        try {
+            const entries = fs.readdirSync(SESSIONS_DIR, { withFileTypes: true });
+            const savedInstances = entries
+                .filter(e => e.isDirectory())
+                .map(e => e.name);
+
+            if (savedInstances.length === 0) {
+                console.log('[Auto-Start] No saved sessions found. Connect via /instance/create.');
+                return;
+            }
+
+            console.log(`[Auto-Start] Found ${savedInstances.length} saved session(s): ${savedInstances.join(', ')}`);
+
+            for (const instanceName of savedInstances) {
+                const credsPath = path.join(SESSIONS_DIR, instanceName, 'creds.json');
+                if (fs.existsSync(credsPath)) {
+                    console.log(`[Auto-Start] Reconnecting saved session: ${instanceName}`);
+                    connectInstance(instanceName).catch(err =>
+                        console.error(`[Auto-Start] Failed to connect ${instanceName}:`, err.message)
+                    );
+                    // Stagger multiple instances to avoid hitting WhatsApp rate limits
+                    await delay(2000);
+                } else {
+                    console.log(`[Auto-Start] ${instanceName}: no creds.json — skipping (needs QR scan)`);
+                }
+            }
+        } catch (err) {
+            console.error('[Auto-Start] Error scanning sessions:', err.message);
+        }
+    }, 1500); // Short delay to let the HTTP server initialize first
 });

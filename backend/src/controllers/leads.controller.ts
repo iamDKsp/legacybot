@@ -3,6 +3,25 @@ import { z } from 'zod';
 import { db } from '../config/database';
 import { Lead } from '../types';
 import { logActivity } from '../services/activity.service';
+import jwt from 'jsonwebtoken';
+import { config } from '../config/env';
+
+// ── Document requirements per funnel (mirrors webhook.controller.ts) ──────────
+const DOCS_REQUIRED_BY_AREA: Record<string, string[]> = {
+    trabalhista:         ['RG', 'Comprovante de Residência', 'Holerite', 'Carteira de Trabalho'],
+    negativado:          ['RG', 'Comprovante de Residência'],
+    'golpe-cibernetico': ['RG', 'Comprovante de Residência', 'Prints de Fraude'],
+    'golpe-pix':         ['RG', 'Comprovante de Residência', 'Comprovante Pix'],
+    default:             ['RG', 'Comprovante de Residência'],
+};
+const IDENTITY_DOCS = ['RG', 'CNH'];
+function satisfySlot(received: string, required: string): boolean {
+    // Normalize: strip suffixes like "(frente)", "(verso)", "[Ilegível]" etc.
+    const base = received.replace(/\s*[\(\[].*[\)\]]$/, '').trim();
+    if (base === required) return true;
+    if (IDENTITY_DOCS.includes(base) && IDENTITY_DOCS.includes(required)) return true;
+    return false;
+}
 
 const createLeadSchema = z.object({
     name: z.string().min(2, 'Nome deve ter no mínimo 2 caracteres'),
@@ -16,7 +35,17 @@ const createLeadSchema = z.object({
     assigned_to: z.number().int().positive().optional(),
 });
 
-const updateLeadSchema = createLeadSchema.partial();
+// Update schema also accepts PHC/juridical complement fields (not required on create)
+const updateLeadSchema = createLeadSchema.partial().extend({
+    address:        z.string().optional(),
+    city:           z.string().optional(),
+    state:          z.string().max(2).optional(),
+    rg:             z.string().optional(),
+    marital_status: z.enum(['solteiro','casado','divorciado','viuvo','outro']).optional(),
+    nationality:    z.string().optional(),
+    birthdate:      z.string().optional(), // ISO date string "YYYY-MM-DD"
+});
+
 
 export async function getLeads(req: Request, res: Response): Promise<void> {
     try {
@@ -56,11 +85,14 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
             const term = `%${String(search)}%`;
             query = query.where((builder) => {
                 builder
-                    .whereLike('l.name', term)
-                    .orWhereLike('l.phone', term)
-                    .orWhereLike('l.email', term);
+                    .where('l.name',  'like', term)
+                    .orWhere('l.phone', 'like', term)
+                    .orWhere('l.cpf',   'like', term)
+                    .orWhere('l.email', 'like', term);
             });
         }
+
+
 
         const pageNum = parseInt(String(page), 10);
         const limitNum = parseInt(String(limit), 10);
@@ -290,6 +322,86 @@ export async function updateLeadStatus(req: Request, res: Response): Promise<voi
     }
 }
 
+// ── Funnel display labels ────────────────────────────────────────────────────
+const FUNNEL_LABELS: Record<string, string> = {
+    trabalhista:         'Trabalhista',
+    negativado:          'Cliente Negativado',
+    'golpe-pix':         'Golpe do Pix',
+    'golpe-cibernetico': 'Golpe Cibernético',
+    default:             'Geral',
+};
+
+// ── Checklist: document collection progress per lead ─────────────────────────
+export async function getLeadChecklist(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    try {
+        const lead = await db('leads as l')
+            .select(
+                'l.id', 'l.name', 'l.phone', 'l.cpf', 'l.address',
+                'f.slug as funnel_slug'
+            )
+            .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
+            .where('l.id', Number(id))
+            .first() as {
+                id: number;
+                name: string | null;
+                phone: string | null;
+                cpf: string | null;
+                address: string | null;
+                funnel_slug: string | null;
+            } | undefined;
+
+        if (!lead) {
+            res.status(404).json({ success: false, error: 'Lead não encontrado' });
+            return;
+        }
+
+        const funnelSlug = lead.funnel_slug ?? 'default';
+
+        // ── Section 1: Standard fields (all funnels) ─────────────────────────
+        const hasRealName = lead.name && !/^\d+$/.test(String(lead.name).trim()) && lead.name !== lead.phone;
+        const standardFields = [
+            { key: 'phone',   label: 'Telefone', value: lead.phone   || null, filled: !!lead.phone },
+            { key: 'name',    label: 'Nome',     value: hasRealName ? lead.name : null, filled: !!hasRealName },
+            { key: 'cpf',     label: 'CPF',      value: lead.cpf     || null, filled: !!lead.cpf },
+            { key: 'address', label: 'Endereço', value: lead.address || null, filled: !!lead.address },
+        ];
+
+        // ── Section 2: Flow-specific documents ───────────────────────────────
+        const required = DOCS_REQUIRED_BY_AREA[funnelSlug] ?? DOCS_REQUIRED_BY_AREA['default'];
+
+        const approvedDocs = await db('documents')
+            .where({ lead_id: Number(id), status: 'aprovado' })
+            .select('name') as Array<{ name: string }>;
+
+        const received = approvedDocs.map(d => d.name).filter(Boolean);
+
+        const flowItems = required.map(req => ({
+            name: req,
+            received: received.some(rec => satisfySlot(rec, req)),
+        }));
+
+        const receivedCount = flowItems.filter(i => i.received).length;
+        const totalCount    = flowItems.length;
+        const complete      = receivedCount === totalCount && standardFields.every(f => f.filled);
+
+        res.json({
+            success: true,
+            data: {
+                standardFields,
+                funnelSlug,
+                funnelLabel: FUNNEL_LABELS[funnelSlug] ?? funnelSlug,
+                flowItems,
+                receivedCount,
+                totalCount,
+                complete,
+            },
+        });
+    } catch (err) {
+        console.error('Get checklist error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao buscar checklist' });
+    }
+}
 export async function toggleBotStatus(req: Request, res: Response): Promise<void> {
     const { id } = req.params;
     try {
@@ -388,7 +500,23 @@ export async function getLeadDocuments(req: Request, res: Response): Promise<voi
     const { id } = req.params;
     try {
         const docs = await db('documents').where({ lead_id: Number(id) }).orderBy('created_at', 'desc');
-        res.json({ success: true, data: docs });
+
+        // Build public download URL for each doc
+        const protocol = req.protocol;
+        const host = req.get('host') || 'localhost:3001';
+        const baseUrl = `${protocol}://${host}`;
+
+        const enriched = docs.map((doc: Record<string, unknown>) => ({
+            ...doc,
+            // Generate correct download URL (includes lead_id for routing)
+            file_url: doc.file_url
+                ? doc.file_url
+                : doc.file_path
+                    ? `${baseUrl}/api/leads/${doc.lead_id}/documents/${doc.id}/download`
+                    : null,
+        }));
+
+        res.json({ success: true, data: enriched });
     } catch (err) {
         console.error('Get documents error:', err);
         res.status(500).json({ success: false, error: 'Erro ao buscar documentos' });
@@ -425,9 +553,84 @@ export async function createLeadDocument(req: Request, res: Response): Promise<v
     }
 }
 
+// Download a document file by doc ID (/:leadId/documents/:docId/download)
+// Supports Auth via Bearer header OR ?token= query param (for <a href> / <img src> links)
+export async function downloadDocument(req: Request, res: Response): Promise<void> {
+    // ── Auth: accept token via query param as fallback ──────────
+    if (!req.headers.authorization) {
+        const qToken = req.query.token as string | undefined;
+        if (qToken) {
+            try {
+                const secret = config.jwt.secret;
+                const decoded = jwt.verify(qToken, secret);
+                if (typeof decoded !== 'string') {
+                    (req as Request & { user?: import('../types').JwtPayload }).user = decoded as import('../types').JwtPayload;
+                }
+            } catch {
+                res.status(401).json({ success: false, error: 'Token inválido' });
+                return;
+            }
+        } else {
+            res.status(401).json({ success: false, error: 'Não autenticado' });
+            return;
+        }
+    }
+
+    const { docId } = req.params;
+    try {
+        const doc = await db('documents').where({ id: Number(docId) }).first() as Record<string, unknown> | undefined;
+        if (!doc) {
+            res.status(404).json({ success: false, error: 'Documento não encontrado' });
+            return;
+        }
+
+        const filePath = doc.file_path as string | null;
+        if (!filePath) {
+            res.status(404).json({ success: false, error: 'Arquivo não disponível' });
+            return;
+        }
+
+        // Use dynamic import to avoid top-level fs import
+        const fs = await import('fs');
+        const path = await import('path');
+
+        if (!fs.existsSync(filePath)) {
+            res.status(404).json({ success: false, error: 'Arquivo não encontrado no servidor' });
+            return;
+        }
+
+        const ext = path.extname(filePath).replace('.', '').toLowerCase();
+        const mimeTypes: Record<string, string> = {
+            jpg: 'image/jpeg',
+            jpeg: 'image/jpeg',
+            png: 'image/png',
+            webp: 'image/webp',
+            pdf: 'application/pdf',
+        };
+        const mimeType = mimeTypes[ext] || 'application/octet-stream';
+        const docName = (doc.name as string) || 'documento';
+
+        res.setHeader('Content-Type', mimeType);
+        res.setHeader('Content-Disposition', `inline; filename="${docName}.${ext}"`);
+        // Allow browser to cache images for 1 hour
+        res.setHeader('Cache-Control', 'private, max-age=3600');
+        fs.createReadStream(filePath).pipe(res);
+    } catch (err) {
+        console.error('Download document error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao baixar documento' });
+    }
+}
+
+
 export async function getFunnels(req: Request, res: Response): Promise<void> {
     try {
-        const funnels = await db('funnels').where({ is_active: 1 }).orderBy('display_order');
+        const funnels = await db('funnels as f')
+            .leftJoin('leads as l', 'f.id', 'l.funnel_id')
+            .where('f.is_active', 1)
+            .groupBy('f.id')
+            .orderBy('f.display_order')
+            .select('f.*', db.raw('COUNT(l.id) as lead_count'));
+            
         res.json({ success: true, data: funnels });
     } catch (err) {
         console.error('Get funnels error:', err);
@@ -437,7 +640,20 @@ export async function getFunnels(req: Request, res: Response): Promise<void> {
 
 export async function getStages(req: Request, res: Response): Promise<void> {
     try {
-        const stages = await db('stages').orderBy('display_order');
+        const { funnel_slug } = req.query;
+        let stages;
+
+        if (funnel_slug) {
+            stages = await db('stages as s')
+                .join('funnel_stages as fs', 's.id', 'fs.stage_id')
+                .join('funnels as f', 'fs.funnel_id', 'f.id')
+                .where('f.slug', funnel_slug as string)
+                .select('s.*')
+                .orderBy('fs.display_order', 'asc');
+        } else {
+            stages = await db('stages').orderBy('display_order');
+        }
+
         res.json({ success: true, data: stages });
     } catch (err) {
         console.error('Get stages error:', err);

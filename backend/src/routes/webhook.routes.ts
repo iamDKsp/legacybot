@@ -1,6 +1,9 @@
 import { Router } from 'express';
+// ── webhook.controller: handler principal (horário comercial, detecção emocional,
+//    pipeline de documentos completo por funil, normalização robusta de payload)
+import { handleWebhook as handleWebhookAdvanced } from '../controllers/webhook.controller';
+// ── conversations.controller: WhatsApp management, bot memory, handoffs
 import {
-    handleWebhook,
     connectWhatsApp,
     disconnectWhatsApp,
     getQRCode,
@@ -16,8 +19,9 @@ import { authMiddleware } from '../middleware/auth';
 
 const router = Router();
 
-// ── Webhook endpoint — no auth (Evolution API sends here) ────
-router.post('/whatsapp', handleWebhook);
+// ── Webhook endpoint — no auth (Evolution API / Baileys Bridge sends here) ──
+// Uses the advanced handler: business hours, emotional state, full doc pipeline
+router.post('/whatsapp', handleWebhookAdvanced);
 
 // ── WhatsApp Management — requires CRM auth ──────────────────
 router.post('/whatsapp/connect', authMiddleware, connectWhatsApp);

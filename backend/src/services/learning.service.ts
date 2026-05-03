@@ -45,16 +45,26 @@ export interface LearningSummary {
 // ─────────────────────────────────────────────────────────────
 export function detectLegalArea(text: string): string | null {
     const lower = text.toLowerCase();
-    if (/demitido|demissão|mandado embora|aviso prévio|horas extras|fgts|assédio moral|carteira/.test(lower))
+
+    // Trabalhista — labor law (checked first — widest real-world case)
+    if (/demitido|demiss[aã]o|mandado embora|aviso pr[eé]vio|horas extras|fgts|ass[eé]dio\s*(moral|no trabalho|sexual|no emprego)?|carteira (assinada|de trabalho)|rescis[aã]o|f[eé]rias (n[aã]o|atrasad)|sal[aá]rio atrasado|sem registro|trabalhista|causa trabalhista|direito trabalhista|meu empregador|minha empresa|patr[aã]o|encerraram|demitida|fui dispensad|hora extra|trabalh(ava|ei|o) (nessa|nessa empresa|l[aá]|no local)/.test(lower))
         return 'trabalhista';
-    if (/copasa|cemig|saneamento|cobrança indevida|negativado|serasa|spc|faculdade|curso|produto com defeito/.test(lower))
+
+    // Consumidor / Negativado — debt, credit bureau
+    if (/copasa|cemig|saneamento|cobran[cç]a indevida|negativado|serasa|spc|faculdade|curso|produto com defeito|nome sujo|d[ií]vida indevida|nome negativado|inscri[cç][aã]o indevida/.test(lower))
         return 'consumidor';
-    if (/whatsapp hackeado|conta invadida|clonaram|dados roubados|phishing|fraude online|email hackeado/.test(lower))
+
+    // Golpe Cibernético — hacking, account invasion
+    if (/hackeado|hackearam|hackeada|conta invadida|clonaram|dados roubados|phishing|fraude online|email hackeado|conta hack|minha conta foi invadida|acesso indevido|vazamento de dados|vírus|invasão|sequestro de conta/.test(lower))
         return 'cibernetico';
-    if (/pix|caí em golpe|fui enganado|falso vendedor|boleto falso|transferência fraudulenta|estelionato/.test(lower))
+
+    // Golpe do Pix / Fraude Financeira — checked last, only if no labor context
+    if (/\bpix\b|golpe do pix|golpe banc[aá]rio|ca[ií] num golpe|me enganaram|fui enganado|estelionato|transfer[eê]ncia fraudulenta|boleto falso|falso vendedor|falso leil[aã]o|recebi uma liga[cç][aã]o falsa|dep[oó]sito errado|mandei dinheiro|perdi dinheiro|dinheiro sumiu|transfer[eê]ncia pix|sofri um golpe|aplicaram um golpe/.test(lower))
         return 'pix';
+
     return null;
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // Detect if a message contains an objection pattern
@@ -78,6 +88,20 @@ export function detectPaymentQuestion(text: string): boolean {
 export function detectTimelineQuestion(text: string): boolean {
     const lower = text.toLowerCase();
     return /quanto tempo|quando fica pronto|prazo|demora quanto|quando sai|quando termina/.test(lower);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Detect emotional state of the client's message
+// Used to inject emotional context into the AI prompt
+// ─────────────────────────────────────────────────────────────
+export type EmotionalState = 'anxious' | 'angry' | 'hopeful' | 'neutral';
+
+export function detectEmotionalState(text: string): EmotionalState {
+    const lower = text.toLowerCase();
+    if (/nervoso|desesperado|urgente|preciso urgente|estou mal|socorro|desespero|não sei o que fazer|por favor me ajud/.test(lower)) return 'anxious';
+    if (/absurdo|revoltante|indignado|não aguento|ódio|palhaçada|ridículo|raiva|lixo|processem|vergonha/.test(lower)) return 'angry';
+    if (/obrigado|grato|que bom|aliviado|fico feliz|maravilha|muito bom|perfeito|excelente|top/.test(lower)) return 'hopeful';
+    return 'neutral';
 }
 
 // ─────────────────────────────────────────────────────────────

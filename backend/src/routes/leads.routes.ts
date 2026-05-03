@@ -12,8 +12,10 @@ import {
     createLeadNote,
     getLeadDocuments,
     createLeadDocument,
+    downloadDocument,
     getFunnels,
     getStages,
+    getLeadChecklist,
 } from '../controllers/leads.controller';
 import { getConversations, sendMessage } from '../controllers/webhook.controller';
 import { authMiddleware } from '../middleware/auth';
@@ -46,9 +48,14 @@ router.post('/:id/notes', createLeadNote);
 // Lead documents
 router.get('/:id/documents', getLeadDocuments);
 router.post('/:id/documents', createLeadDocument);
+router.get('/:id/documents/:docId/download', downloadDocument);
+
+// Lead checklist (document collection progress)
+router.get('/:id/checklist', getLeadChecklist);
 
 // Lead conversations (WhatsApp messages)
 router.get('/:lead_id/conversations', getConversations);
 router.post('/:lead_id/messages', sendMessage);
 
 export default router;
+

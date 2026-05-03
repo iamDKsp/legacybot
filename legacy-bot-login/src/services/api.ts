@@ -96,8 +96,12 @@ export const leadsApi = {
     getFunnels: () =>
         api.get<{ success: boolean; data: Funnel[] }>('/leads/funnels'),
 
-    getStages: () =>
-        api.get<{ success: boolean; data: Stage[] }>('/leads/stages'),
+    getStages: (params?: Record<string, string>) =>
+        api.get<{ success: boolean; data: Stage[] }>('/leads/stages', { params }),
+
+    getChecklist: (id: number) =>
+        api.get<{ success: boolean; data: Checklist }>(`/leads/${id}/checklist`),
+
 };
 
 // ============================================================
@@ -157,6 +161,129 @@ export const whatsappApi = {
 };
 
 // ============================================================
+// Database Module API (Oracle-Core integration)
+// ============================================================
+export const databaseApi = {
+    // Bot Prompts
+    getPrompt: (funnel: string) =>
+        api.get<{ success: boolean; data: { id: number; funnel_slug: string; content: string } }>(`/database/prompts/${funnel}`),
+
+    savePrompt: (funnel: string, content: string) =>
+        api.put<{ success: boolean; message: string }>(`/database/prompts/${funnel}`, { content }),
+
+    // Knowledge Base
+    getKnowledgeFiles: (funnel: string) =>
+        api.get<{ success: boolean; data: KnowledgeFile[] }>(`/database/knowledge/${funnel}`),
+
+    addKnowledgeFile: (funnel: string, original_name: string, file_size_kb?: number) =>
+        api.post<{ success: boolean; data: KnowledgeFile }>(`/database/knowledge/${funnel}`, { original_name, file_size_kb }),
+
+    uploadKnowledgeFile: (funnel: string, file: File, onProgress?: (pct: number) => void) =>
+        new Promise<{ data: KnowledgeFile; chars_extracted: number }>((resolve, reject) => {
+            const token = localStorage.getItem('legacy_token');
+            const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+            const formData = new FormData();
+            formData.append('file', file);
+            const xhr = new XMLHttpRequest();
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 95));
+            };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    if (onProgress) onProgress(100);
+                    resolve(JSON.parse(xhr.responseText));
+                } else {
+                    reject(new Error(JSON.parse(xhr.responseText)?.error || 'Upload failed'));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Network error'));
+            xhr.open('POST', `${baseUrl}/database/knowledge/${funnel}`);
+            if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+            xhr.send(formData);
+        }),
+
+    deleteKnowledgeFile: (id: number) =>
+        api.delete(`/database/knowledge/${id}`),
+
+    // Collected Leads
+    getCollectedLeads: (params?: { search?: string; funnel?: string }) =>
+        api.get<{ success: boolean; data: CollectedLead[] }>('/database/leads', { params }),
+
+    // Verified Documents
+    getVerifiedDocuments: (params?: { search?: string }) =>
+        api.get<{ success: boolean; data: VerifiedDoc[] }>('/database/verified-docs', { params }),
+};
+
+// ============================================================
+// AI Config API (Humanization Settings)
+// ============================================================
+export const aiConfigApi = {
+    /** Get all AI humanization settings + stats */
+    getConfig: () =>
+        api.get<{ success: boolean; data: { settings: Record<string, string>; stats: { activeMemoryPatterns: number; totalLeads: number; botActiveLeads: number } } }>('/ai-config'),
+
+    /** Update one or more AI settings */
+    updateConfig: (settings: Record<string, string>) =>
+        api.put<{ success: boolean; updated: number }>('/ai-config', settings),
+};
+
+// ============================================================
+// Users Management API (admin-only)
+// ============================================================
+export const usersApi = {
+    getAll: () =>
+        api.get<{ success: boolean; data: User[] }>('/users'),
+
+    create: (data: { name: string; email: string; password: string; role: 'admin' | 'assessor' }) =>
+        api.post<{ success: boolean; data: User }>('/users', data),
+
+    update: (id: number, data: { name?: string; email?: string; password?: string; role?: 'admin' | 'assessor'; is_active?: boolean }) =>
+        api.put<{ success: boolean; data: User }>(`/users/${id}`, data),
+
+    delete: (id: number) =>
+        api.delete<{ success: boolean; message: string }>(`/users/${id}`),
+};
+
+// ============================================================
+// PHC API (Procuração + Decl. Hipossuficiência + Contrato)
+// ============================================================
+export const phcApi = {
+    // Lawyers
+    getLawyers: () =>
+        api.get<{ success: boolean; data: Lawyer[] }>('/phc/lawyers'),
+
+    createLawyer: (data: Partial<Lawyer>) =>
+        api.post<{ success: boolean; data: Lawyer }>('/phc/lawyers', data),
+
+    updateLawyer: (id: number, data: Partial<Lawyer>) =>
+        api.put<{ success: boolean; data: Lawyer }>(`/phc/lawyers/${id}`, data),
+
+    deleteLawyer: (id: number) =>
+        api.delete<{ success: boolean; message: string }>(`/phc/lawyers/${id}`),
+
+    // PHC Documents
+    getDocuments: (params?: { lead_id?: number; funnel_slug?: string; status?: string }) =>
+        api.get<{ success: boolean; data: PhcDocument[] }>('/phc/documents', { params }),
+
+    getDocumentById: (id: number) =>
+        api.get<{ success: boolean; data: PhcDocument }>(`/phc/documents/${id}`),
+
+    createDocument: (data: { lead_id: number; lawyer_id: number; doc_type: PhcDocType; funnel_slug?: string; notes?: string }) =>
+        api.post<{ success: boolean; data: PhcDocument }>('/phc/documents', data),
+
+    updateStatus: (id: number, status: PhcStatus) =>
+        api.patch<{ success: boolean; data: PhcDocument }>(`/phc/documents/${id}/status`, { status }),
+
+    deleteDocument: (id: number) =>
+        api.delete<{ success: boolean; message: string }>(`/phc/documents/${id}`),
+
+    /** Download PDF — returns blob for client-side save */
+    downloadPdf: (id: number) =>
+        api.get(`/phc/documents/${id}/pdf`, { responseType: 'blob' }),
+};
+
+
+// ============================================================
 // TypeScript Types (mirrors backend types)
 // ============================================================
 export interface User {
@@ -173,6 +300,7 @@ export interface Funnel {
     slug: string;
     color: string;
     description?: string;
+    lead_count?: number;
 }
 
 export interface Stage {
@@ -197,6 +325,14 @@ export interface Lead {
     bot_active: boolean;
     created_at: string;
     updated_at: string;
+    // Legal/juridical complement fields (filled by assessor or extracted by bot)
+    address?: string;
+    city?: string;
+    state?: string;
+    rg?: string;
+    marital_status?: 'solteiro' | 'casado' | 'divorciado' | 'viuvo' | 'outro';
+    nationality?: string;
+    birthdate?: string;
     // Joined fields from API
     funnel_name?: string;
     funnel_slug?: string;
@@ -206,6 +342,7 @@ export interface Lead {
     stage_order?: number;
     assigned_user_name?: string;
 }
+
 
 export interface Task {
     id: number;
@@ -305,5 +442,118 @@ export interface CreateTaskBody {
     due_date?: string;
     assigned_to?: number;
 }
+
+// Oracle-Core database module types
+export interface KnowledgeFile {
+    id: number;
+    funnel_slug: string;
+    original_name: string;
+    file_size_kb?: number;
+    file_type?: string;
+    extracted_text?: string;
+    created_at: string;
+}
+
+export interface CollectedLead {
+    id: number;
+    name: string;
+    phone: string;
+    email?: string;
+    cpf?: string;
+    status: string;
+    origin: string;
+    bot_stage: string;
+    bot_active: boolean;
+    created_at: string;
+    updated_at: string;
+    funnel_name?: string;
+    funnel_slug?: string;
+    stage_name?: string;
+    message_count: number;
+}
+
+export interface VerifiedDoc {
+    id: number;
+    lead_id: number;
+    lead_name: string;
+    lead_phone: string;
+    doc_type: string;
+    description: string;
+    verified_at: string;
+    file_url?: string | null;
+    file_type?: string;
+    funnel_name?: string;
+    funnel_slug?: string;
+    funnel_color?: string;
+}
+
+export interface ChecklistItem {
+    name: string;
+    received: boolean;
+}
+
+export interface Checklist {
+    funnelSlug: string;
+    items: ChecklistItem[];
+    receivedCount: number;
+    totalCount: number;
+    complete: boolean;
+}
+
+export type PhcDocType = 'procuracao' | 'declaracao_hipo' | 'contrato';
+export type PhcStatus = 'rascunho' | 'salvo' | 'baixado';
+
+export interface Lawyer {
+    id: number;
+    name: string;
+    oab: string;
+    cpf?: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    additional_info?: string;
+    created_at: string;
+    updated_at?: string;
+}
+
+export interface PhcDocument {
+    id: number;
+    lead_id: number;
+    lawyer_id: number;
+    doc_type: PhcDocType;
+    funnel_slug?: string;
+    status: PhcStatus;
+    notes?: string;
+    file_path?: string;
+    created_at: string;
+    updated_at?: string;
+    // Joined lead fields
+    lead_name?: string;
+    lead_phone?: string;
+    lead_cpf?: string;
+    lead_email?: string;
+    lead_description?: string;
+    lead_address?: string;
+    lead_city?: string;
+    lead_state?: string;
+    lead_rg?: string;
+    lead_marital_status?: string;
+    lead_nationality?: string;
+    lead_funnel_slug?: string;
+    funnel_name?: string;
+    // Joined lawyer fields
+    lawyer_name?: string;
+    lawyer_oab?: string;
+    lawyer_cpf?: string;
+    lawyer_email?: string;
+    lawyer_phone?: string;
+    lawyer_address?: string;
+    lawyer_city?: string;
+    lawyer_state?: string;
+    lawyer_additional_info?: string;
+}
+
 
 export default api;

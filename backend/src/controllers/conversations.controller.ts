@@ -4,9 +4,10 @@ import { db } from '../config/database';
 import {
     generateBotReply,
     sendWhatsAppMessage,
+    sendFragmentedMessage,
     analyzeImage,
     transcribeAudio,
-    downloadEvolutionMedia,
+    downloadBridgeMedia,
     buildCompressedHistory,
     getRelevantMemories,
     buildLeadContext,
@@ -82,7 +83,7 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
     const key = msgData.key as Record<string, unknown>;
     const messageId = key?.id as string;
     const remoteJid = key?.remoteJid as string;
-    const from = remoteJid?.replace('@s.whatsapp.net', '') || '';
+    const from = remoteJid?.replace('@s.whatsapp.net', '')?.replace('@c.us', '')?.replace('@lid', '') || '';
 
     console.log('[Webhook] 📩 processMessage called. fromMe:', key?.fromMe, '| remoteJid:', key?.remoteJid, '| msgId:', messageId);
 
@@ -153,20 +154,51 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
 
     // ── Hard Reset for Testing ──────────────────────────────────
     if (isResetCmd) {
-        console.log('[Webhook] 🔄 Secret command !reset received. Resetting lead state.');
+        console.log('[Webhook] 🔄 Secret command !reset received. Resetting lead state and clearing history.');
+
+        // 1. Delete ALL messages for this lead so the AI has no memory of past conversations
+        await db('messages').where('lead_id', Number(lead.id)).del();
+        console.log('[Webhook] 🗑️ All messages deleted for lead', lead.id);
+
+        // 2. Mark existing conversations as resolved (a fresh one will be created on next message)
+        await db('conversations')
+            .where('lead_id', Number(lead.id))
+            .where('status', '!=', 'resolved')
+            .update({ status: 'resolved', updated_at: new Date() });
+
+        const recebidoStage = await db('stages').where({ slug: 'recebido' }).first() as { id: number } | undefined;
+        const resetStageId = recebidoStage?.id ?? (await db('stages').orderBy('display_order').first() as { id: number } | undefined)?.id ?? 1;
+
+        // 4. Delete related data (documents, notes, tasks, handoffs)
+        await db('documents').where('lead_id', Number(lead.id)).del();
+        await db('notes').where('lead_id', Number(lead.id)).del();
+        await db('tasks').where('lead_id', Number(lead.id)).del();
+        await db('bot_handoffs').where('lead_id', Number(lead.id)).del();
+        console.log('[Webhook] 🗑️ All documents, notes, tasks, and handoffs deleted for lead', lead.id);
+
+        // 5. Reset lead data (fields)
+        const displayPhone = from.includes('@') ? from.split('@')[0] : from;
+        const initialName = pushName && pushName.trim().length > 0 ? pushName : `Lead ${displayPhone.slice(-4)}`;
+
         await db('leads').where('id', Number(lead.id)).update({
+            name: initialName,
+            cpf: null,
+            address: null,
+            email: null,
             bot_stage: 'reception',
             bot_active: 1,
-            stage_id: 1, // Recebido
+            stage_id: resetStageId,
             updated_at: new Date()
         });
-        await sendWhatsAppMessage(from, "🔄 *Modo de Teste Iniciado*\n\nSeu estágio voltou para o início (Recepção) e o robô está ativo novamente! Mande um 'Oi' para começar do zero.");
+
+        const targetPhone = String(lead.whatsapp_id || from);
+        await sendWhatsAppMessage(targetPhone, "🔄 *Modo de Teste Iniciado*\n\nSeu estágio voltou para o início (Recepção) e o robô está ativo novamente! Mande um 'Oi' para começar do zero.");
         return;
     }
 
     console.log('[Webhook] 👤 Lead:', lead.id, '| name:', lead.name, '| bot_active:', lead.bot_active, '| bot_stage:', lead.bot_stage);
 
-    const conversation = await getOrCreateConversation(Number(lead.id));
+    const conversation = await getOrCreateConversation(Number(lead.id), remoteJid || `${from}@s.whatsapp.net`);
     if (!message) return;
 
     // ── Parse message content by type ──────────────────────────
@@ -175,7 +207,8 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
     // 1) Audio / Voice → Gemini transcription
     if (message.audioMessage || message.pttMessage) {
         textContent = '[Áudio]';
-        const media = await downloadEvolutionMedia(messageId, config.whatsapp.instance);
+        // Baileys Bridge sends the message object. We can implement media download in aiService if needed.
+        const media = await downloadBridgeMedia(msgData);
         if (media) {
             const transcription = await transcribeAudio(media.base64, media.mimeType);
             if (transcription) {
@@ -190,16 +223,22 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
         const caption = (imgMsg?.caption as string) || '';
         textContent = caption || '[Imagem]';
 
-        const media = await downloadEvolutionMedia(messageId, config.whatsapp.instance);
+        const media = await downloadBridgeMedia(msgData);
         if (media) {
             const analysis = await analyzeImage(
                 media.base64,
                 media.mimeType || 'image/jpeg',
                 `Imagem do lead ${lead.name as string}`
             );
+            const isTechnicalError = analysis.issues?.startsWith('technical_error:');
             if (analysis.isLegible) {
                 mediaAnalysis = { type: 'image', result: `✅ ${analysis.description}${analysis.extractedText ? ' | ' + analysis.extractedText.slice(0, 150) : ''}` };
                 textContent = `[Imagem legível] ${analysis.description}`;
+            } else if (isTechnicalError) {
+                // Technical error — don't label as "ilegível"
+                mediaAnalysis = { type: 'image_error', result: `⚠️ Erro técnico ao processar imagem` };
+                textContent = `[Imagem — erro de processamento]`;
+                console.warn(`[Webhook] ⚠️ Image analysis technical error: ${analysis.issues}`);
             } else {
                 mediaAnalysis = { type: 'image_illegible', result: `⚠️ Imagem ilegível: ${analysis.description}` };
                 textContent = `[Imagem ilegível] ${analysis.description}`;
@@ -215,16 +254,21 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
 
         const mimeType = (doc?.mimetype as string) || '';
         if (mimeType.includes('image') || mimeType.includes('pdf')) {
-            const media = await downloadEvolutionMedia(messageId, config.whatsapp.instance);
+            const media = await downloadBridgeMedia(msgData);
             if (media) {
                 const analysis = await analyzeImage(
                     media.base64,
                     media.mimeType || mimeType,
                     `Documento "${fileName}" do lead ${lead.name as string}`
                 );
+                const isTechnicalError = analysis.issues?.startsWith('technical_error:');
                 if (analysis.isLegible) {
                     mediaAnalysis = { type: 'document', result: `✅ ${analysis.description}${analysis.extractedText ? ' | ' + analysis.extractedText.slice(0, 200) : ''}` };
                     textContent = `[Documento legível: ${fileName}]`;
+                } else if (isTechnicalError) {
+                    mediaAnalysis = { type: 'document_error', result: `⚠️ Erro técnico ao processar documento` };
+                    textContent = `[Documento — erro de processamento: ${fileName}]`;
+                    console.warn(`[Webhook] ⚠️ Document analysis technical error: ${analysis.issues}`);
                 } else {
                     mediaAnalysis = { type: 'document_illegible', result: `⚠️ Documento ilegível: ${analysis.description}` };
                     textContent = `[Documento ilegível: ${fileName}]`;
@@ -309,6 +353,8 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
     const userMessageForBot =
         mediaAnalysis?.type?.includes('illegible')
             ? `${textContent}\n\n[Sistema: documento/imagem ilegível. Peça ao cliente para reenviar com boa iluminação.]`
+            : mediaAnalysis?.type?.includes('error')
+            ? `${textContent}\n\n[Sistema: houve um erro técnico ao processar a imagem. Peça gentilmente para o cliente reenviar a imagem. NÃO diga que ficou borrada.]`
             : textContent;
 
     console.log('[Webhook] 📤 Calling Gemini with history length:', historyWithoutLast.length);
@@ -335,7 +381,9 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
         sent_at: new Date(),
     });
 
-    await sendWhatsAppMessage(from, botReply);
+    // Send reply in fragments (splits by paragraph, 5s delay between each)
+    const targetPhone = String(lead.whatsapp_id || from);
+    await sendFragmentedMessage(targetPhone, botReply);
 
     emitToAll('new_message', {
         leadId: lead.id,
@@ -579,7 +627,7 @@ async function getOrCreateLead(phone: string, pushName?: string): Promise<Record
     return lead as Record<string, unknown>;
 }
 
-async function getOrCreateConversation(leadId: number): Promise<Record<string, unknown>> {
+async function getOrCreateConversation(leadId: number, whatsappChatId: string): Promise<Record<string, unknown>> {
     let conversation = await db('conversations')
         .where('lead_id', leadId)
         .where('channel', 'whatsapp')
@@ -590,6 +638,7 @@ async function getOrCreateConversation(leadId: number): Promise<Record<string, u
     if (!conversation) {
         const [id] = await db('conversations').insert({
             lead_id: leadId,
+            whatsapp_chat_id: whatsappChatId,
             channel: 'whatsapp',
             status: 'open',
             created_at: new Date(),
@@ -605,31 +654,34 @@ async function getOrCreateConversation(leadId: number): Promise<Record<string, u
 // WhatsApp Management Endpoints (CRM)
 // ============================================================
 export async function connectWhatsApp(req: Request, res: Response): Promise<void> {
+    console.log('[DEBUG-WA] connectWhatsApp triggered instance:', config.whatsapp.instance);
     try {
+        // Step 1: Tear down any stale in-memory instance on the bridge.
+        // This is necessary because the bridge caches instances and the old guard
+        // would return early without generating a new QR code on reconnect.
+        try {
+            await axios.delete(
+                `${config.whatsapp.apiUrl}/instance/logout/${config.whatsapp.instance}`,
+                { headers: { apikey: config.whatsapp.apiKey }, timeout: 8000 }
+            );
+            console.log('[DEBUG-WA] Stale instance cleared before reconnect');
+        } catch (_) {
+            // Bridge may not have a stale instance — that's fine, continue
+            console.log('[DEBUG-WA] No stale instance to clear (or bridge not reachable for delete), continuing');
+        }
+
+        // Step 2: Create a fresh instance — the bridge will now emit a QR code via SSE
         const instanceRes = await axios.post(
             `${config.whatsapp.apiUrl}/instance/create`,
-            {
-                instanceName: config.whatsapp.instance,
-                qrcode: true,
-                integration: 'WHATSAPP-BAILEYS',
-                webhook: `${req.protocol}://${req.get('host')}/api/webhook/whatsapp`,
-                webhookByEvents: false,
-                events: ['MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'CONNECTION_UPDATE', 'QRCODE_UPDATED'],
-            },
-            { headers: { apikey: config.whatsapp.apiKey }, timeout: 10000 }
+            { instanceName: config.whatsapp.instance },
+            { headers: { apikey: config.whatsapp.apiKey }, timeout: 15000 }
         );
+        console.log('[DEBUG-WA] Instance created/connected, state:', instanceRes.data);
         res.json({ success: true, data: instanceRes.data });
-    } catch {
-        try {
-            const qrRes = await axios.get(
-                `${config.whatsapp.apiUrl}/instance/connect/${config.whatsapp.instance}`,
-                { headers: { apikey: config.whatsapp.apiKey } }
-            );
-            res.json({ success: true, data: qrRes.data });
-        } catch (err2) {
-            const error = err2 as { response?: { data?: unknown }; message?: string };
-            res.status(500).json({ success: false, error: 'Erro ao conectar WhatsApp', details: error?.response?.data || error?.message });
-        }
+    } catch (err) {
+        const error = err as { response?: { data?: unknown }; message?: string };
+        console.error('[DEBUG-WA] connectWhatsApp FAILURE:', error?.response?.data || error?.message || error);
+        res.status(500).json({ success: false, error: 'Erro ao conectar WhatsApp — bridge inacessível', details: error?.response?.data || error?.message });
     }
 }
 
@@ -647,15 +699,18 @@ export async function disconnectWhatsApp(_req: Request, res: Response): Promise<
 }
 
 export async function getQRCode(_req: Request, res: Response): Promise<void> {
+    console.log('[DEBUG-WA] getQRCode triggered');
     try {
+        // Use the correct bridge endpoint: /instance/qr/:name
         const response = await axios.get(
-            `${config.whatsapp.apiUrl}/instance/connect/${config.whatsapp.instance}`,
+            `${config.whatsapp.apiUrl}/instance/qr/${config.whatsapp.instance}`,
             { headers: { apikey: config.whatsapp.apiKey }, timeout: 8000 }
         );
         res.json({ success: true, data: response.data });
     } catch (err) {
         const error = err as { response?: { data?: unknown }; message?: string };
-        res.status(500).json({ success: false, error: 'QR Code não disponível', details: error?.response?.data || error?.message });
+        console.error('[DEBUG-WA] getQRCode FAILURE:', error?.response?.data || error?.message || error);
+        res.status(404).json({ success: false, error: 'QR Code ainda não disponível', details: error?.response?.data || error?.message });
     }
 }
 
