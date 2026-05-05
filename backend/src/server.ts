@@ -28,6 +28,9 @@ import phcRoutes from './routes/phc.routes';
 const app = express();
 const server = http.createServer(app);
 
+// Railway / Vercel rodam atrás de reverse proxy — necessário para rate-limit e IPs corretos
+app.set('trust proxy', 1);
+
 // ============================================================
 // CORS — allowed origins (production + dev)
 // ============================================================
