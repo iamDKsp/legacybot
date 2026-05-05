@@ -585,36 +585,43 @@ export async function downloadDocument(req: Request, res: Response): Promise<voi
         }
 
         const filePath = doc.file_path as string | null;
-        if (!filePath) {
-            res.status(404).json({ success: false, error: 'Arquivo não disponível' });
-            return;
-        }
+        const fileData = doc.file_data as Buffer | null;
+        const docMimeType = doc.file_type as string | null;
 
         // Use dynamic import to avoid top-level fs import
         const fs = await import('fs');
         const path = await import('path');
 
-        if (!fs.existsSync(filePath)) {
-            res.status(404).json({ success: false, error: 'Arquivo não encontrado no servidor' });
+        const docName = (doc.name as string) || 'documento';
+
+        // Try disk first, fall back to DB BYTEA (Railway-safe)
+        if (filePath && fs.existsSync(filePath)) {
+            const ext = path.extname(filePath).replace('.', '').toLowerCase();
+            const mimeTypes: Record<string, string> = {
+                jpg: 'image/jpeg', jpeg: 'image/jpeg',
+                png: 'image/png', webp: 'image/webp', pdf: 'application/pdf',
+            };
+            const mimeType = mimeTypes[ext] || docMimeType || 'application/octet-stream';
+            res.setHeader('Content-Type', mimeType);
+            res.setHeader('Content-Disposition', `inline; filename="${docName}.${ext}"`);
+            res.setHeader('Cache-Control', 'private, max-age=3600');
+            fs.createReadStream(filePath).pipe(res);
             return;
         }
 
-        const ext = path.extname(filePath).replace('.', '').toLowerCase();
-        const mimeTypes: Record<string, string> = {
-            jpg: 'image/jpeg',
-            jpeg: 'image/jpeg',
-            png: 'image/png',
-            webp: 'image/webp',
-            pdf: 'application/pdf',
-        };
-        const mimeType = mimeTypes[ext] || 'application/octet-stream';
-        const docName = (doc.name as string) || 'documento';
+        // Disk file missing (e.g. Railway restart) — serve from DB BYTEA
+        if (fileData && fileData.length > 0) {
+            const ext = docMimeType?.includes('png') ? 'png' : docMimeType?.includes('webp') ? 'webp' : 'jpg';
+            const mimeType = docMimeType || 'image/jpeg';
+            res.setHeader('Content-Type', mimeType);
+            res.setHeader('Content-Disposition', `inline; filename="${docName}.${ext}"`);
+            res.setHeader('Cache-Control', 'private, max-age=3600');
+            res.setHeader('Content-Length', String(fileData.length));
+            res.end(fileData);
+            return;
+        }
 
-        res.setHeader('Content-Type', mimeType);
-        res.setHeader('Content-Disposition', `inline; filename="${docName}.${ext}"`);
-        // Allow browser to cache images for 1 hour
-        res.setHeader('Cache-Control', 'private, max-age=3600');
-        fs.createReadStream(filePath).pipe(res);
+        res.status(404).json({ success: false, error: 'Arquivo não disponível' });
     } catch (err) {
         console.error('Download document error:', err);
         res.status(500).json({ success: false, error: 'Erro ao baixar documento' });

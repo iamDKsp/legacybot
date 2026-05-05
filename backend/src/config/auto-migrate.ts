@@ -55,11 +55,18 @@ export async function runAutoMigrations(): Promise<void> {
                 ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) DEFAULT NULL
         `).catch(() => {});
 
-        // ── 3. leads: bot_stage + bot_last_seen ─────────────────────────────
+        // ── 3. leads: bot_stage + bot_last_seen + case_summary ──────────────
         await db.raw(`
             ALTER TABLE leads
                 ADD COLUMN IF NOT EXISTS bot_stage    VARCHAR(50)  DEFAULT 'reception',
-                ADD COLUMN IF NOT EXISTS bot_last_seen TIMESTAMP   DEFAULT NULL
+                ADD COLUMN IF NOT EXISTS bot_last_seen TIMESTAMP   DEFAULT NULL,
+                ADD COLUMN IF NOT EXISTS case_summary TEXT         DEFAULT NULL
+        `).catch(() => {});
+
+        // ── 3b. documents: file_data BYTEA (armazena binário no DB para persistência em Railway) ──
+        await db.raw(`
+            ALTER TABLE documents
+                ADD COLUMN IF NOT EXISTS file_data BYTEA DEFAULT NULL
         `).catch(() => {});
 
         // ── 4. bot_sessions: step → VARCHAR (PG não tem MODIFY COLUMN) ──────

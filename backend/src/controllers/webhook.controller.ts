@@ -86,24 +86,35 @@ async function getDocState(leadId: number): Promise<DocState> {
 }
 
 // ============================================================
-// Save incoming image bytes to disk for CRM display/download
+// Save incoming image bytes to disk AND to the database
+// DB storage (file_data BYTEA) ensures images survive Railway
+// container restarts (ephemeral filesystem).
 // ============================================================
-function saveImageToDisk(leadId: number, base64: string, mimeType: string, docLabel: string): string | null {
+async function saveImageAndPersist(
+    leadId: number,
+    base64: string,
+    mimeType: string,
+    docLabel: string
+): Promise<{ filePath: string | null; fileData: Buffer | null }> {
+    const fileData = Buffer.from(base64, 'base64');
+
+    // Try to save to disk (works locally; ephemeral in Railway without a Volume)
+    let filePath: string | null = null;
     try {
         const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
         const dirPath = path.join(process.cwd(), 'uploads', 'documents', String(leadId));
         if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
-
         const safeName = docLabel.replace(/[^a-z0-9_\-]/gi, '_').slice(0, 40);
         const filename = `${safeName}_${Date.now()}.${ext}`;
         const fullPath = path.join(dirPath, filename);
-        fs.writeFileSync(fullPath, Buffer.from(base64, 'base64'));
-        console.log(`[Doc] 💾 Saved image: ${fullPath}`);
-        return fullPath;
+        fs.writeFileSync(fullPath, fileData);
+        filePath = fullPath;
+        console.log(`[Doc] 💾 Saved image to disk: ${fullPath}`);
     } catch (err) {
-        console.warn('[Doc] Failed to save image to disk:', (err as Error).message);
-        return null;
+        console.warn('[Doc] Disk save failed (will use DB only):', (err as Error).message);
     }
+
+    return { filePath, fileData };
 }
 
 
@@ -213,27 +224,33 @@ const BOT_STAGE_TO_CRM_STAGE: Record<string, Record<string, string>> = {
         reception:     'recebido',
         approach:      'abordagem',
         doc_request:   'documentacao',
-        analysis:      'analise',
+        analysis:      'analise_espera',
     },
     'golpe-pix': {
         reception:       'recebido',
         approach:        'abordagem',
         info_collection: 'coleta_info',
         doc_request:     'documentacao',
-        procuracao_docs: 'procuracao',
-        analysis:        'analise',
+        procuracao_docs: 'assinatura',
+        analysis:        'analise_espera',
     },
     trabalhista: {
         reception:  'recebido',
         approach:   'abordagem',
         doc_request:'documentacao',
-        analysis:   'analise',
+        analysis:   'analise_espera',
     },
     'golpe-cibernetico': {
         reception:  'recebido',
         approach:   'abordagem',
         doc_request:'documentacao',
-        analysis:   'analise',
+        analysis:   'analise_espera',
+    },
+    geral: {
+        reception:  'recebido',
+        approach:   'abordagem',
+        doc_request:'documentacao',
+        analysis:   'analise_espera',
     },
 };
 
@@ -346,6 +363,10 @@ async function generateAndSaveCaseSummary(
             .first();
 
         if (!existingTask) {
+            // Dynamically resolve admin user to avoid FK failures with hardcoded id=1
+            const adminUser = await db('users').where({ role: 'admin', is_active: true }).orderBy('id', 'asc').first() as { id: number } | undefined;
+            const createdBy = adminUser?.id ?? 1;
+
             await db('tasks').insert({
                 lead_id: leadId,
                 title: 'Análise do caso',
@@ -353,9 +374,9 @@ async function generateAndSaveCaseSummary(
                 category: 'outro',
                 priority: 'media',
                 status: 'pendente',
-                created_by: 1, // Default to admin for system-generated tasks
+                created_by: createdBy,
             });
-            console.log(`[Bot] 📝 Task "Análise do caso" created automatically for lead ${leadId}`);
+            console.log(`[Bot] 📝 Task "Análise do caso" created automatically for lead ${leadId} (created_by=${createdBy})`);
         } else {
             console.log(`[Bot] ⏭️ Task "Análise do caso" already exists for lead ${leadId} — skipping duplicate`);
         }
@@ -603,19 +624,18 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
 
         if (imageBase64 && imageMimeType) {
             mediaType = 'image';
-            const filePath = saveImageToDisk(lead.id as number, imageBase64, imageMimeType, `midia_${Date.now()}`);
-            if (filePath) {
-                const [{ id: docId }] = await db('documents').insert({
-                    lead_id: lead.id,
-                    name: `Mídia WhatsApp`,
-                    file_type: imageMimeType,
-                    file_path: filePath,
-                    status: 'recebido',
-                    notes: 'Em análise...'
-                }).returning('id');
-                documentId = docId;
-                imageUrl = `/api/leads/${lead.id}/documents/${docId}/download`;
-            }
+            const { filePath, fileData } = await saveImageAndPersist(lead.id as number, imageBase64, imageMimeType, `midia_${Date.now()}`);
+            const [{ id: docId }] = await db('documents').insert({
+                lead_id: lead.id,
+                name: `Midia WhatsApp`,
+                file_type: imageMimeType,
+                file_path: filePath,
+                file_data: fileData,
+                status: 'recebido',
+                notes: 'Em analise...'
+            }).returning('id');
+            documentId = docId;
+            imageUrl = `/api/leads/${lead.id}/documents/${docId}/download`;
         } else if (audioBase64) {
             mediaType = 'audio';
         }
