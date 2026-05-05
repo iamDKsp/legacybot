@@ -1,5 +1,6 @@
 [build]
 builder = "dockerfile"
+watchPatterns = ["backend/**"]
 
 [deploy]
 startCommand = "node dist/server.js"
