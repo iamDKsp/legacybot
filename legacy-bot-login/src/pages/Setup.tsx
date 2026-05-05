@@ -325,7 +325,7 @@ function StatusBadge({ status }: { status: ConnStatus }) {
 }
 
 // ─── Constants ────────────────────────────────────────────────
-const BRIDGE_URL = "http://localhost:8081";
+const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || "http://localhost:8081";
 const QR_POLL_INTERVAL_MS = 3000;
 const QR_POLL_MAX_ATTEMPTS = 25; // ~75 seconds max wait for QR
 
@@ -680,8 +680,8 @@ const Setup = () => {
                             <AlertCircle className="h-5 w-5" /> WhatsApp Bridge não detectada
                         </div>
                         <p className="text-sm text-orange-300/80">
-                            A bridge não está respondendo em <code className="rounded bg-orange-500/20 px-1.5 py-0.5 text-orange-300 text-xs">http://localhost:8081</code>.
-                            Verifique se os containers estão rodando:
+                            A bridge não está respondendo em <code className="rounded bg-orange-500/20 px-1.5 py-0.5 text-orange-300 text-xs">{BRIDGE_URL}</code>.
+                            Verifique se o serviço está online no Railway:
                         </p>
                         <div className="rounded-lg bg-black/40 border border-orange-500/20 px-4 py-3 font-mono text-xs text-emerald-300 flex items-start gap-2">
                             <Terminal className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
@@ -701,7 +701,7 @@ const Setup = () => {
                         </div>
                         <div>
                             <h2 className="text-sm font-semibold text-card-foreground">Status da Conexão</h2>
-                            <p className="text-xs text-muted-foreground">WhatsApp Bridge · Porta 8081</p>
+                            <p className="text-xs text-muted-foreground">WhatsApp Bridge · {import.meta.env.VITE_BRIDGE_URL ? "Railway" : "Porta 8081"}</p>
                         </div>
                     </div>
 
