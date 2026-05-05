@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Instalar dependências primeiro (cache layer)
 COPY package*.json ./
-RUN npm ci
+RUN npm install --frozen-lockfile
 
 # Copiar fonte e compilar TypeScript
 COPY tsconfig.json ./
@@ -20,7 +20,7 @@ WORKDIR /app
 
 # Dependências de produção apenas
 COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm install --omit=dev && npm cache clean --force
 
 # Código compilado do estágio anterior
 COPY --from=builder /app/dist ./dist
