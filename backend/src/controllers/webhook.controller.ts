@@ -875,9 +875,9 @@ async function processDocumentImage(
                 await db('documents').where({ id: initialDocId }).update({ name: `[Ilegível] ${docType}`, status: 'rejeitado', notes: analysis.issues });
                 rejDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
             } else {
-                const rejFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, `recebido_rejeitado_${Date.now()}`);
-                const [{ id: rejDocId }] = await db('documents').insert({ lead_id: leadId, name: `[Ilegível] ${docType}`, file_type: imageMimeType, file_path: rejFilePath, status: 'rejeitado', notes: analysis.issues }).returning('id');
-                rejDocUrl = rejFilePath ? `/api/leads/${leadId}/documents/${rejDocId}/download` : null;
+                const { filePath: rejFilePath, fileData: rejFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `recebido_rejeitado_${Date.now()}`);
+                const [{ id: rejDocId }] = await db('documents').insert({ lead_id: leadId, name: `[Ilegivel] ${docType}`, file_type: imageMimeType, file_path: rejFilePath, file_data: rejFileData, status: 'rejeitado', notes: analysis.issues }).returning('id');
+                rejDocUrl = `/api/leads/${leadId}/documents/${rejDocId}/download`;
             }
 
             if (initialMsgId) {
@@ -952,9 +952,9 @@ async function processDocumentImage(
                     await db('documents').where({ id: initialDocId }).update({ name: `${docType} (frente)`, status: 'aprovado', notes: textData });
                     frontDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
-                    const frontFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, `${docType}_frente`);
-                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, status: 'aprovado', notes: textData }).returning('id');
-                    frontDocUrl = frontFilePath ? `/api/leads/${leadId}/documents/${frontDocId}/download` : null;
+                    const { filePath: frontFilePath, fileData: frontFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_frente`);
+                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, file_data: frontFileData, status: 'aprovado', notes: textData }).returning('id');
+                    frontDocUrl = `/api/leads/${leadId}/documents/${frontDocId}/download`;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} frente aprovada | Nome: ${extractedName || 'N/D'} | CPF: ${extractedCpf || 'N/D'}` });
                 
@@ -983,9 +983,9 @@ async function processDocumentImage(
                     await db('documents').where({ id: initialDocId }).update({ name: `${docType} (verso)`, status: 'aprovado', notes: textData });
                     backDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
-                    const backFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, `${docType}_verso`);
-                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, status: 'aprovado', notes: textData }).returning('id');
-                    backDocUrl = backFilePath ? `/api/leads/${leadId}/documents/${backDocId}/download` : null;
+                    const { filePath: backFilePath, fileData: backFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_verso`);
+                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, file_data: backFileData, status: 'aprovado', notes: textData }).returning('id');
+                    backDocUrl = `/api/leads/${leadId}/documents/${backDocId}/download`;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} verso aprovado` });
                 
@@ -1062,9 +1062,9 @@ async function processDocumentImage(
                     await db('documents').where({ id: initialDocId }).update({ name: docSavedName, status: 'aprovado', notes: textData });
                     genericDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
-                    const genericFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, docSavedName.replace(/\s+/g, '_'));
-                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, status: 'aprovado', notes: textData }).returning('id');
-                    genericDocUrl = genericFilePath ? `/api/leads/${leadId}/documents/${genericDocId}/download` : null;
+                    const { filePath: genericFilePath, fileData: genericFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, docSavedName.replace(/\s+/g, '_'));
+                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: textData }).returning('id');
+                    genericDocUrl = `/api/leads/${leadId}/documents/${genericDocId}/download`;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docSavedName} aprovado | Dados: ${textData.substring(0, 100) || 'N/D'}` });
                 
