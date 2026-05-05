@@ -135,26 +135,40 @@ app.use((_req, res) => {
 app.use(errorHandler);
 
 // ============================================================
-// Server Start
+// Server Start — escuta ANTES de conectar ao banco
+// O healthcheck do Railway precisa responder enquanto o banco inicializa
 // ============================================================
 async function start(): Promise<void> {
-    try {
-        await testConnection();
-        await runAutoMigrations();
+    // 1. Sobe o servidor HTTP imediatamente (healthcheck responde)
+    server.listen(config.port, () => {
+        console.log('\n🚀 Legacy CRM Backend Running!');
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`  📡 API:       http://localhost:${config.port}/api`);
+        console.log(`  ❤️  Health:   http://localhost:${config.port}/health`);
+        console.log(`  🌐 Frontend: ${config.frontendUrl}`);
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    });
 
-        server.listen(config.port, () => {
-            console.log('\n🚀 Legacy CRM Backend Running!');
-            console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
-            console.log(`  📡 API:       http://localhost:${config.port}/api`);
-            console.log(`  ❤️  Health:   http://localhost:${config.port}/health`);
-            console.log(`  🌐 Frontend: ${config.frontendUrl}`);
-            console.log(`  🗄️  Database: ${config.db.name}@${config.db.host}:${config.db.port}`);
-            console.log(`  🤖 AI:       ${config.googleAi.apiKey !== 'your-google-cloud-api-key-here' ? '✅ Configured' : '⚠️  Not configured (using fallback)'}`);
-            console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
-        });
-    } catch (error) {
-        console.error('❌ Failed to start server:', error);
-        process.exit(1);
+    // 2. Conecta ao banco com retry — sem travar o startup
+    let retries = 5;
+    while (retries > 0) {
+        try {
+            await testConnection();
+            await runAutoMigrations();
+            console.log('✅ Database pronto. Servidor totalmente operacional.');
+            return;
+        } catch (error) {
+            retries--;
+            if (retries === 0) {
+                console.error('❌ Falha ao conectar ao banco após 5 tentativas:', error);
+                console.error('⚠️  Verifique se DATABASE_URL está configurado no Railway.');
+                // Não mata o processo — permite healthcheck continuar respondendo
+                // O Railway vai mostrar o erro nos logs mas o container sobrevive
+            } else {
+                console.warn(`⏳ Banco indisponível. Tentando novamente em 5s... (${retries} tentativas restantes)`);
+                await new Promise(resolve => setTimeout(resolve, 5000));
+            }
+        }
     }
 }
 
