@@ -15,11 +15,8 @@ COPY server.js ./
 RUN mkdir -p sessions
 
 ENV NODE_ENV=production
-ENV PORT=8081
 
-EXPOSE 8081
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget -qO- http://localhost:8081/health || exit 1
+# PORT é injetado dinamicamente pelo Railway — não hardcodar aqui
+# O healthcheck é gerenciado pelo railway.toml usando a porta correta
 
 CMD ["node", "server.js"]
