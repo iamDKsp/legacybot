@@ -1,18 +1,18 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeft, CheckCircle, XCircle, MessageSquare, Bot, BotOff,
   FileText, ClipboardList, User, Phone, Mail, Calendar,
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
-  MessageCircle, Edit2
+  MessageCircle, Edit2, Pencil, Check, X as XIcon,
+  MapPin, Hash, Heart, Globe
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Lead } from "@/modules/crm/types/crm";
 import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, useUpdateLeadStatus, useToggleBotStatus, useLeadChecklist } from "@/hooks/useLeads";
 import { leadsApi } from "@/services/api";
-import { LeadEditModal } from "./LeadEditModal";
-
+import { useQueryClient } from "@tanstack/react-query";
 import { CheckSquare } from "lucide-react";
 
 
@@ -125,21 +125,152 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
   );
 }
 
-// ─── Info Panel ────────────────────────────────────────────────
-function InfoPanel({ lead, onEdit }: { lead: Lead & Record<string, unknown>; onEdit: () => void }) {
-  const rows: { icon: React.ReactNode; label: string; value: string | undefined }[] = [
-    { icon: <Phone className="w-3.5 h-3.5" />, label: "Telefone", value: lead.phone },
-    { icon: <Mail className="w-3.5 h-3.5" />, label: "E-mail", value: lead.email || "—" },
-    { icon: <User className="w-3.5 h-3.5" />, label: "CPF", value: (lead.cpf as string) || "—" },
-    { icon: <User className="w-3.5 h-3.5" />, label: "RG", value: (lead.rg as string) || undefined },
-    { icon: <ClipboardList className="w-3.5 h-3.5" />, label: "Funil", value: (lead.funnel_name as string) || "—" },
-    { icon: <ClipboardList className="w-3.5 h-3.5" />, label: "Endereço", value: (lead.address as string) || undefined },
-    { icon: <Calendar className="w-3.5 h-3.5" />, label: "Origem", value: lead.origin },
-    { icon: <Calendar className="w-3.5 h-3.5" />, label: "Criado em", value: lead.createdAt || (lead.created_at ? new Date(lead.created_at as string).toLocaleDateString("pt-BR") : "—") },
-  ];
+// ─── Inline-editable field row ────────────────────────────────
+const ESTADOS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS",
+  "MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 
-  const hasCpf = !!lead.cpf;
+const ESTADO_CIVIL = [
+  { value: "solteiro",   label: "Solteiro(a)" },
+  { value: "casado",     label: "Casado(a)" },
+  { value: "divorciado", label: "Divorciado(a)" },
+  { value: "viuvo",      label: "Viúvo(a)" },
+  { value: "outro",      label: "Outro" },
+];
+
+interface FieldRowProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  fieldKey: string;
+  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "tel";
+  placeholder?: string;
+  readOnly?: boolean;
+  onSave: (key: string, value: string) => Promise<void>;
+}
+
+function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, readOnly, onSave }: FieldRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState<"ok" | "err" | null>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+
+  useEffect(() => { setDraft(value); }, [value]);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  const commit = useCallback(async () => {
+    if (draft === value) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await onSave(fieldKey, draft);
+      setFlash("ok");
+      setTimeout(() => setFlash(null), 1500);
+      setEditing(false);
+    } catch {
+      setFlash("err");
+      setTimeout(() => setFlash(null), 2000);
+    } finally { setSaving(false); }
+  }, [draft, value, fieldKey, onSave]);
+
+  const cancel = () => { setDraft(value); setEditing(false); };
+
+  const inputClass = "flex-1 bg-muted rounded-md px-2 py-0.5 text-sm text-card-foreground border border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/60 min-w-0";
+
+  return (
+    <div className={cn(
+      "group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+      editing ? "bg-accent/5 ring-1 ring-accent/20" : "bg-secondary/40 hover:bg-secondary/60",
+      flash === "ok" && "ring-1 ring-green-500/40",
+      flash === "err" && "ring-1 ring-red-500/40",
+    )}>
+      <span className="text-muted-foreground shrink-0">{icon}</span>
+      <span className="text-xs text-muted-foreground w-20 shrink-0">{label}</span>
+
+      {editing ? (
+        <>
+          {type === "select-state" ? (
+            <select
+              ref={inputRef as React.RefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              className={inputClass + " bg-muted"}
+            >
+              <option value="">Selecionar...</option>
+              {ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          ) : type === "select-civil" ? (
+            <select
+              ref={inputRef as React.RefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              className={inputClass + " bg-muted"}
+            >
+              <option value="">Selecionar...</option>
+              {ESTADO_CIVIL.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              type={type}
+              value={draft}
+              placeholder={placeholder}
+              onChange={e => setDraft(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+              className={inputClass}
+            />
+          )}
+          <button onClick={commit} disabled={saving}
+            className="p-1 rounded-md text-green-400 hover:bg-green-400/10 transition-colors shrink-0 disabled:opacity-40">
+            {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+          </button>
+          <button onClick={cancel}
+            className="p-1 rounded-md text-muted-foreground hover:bg-secondary/80 transition-colors shrink-0">
+            <XIcon className="w-3.5 h-3.5" />
+          </button>
+        </>
+      ) : (
+        <>
+          <span className={cn(
+            "text-sm font-medium flex-1 truncate",
+            flash === "ok" && "text-green-400",
+            flash === "err" && "text-red-400",
+          )}>
+            {flash === "ok" ? "✓ Salvo!" : flash === "err" ? "Erro ao salvar" : (value || <span className="text-muted-foreground/40 italic">—</span>)}
+          </span>
+          {!readOnly && (
+            <button
+              onClick={() => setEditing(true)}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-accent hover:bg-accent/10 transition-all shrink-0"
+              title={`Editar ${label}`}
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Info Panel ────────────────────────────────────────────────
+function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknown>; onLeadUpdated: (updated: Partial<Lead>) => void }) {
+  const qc = useQueryClient();
+
+  const handleSave = useCallback(async (key: string, value: string) => {
+    await leadsApi.update(lead.id, { [key]: value } as Parameters<typeof leadsApi.update>[1]);
+    // Invalidate queries so the Kanban and other views refresh
+    qc.invalidateQueries({ queryKey: ["leads"] });
+    qc.invalidateQueries({ queryKey: ["lead", lead.id] });
+    onLeadUpdated({ [key]: value } as Partial<Lead>);
+  }, [lead.id, qc, onLeadUpdated]);
+
+  const hasCpf = !!(lead.cpf as string);
   const hasAddress = !!(lead.address as string);
+
+  const ESTADO_CIVIL_LABEL: Record<string, string> = {
+    solteiro: "Solteiro(a)", casado: "Casado(a)", divorciado: "Divorciado(a)",
+    viuvo: "Viúvo(a)", outro: "Outro",
+  };
 
   return (
     <div className="space-y-4">
@@ -156,29 +287,40 @@ function InfoPanel({ lead, onEdit }: { lead: Lead & Record<string, unknown>; onE
         </div>
       )}
 
-      <div className="space-y-2">
-        {rows.filter(r => r.value).map(({ icon, label, value }) => (
-          <div key={label} className="flex items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2.5">
-            <span className="text-muted-foreground">{icon}</span>
-            <span className="text-xs text-muted-foreground w-20 shrink-0">{label}</span>
-            <span className="text-sm font-medium flex-1 truncate">{value}</span>
-          </div>
-        ))}
+      {/* Section: Dados Básicos */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest px-1 flex items-center gap-1.5">
+          <User className="h-3 w-3" /> Dados Básicos
+        </p>
+        <FieldRow icon={<User className="w-3.5 h-3.5"/>}    label="Nome"       fieldKey="name"           value={lead.name ?? ""}                           onSave={handleSave} />
+        <FieldRow icon={<Phone className="w-3.5 h-3.5"/>}   label="Telefone"   fieldKey="phone"          value={lead.phone ?? ""}          type="tel"        onSave={handleSave} />
+        <FieldRow icon={<Mail className="w-3.5 h-3.5"/>}    label="E-mail"     fieldKey="email"          value={(lead.email as string) ?? ""}  type="email" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="CPF"        fieldKey="cpf"            value={(lead.cpf as string) ?? ""}    placeholder="000.000.000-00" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="RG"         fieldKey="rg"             value={(lead.rg as string) ?? ""}     placeholder="MG-12.345.678" onSave={handleSave} />
+        <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
+        <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
+        <FieldRow icon={<Calendar className="w-3.5 h-3.5"/>} label="Nascimento" fieldKey="birthdate"     value={(lead.birthdate as string) ?? ""} type="date" onSave={handleSave} />
       </div>
 
-      {lead.description && (
-        <div className="rounded-lg bg-secondary/40 px-3 py-3">
-          <p className="text-xs text-muted-foreground mb-1.5">Descrição / Observação</p>
-          <p className="text-sm leading-relaxed">{lead.description as string}</p>
-        </div>
-      )}
+      {/* Section: Endereço */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest px-1 flex items-center gap-1.5">
+          <MapPin className="h-3 w-3" /> Endereço
+        </p>
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Endereço"  fieldKey="address" value={(lead.address as string) ?? ""} placeholder="Rua, nº, bairro"  onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Cidade"    fieldKey="city"    value={(lead.city as string) ?? ""}    placeholder="Belo Horizonte"  onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Estado"    fieldKey="state"   value={(lead.state as string) ?? ""}   type="select-state"           onSave={handleSave} />
+      </div>
 
-      <button
-        onClick={onEdit}
-        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border/40 text-xs font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-colors"
-      >
-        <Edit2 className="h-3.5 w-3.5" /> Editar / Complementar Dados do Cliente
-      </button>
+      {/* Section: Outros */}
+      <div className="space-y-1.5">
+        <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest px-1 flex items-center gap-1.5">
+          <Info className="h-3 w-3" /> Outros
+        </p>
+        <FieldRow icon={<ClipboardList className="w-3.5 h-3.5"/>} label="Funil"    fieldKey="funnel_name" value={(lead.funnel_name as string) ?? "—"} readOnly onSave={handleSave} />
+        <FieldRow icon={<Calendar className="w-3.5 h-3.5"/>}      label="Origem"   fieldKey="origin"      value={lead.origin ?? "—"} readOnly onSave={handleSave} />
+        <FieldRow icon={<Calendar className="w-3.5 h-3.5"/>}      label="Criado em" fieldKey="created_at"  value={lead.created_at ? new Date(lead.created_at as string).toLocaleDateString("pt-BR") : "—"} readOnly onSave={handleSave} />
+      </div>
     </div>
   );
 }
@@ -364,13 +506,27 @@ interface CardDetailViewProps {
 
 const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
   const navigate = useNavigate();
+  const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabKey>("conversas");
-  const [showEditModal, setShowEditModal] = useState(false);
   const updateStatus = useUpdateLeadStatus();
   const toggleBot = useToggleBotStatus();
 
+  // Local lead state so inline edits reflect immediately without reload
+  const [lead, setLead] = useState(initialLead);
+  useEffect(() => { setLead(initialLead); }, [initialLead]);
 
-  if (!initialLead) {
+  // Inline name editing in header
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
+
+  const handleLeadUpdated = useCallback((updated: Partial<Lead>) => {
+    setLead(prev => prev ? { ...prev, ...updated } : prev);
+  }, []);
+
+  if (!lead) {
     return (
       <div className="h-screen flex flex-col items-center justify-center gap-4 text-muted-foreground">
         <User className="h-12 w-12 opacity-30" />
@@ -382,7 +538,6 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
     );
   }
 
-  const lead = initialLead;
   const leadId = Number(lead.id);
   const isBotActive = Boolean(lead.bot_active);
   const verdict = lead.status as string;
@@ -390,6 +545,19 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
   const handleVerdict = (newStatus: "approved" | "rejected") => {
     const toggled = verdict === newStatus ? "active" : newStatus;
     updateStatus.mutate({ id: leadId, status: toggled });
+  };
+
+  const commitName = async () => {
+    if (!nameDraft.trim() || nameDraft === lead.name) { setEditingName(false); return; }
+    setNameSaving(true);
+    try {
+      await leadsApi.update(lead.id, { name: nameDraft.trim() } as Parameters<typeof leadsApi.update>[1]);
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead", lead.id] });
+      setLead(prev => prev ? { ...prev, name: nameDraft.trim() } : prev);
+      setEditingName(false);
+    } catch { /* silent */ }
+    finally { setNameSaving(false); }
   };
 
   return (
@@ -406,7 +574,34 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
               <ArrowLeft className="h-4 w-4" />
             </button>
             <div className="min-w-0">
-              <h1 className="text-base font-bold truncate leading-tight">{lead.name}</h1>
+              {editingName ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    ref={nameInputRef}
+                    value={nameDraft}
+                    onChange={e => setNameDraft(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") commitName(); if (e.key === "Escape") setEditingName(false); }}
+                    className="bg-muted text-sm font-bold rounded-md px-2 py-0.5 border border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/60 w-44"
+                  />
+                  <button onClick={commitName} disabled={nameSaving} className="p-1 text-green-400 hover:bg-green-400/10 rounded transition-colors">
+                    {nameSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  </button>
+                  <button onClick={() => setEditingName(false)} className="p-1 text-muted-foreground hover:bg-secondary/60 rounded transition-colors">
+                    <XIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="group flex items-center gap-1.5">
+                  <h1 className="text-base font-bold truncate leading-tight">{lead.name}</h1>
+                  <button
+                    onClick={() => { setNameDraft(lead.name); setEditingName(true); }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-muted-foreground hover:text-accent transition-all"
+                    title="Editar nome"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
               <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Phone className="w-3 h-3" /> {lead.phone}
                 {lead.funnel_name && <><span className="opacity-40">·</span><span>{String(lead.funnel_name)}</span></>}
@@ -512,17 +707,12 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
             className="h-full"
           >
             {activeTab === "conversas" && <ConversationsPanel leadId={leadId} />}
-            {activeTab === "info" && <div className="overflow-y-auto h-full scrollbar-thin"><InfoPanel lead={lead} onEdit={() => setShowEditModal(true)} /></div>}
+            {activeTab === "info" && <div className="overflow-y-auto h-full scrollbar-thin"><InfoPanel lead={lead} onLeadUpdated={handleLeadUpdated} /></div>}
             {activeTab === "documentos" && <div className="overflow-y-auto h-full scrollbar-thin"><DocumentsPanel leadId={leadId} /></div>}
             {activeTab === "checklist" && <ChecklistPanel leadId={leadId} />}
           </motion.div>
         </AnimatePresence>
       </div>
-
-      {/* Lead Edit Modal */}
-      {showEditModal && (
-        <LeadEditModal lead={lead} onClose={() => setShowEditModal(false)} />
-      )}
     </div>
   );
 };

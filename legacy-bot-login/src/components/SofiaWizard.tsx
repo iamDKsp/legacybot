@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronRight, ChevronLeft, Sparkles, Bot } from "lucide-react";
 import sofiaImg from "@/assets/sofia-3d.png";
 
-// ── Per-user localStorage key ──────────────────────────────────
+// ── Per-user localStorage key (main onboarding wizard) ────────
 export function getWizardKey(userId: number | string) {
   return `legacy_onboarding_done_${userId}`;
 }
@@ -16,15 +16,15 @@ export function resetWizard(userId: number | string) {
   localStorage.removeItem(getWizardKey(userId));
 }
 
-// ── Step definitions ───────────────────────────────────────────
-interface WizardStep {
+// ── Step definition ────────────────────────────────────────────
+export interface WizardStep {
   id: string;
-  targetId?: string; // data-wizard-id of the element to spotlight
+  targetId?: string;
   title: string;
   text: string;
-  bubblePosition?: "top" | "right" | "center"; // where the bubble sits
 }
 
+// ── Main onboarding steps (shown once after first login) ───────
 const STEPS: WizardStep[] = [
   {
     id: "welcome",
@@ -35,42 +35,35 @@ const STEPS: WizardStep[] = [
     id: "crm",
     targetId: "module-crm",
     title: "Módulo de Processos 📋",
-    text: "Aqui você gerencia todos os seus leads num quadro Kanban. Cada coluna é uma etapa do funil. Arraste, edite e acompanhe o progresso dos seus clientes!",
-    bubblePosition: "top",
+    text: "Aqui você gerencia todos os seus leads num quadro Kanban. Cada coluna é uma etapa do funil de atendimento. Arraste os cards para avançar os clientes no processo!",
   },
   {
     id: "database",
     targetId: "module-database",
     title: "Banco de Dados 🗄️",
-    text: "Aqui ficam todos os dados coletados: leads, documentos verificados e arquivos da base de conhecimento que uso para responder melhor!",
-    bubblePosition: "top",
+    text: "Aqui ficam todos os dados coletados: leads, documentos verificados e a base de conhecimento que uso para responder os clientes com precisão. Você também edita meus prompts aqui!",
   },
   {
     id: "setup",
     targetId: "module-setup",
     title: "Configurações ⚙️",
-    text: "Aqui você conecta o WhatsApp escaneando o QR Code, gerencia usuários do sistema e muito mais. É o primeiro passo para me deixar online!",
-    bubblePosition: "top",
-  },
-  {
-    id: "ai",
-    targetId: "module-aiconfig",
-    title: "Configurações da IA 🧠",
-    text: "Acesse pelo menu superior de qualquer tela. Lá você ajusta minha personalidade, delays de digitação, horário de atendimento e outras configurações para eu parecer mais humana!",
-    bubblePosition: "top",
+    text: "Aqui você conecta o WhatsApp escaneando o QR Code, gerencia os usuários do sistema e ajusta minhas configurações de IA. É o primeiro passo para me deixar online!",
   },
   {
     id: "finish",
-    title: "Você está pronto! 🎉",
-    text: "Agora é com você! Comece conectando o WhatsApp em Configurações. Se precisar de mim, estarei aqui respondendo seus clientes 24 horas por dia. Boa sorte!",
+    title: "Tudo pronto! 🎉",
+    text: "Parabéns, você já conhece o básico! Em cada módulo vou aparecer com dicas extras. Se precisar de mim, estarei aqui respondendo seus clientes 24 horas por dia. Boa sorte!",
   },
 ];
 
-// ── Typewriter text component ──────────────────────────────────
+// ── Typewriter text (bug-fixed: onDone kept in ref to avoid re-runs) ──
 function TypewriterText({ text, onDone }: { text: string; onDone?: () => void }) {
   const [displayed, setDisplayed] = useState("");
   const charRef = useRef(0);
-  const ref = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Stabilise onDone in a ref so it never causes the effect to re-run
+  const onDoneRef = useRef(onDone);
+  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   useEffect(() => {
     setDisplayed("");
@@ -80,26 +73,24 @@ function TypewriterText({ text, onDone }: { text: string; onDone?: () => void })
       charRef.current++;
       setDisplayed(text.substring(0, charRef.current));
       if (charRef.current < text.length) {
-        ref.current = setTimeout(tick, 22 + Math.random() * 18);
+        timerRef.current = setTimeout(tick, 22 + Math.random() * 18);
       } else {
-        onDone?.();
+        onDoneRef.current?.();
       }
     }
-    ref.current = setTimeout(tick, 100);
-    return () => { if (ref.current) clearTimeout(ref.current); };
-  }, [text, onDone]);
+    timerRef.current = setTimeout(tick, 100);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [text]); // ← only text, never onDone → no more infinite resets
 
   return (
     <span>
       {displayed}
-      {displayed.length < text.length && (
-        <span className="wizard-cursor" />
-      )}
+      {displayed.length < text.length && <span className="wizard-cursor" />}
     </span>
   );
 }
 
-// ── Confetti component (step 6) ────────────────────────────────
+// ── Confetti ───────────────────────────────────────────────────
 function Confetti() {
   const pieces = Array.from({ length: 28 }, (_, i) => ({
     id: i,
@@ -133,7 +124,7 @@ function Confetti() {
   );
 }
 
-// ── Spotlight highlight ─────────────────────────────────────────
+// ── Spotlight ring around a targeted element ───────────────────
 function SpotlightTarget({ targetId }: { targetId?: string }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
 
@@ -141,20 +132,17 @@ function SpotlightTarget({ targetId }: { targetId?: string }) {
     if (!targetId) { setRect(null); return; }
     const el = document.querySelector(`[data-wizard-id="${targetId}"]`);
     if (el) {
-      const r = el.getBoundingClientRect();
-      setRect(r);
+      setRect(el.getBoundingClientRect());
       el.classList.add("wizard-target-highlight");
     }
     return () => {
-      if (targetId) {
-        const el2 = document.querySelector(`[data-wizard-id="${targetId}"]`);
-        el2?.classList.remove("wizard-target-highlight");
-      }
+      document
+        .querySelector(`[data-wizard-id="${targetId}"]`)
+        ?.classList.remove("wizard-target-highlight");
     };
   }, [targetId]);
 
   if (!rect) return null;
-
   const PAD = 12;
   return (
     <div
@@ -172,7 +160,108 @@ function SpotlightTarget({ targetId }: { targetId?: string }) {
   );
 }
 
-// ── Main SofiaWizard Component ────────────────────────────────
+// ── Shared bubble UI (used by both wizard and context guide) ───
+interface BubbleProps {
+  steps: WizardStep[];
+  step: number;
+  textDone: boolean;
+  exiting: boolean;
+  onNext: () => void;
+  onPrev: () => void;
+  onClose: () => void;
+  onTextDone: () => void;
+  isLastLabel?: string;
+}
+
+function SofiaBubble({ steps, step, textDone, exiting, onNext, onPrev, onClose, onTextDone, isLastLabel = "Começar!" }: BubbleProps) {
+  const current = steps[step];
+  const isLast = step === steps.length - 1;
+
+  return (
+    <>
+      <div
+        className={`wizard-overlay ${exiting ? "wizard-overlay-exit" : "wizard-overlay-enter"}`}
+        onClick={onClose}
+        style={{ zIndex: 10000 }}
+      />
+      {current.targetId && <SpotlightTarget targetId={current.targetId} />}
+      {isLast && <Confetti />}
+
+      <div
+        className={`wizard-sofia-container ${exiting ? "wizard-sofia-exit" : "wizard-sofia-enter"}`}
+        style={{ zIndex: 10002 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="wizard-bubble-wrap">
+          {/* Step dots */}
+          {steps.length > 1 && (
+            <div className="wizard-dots">
+              {steps.map((_, i) => (
+                <div
+                  key={i}
+                  className={`wizard-dot ${i === step ? "wizard-dot-active" : i < step ? "wizard-dot-done" : ""}`}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="wizard-bubble-title">
+            <Sparkles className="h-3.5 w-3.5 text-accent flex-shrink-0" />
+            <span>{current.title}</span>
+          </div>
+
+          <p className="wizard-bubble-text">
+            <TypewriterText
+              key={`bubble-${step}`}
+              text={current.text}
+              onDone={onTextDone}
+            />
+          </p>
+
+          <div className="wizard-bubble-actions">
+            <button className="wizard-btn-skip" onClick={onClose}>
+              <X className="h-3.5 w-3.5" />
+              Fechar
+            </button>
+
+            <div className="flex items-center gap-2">
+              {step > 0 && (
+                <button className="wizard-btn-back" onClick={onPrev}>
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                className={`wizard-btn-next ${textDone ? "wizard-btn-next-ready" : ""}`}
+                onClick={onNext}
+              >
+                {isLast ? (
+                  <>
+                    <Bot className="h-4 w-4" />
+                    {isLastLabel}
+                  </>
+                ) : (
+                  <>
+                    Próximo
+                    <ChevronRight className="h-4 w-4" />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="wizard-bubble-tail" />
+        </div>
+
+        <div className="wizard-sofia-wrap">
+          <div className="wizard-sofia-glow" />
+          <img src={sofiaImg} alt="Sofia" className="wizard-sofia-img" draggable={false} />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Main SofiaWizard (onboarding, shown once per user) ─────────
 interface SofiaWizardProps {
   userId: number;
 }
@@ -189,12 +278,12 @@ const SofiaWizard = ({ userId }: SofiaWizardProps) => {
     return () => clearTimeout(t);
   }, [userId]);
 
-  const close = useCallback((markDone = true) => {
+  const close = useCallback(() => {
     setExiting(true);
     setTimeout(() => {
       setVisible(false);
       setExiting(false);
-      if (markDone) setWizardDone(userId);
+      setWizardDone(userId);
     }, 400);
   }, [userId]);
 
@@ -203,7 +292,7 @@ const SofiaWizard = ({ userId }: SofiaWizardProps) => {
       setTextDone(false);
       setStep((s) => s + 1);
     } else {
-      close(true);
+      close();
     }
   }, [step, close]);
 
@@ -216,120 +305,100 @@ const SofiaWizard = ({ userId }: SofiaWizardProps) => {
 
   if (!visible) return null;
 
-  const current = STEPS[step];
-  const isLast = step === STEPS.length - 1;
-  const isFirst = step === 0;
-
   return (
-    <>
-      {/* Overlay */}
-      <div
-        className={`wizard-overlay ${exiting ? "wizard-overlay-exit" : "wizard-overlay-enter"}`}
-        onClick={() => close(true)}
-        style={{ zIndex: 10000 }}
-      />
-
-      {/* Spotlight ring around the target element */}
-      {!isFirst && !isLast && (
-        <SpotlightTarget targetId={current.targetId} />
-      )}
-
-      {/* Confetti on last step */}
-      {isLast && <Confetti />}
-
-      {/* Sofia + bubble container (fixed bottom-left) */}
-      <div
-        className={`wizard-sofia-container ${exiting ? "wizard-sofia-exit" : "wizard-sofia-enter"}`}
-        style={{ zIndex: 10002 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Speech bubble */}
-        <div className="wizard-bubble-wrap">
-          {/* Step dots */}
-          <div className="wizard-dots">
-            {STEPS.map((_, i) => (
-              <div
-                key={i}
-                className={`wizard-dot ${i === step ? "wizard-dot-active" : i < step ? "wizard-dot-done" : ""}`}
-              />
-            ))}
-          </div>
-
-          {/* Title */}
-          <div className="wizard-bubble-title">
-            <Sparkles className="h-3.5 w-3.5 text-accent flex-shrink-0" />
-            <span>{current.title}</span>
-          </div>
-
-          {/* Text */}
-          <p className="wizard-bubble-text">
-            <TypewriterText
-              key={`${step}-text`}
-              text={current.text}
-              onDone={() => setTextDone(true)}
-            />
-          </p>
-
-          {/* Navigation */}
-          <div className="wizard-bubble-actions">
-            {/* Skip */}
-            <button
-              className="wizard-btn-skip"
-              onClick={() => close(true)}
-              title="Pular tour"
-            >
-              <X className="h-3.5 w-3.5" />
-              Pular
-            </button>
-
-            <div className="flex items-center gap-2">
-              {/* Back */}
-              {!isFirst && (
-                <button
-                  className="wizard-btn-back"
-                  onClick={prev}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-              )}
-
-              {/* Next / Finish */}
-              <button
-                className={`wizard-btn-next ${textDone ? "wizard-btn-next-ready" : ""}`}
-                onClick={next}
-              >
-                {isLast ? (
-                  <>
-                    <Bot className="h-4 w-4" />
-                    Começar!
-                  </>
-                ) : (
-                  <>
-                    Próximo
-                    <ChevronRight className="h-4 w-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* Bubble tail */}
-          <div className="wizard-bubble-tail" />
-        </div>
-
-        {/* Sofia image */}
-        <div className="wizard-sofia-wrap">
-          <div className="wizard-sofia-glow" />
-          <img
-            src={sofiaImg}
-            alt="Sofia"
-            className="wizard-sofia-img"
-            draggable={false}
-          />
-        </div>
-      </div>
-    </>
+    <SofiaBubble
+      steps={STEPS}
+      step={step}
+      textDone={textDone}
+      exiting={exiting}
+      onNext={next}
+      onPrev={prev}
+      onClose={close}
+      onTextDone={() => setTextDone(true)}
+      isLastLabel="Começar!"
+    />
   );
 };
 
 export default SofiaWizard;
+
+// ══════════════════════════════════════════════════════════════════
+//  SofiaContextGuide — Mini-tour autônomo para dentro de módulos
+//  Aparece uma vez por guideKey (salvo no localStorage)
+//  Uso: <SofiaContextGuide guideKey="crm-kanban" userId={user.id} steps={[...]} />
+// ══════════════════════════════════════════════════════════════════
+
+interface SofiaContextGuideProps {
+  /** Unique key for this guide — used as localStorage namespace */
+  guideKey: string;
+  steps: WizardStep[];
+  /** Optionally scope per-user so each user sees it independently */
+  userId?: number | string;
+  /** Delay before the guide appears (ms). Default 700 */
+  delay?: number;
+}
+
+function getContextStorageKey(guideKey: string, userId?: number | string) {
+  return userId ? `sofia_ctx_${guideKey}_${userId}` : `sofia_ctx_${guideKey}`;
+}
+
+export function SofiaContextGuide({
+  guideKey,
+  steps,
+  userId,
+  delay = 700,
+}: SofiaContextGuideProps) {
+  const storageKey = getContextStorageKey(guideKey, userId);
+
+  const [step, setStep] = useState(0);
+  const [visible, setVisible] = useState(false);
+  const [textDone, setTextDone] = useState(false);
+  const [exiting, setExiting] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem(storageKey) === "done") return;
+    const t = setTimeout(() => setVisible(true), delay);
+    return () => clearTimeout(t);
+  }, [storageKey, delay]);
+
+  const close = useCallback(() => {
+    setExiting(true);
+    setTimeout(() => {
+      setVisible(false);
+      setExiting(false);
+      localStorage.setItem(storageKey, "done");
+    }, 400);
+  }, [storageKey]);
+
+  const next = useCallback(() => {
+    if (step < steps.length - 1) {
+      setTextDone(false);
+      setStep((s) => s + 1);
+    } else {
+      close();
+    }
+  }, [step, steps.length, close]);
+
+  const prev = useCallback(() => {
+    if (step > 0) {
+      setTextDone(false);
+      setStep((s) => s - 1);
+    }
+  }, [step]);
+
+  if (!visible || steps.length === 0) return null;
+
+  return (
+    <SofiaBubble
+      steps={steps}
+      step={step}
+      textDone={textDone}
+      exiting={exiting}
+      onNext={next}
+      onPrev={prev}
+      onClose={close}
+      onTextDone={() => setTextDone(true)}
+      isLastLabel="Entendido!"
+    />
+  );
+}

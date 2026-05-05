@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import { whatsappApi, aiConfigApi } from "@/services/api";
 import UsersTab from "@/components/UsersTab";
+import { useAuth } from "@/contexts/AuthContext";
+import { SofiaContextGuide, WizardStep } from "@/components/SofiaWizard";
 
 // ─── Types (Sofia Tab) ────────────────────────────────────────
 interface AISettings {
@@ -332,9 +334,48 @@ const QR_POLL_MAX_ATTEMPTS = 25; // ~75 seconds max wait for QR
 // ─── Tab Definitions ──────────────────────────────────────────
 type SetupTab = "whatsapp" | "sofia" | "usuarios";
 
+// ─── Sofia guide steps for Setup module ───────────────────────
+const SETUP_GUIDE_STEPS: WizardStep[] = [
+  {
+    id: "setup-welcome",
+    title: "Configurações ⚙️",
+    text: "Aqui você controla tudo relacionado ao meu funcionamento! Vou te mostrar cada seção.",
+  },
+  {
+    id: "setup-whatsapp",
+    targetId: "setup-tab-whatsapp",
+    title: "Aba WhatsApp 📱",
+    text: "Esta é a primeira coisa que você deve configurar! Clique em 'Conectar WhatsApp' e escaneie o QR Code com o celular vinculado ao número que você quer usar. Depois disso, começo a responder os clientes automaticamente!",
+  },
+  {
+    id: "setup-qr",
+    title: "QR Code e Sessão 🔄",
+    text: "A sessão do WhatsApp fica salva — ou seja, não precisa escanear todo dia. Se eu ficar offline, clique em 'Limpar Cache' para forçar uma reconexão limpa com um novo QR Code.",
+  },
+  {
+    id: "setup-test",
+    targetId: "setup-test-message",
+    title: "Enviar Mensagem de Teste 📤",
+    text: "Depois de conectar, use esta seção para enviar uma mensagem de teste. É a melhor forma de confirmar que estou online e funcionando antes de receber clientes reais!",
+  },
+  {
+    id: "setup-sofia-tab",
+    targetId: "setup-tab-sofia",
+    title: "Aba IA · Sofia 🧠",
+    text: "Nesta aba você personaliza minha personalidade, delays de digitação, horário de atendimento e outros comportamentos. Vale a pena explorar — há muitas opções para me tornar mais natural e humanizada!",
+  },
+  {
+    id: "setup-users-tab",
+    targetId: "setup-tab-usuarios",
+    title: "Aba Usuários 👥",
+    text: "Crie e gerencie as contas dos operadores do sistema. Cada usuário tem suas próprias credenciais de login e acesso ao CRM. Recomendo criar pelo menos um usuário além do admin!",
+  },
+];
+
 // ─── Main Page ────────────────────────────────────────────────
 const Setup = () => {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<SetupTab>("whatsapp");
     const [statusInfo, setStatusInfo] = useState<StatusInfo>({ status: "unknown" });
     const [qrBase64, setQrBase64] = useState<string | null>(null);
@@ -606,6 +647,7 @@ const Setup = () => {
     const isConnecting = statusInfo.status === "connecting";
 
     return (
+        <>
         <div className="min-h-screen bg-card text-card-foreground">
             {/* Top bar */}
             <div className="sticky top-0 z-10 border-b border-border bg-card/90 backdrop-blur">
@@ -633,6 +675,7 @@ const Setup = () => {
                 {/* Tab bar */}
                 <div className="flex gap-1 px-6 pb-0">
                     <button
+                        data-wizard-id="setup-tab-whatsapp"
                         onClick={() => setActiveTab("whatsapp")}
                         className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
                             activeTab === "whatsapp"
@@ -644,6 +687,7 @@ const Setup = () => {
                         WhatsApp
                     </button>
                     <button
+                        data-wizard-id="setup-tab-sofia"
                         onClick={() => setActiveTab("sofia")}
                         className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
                             activeTab === "sofia"
@@ -655,6 +699,7 @@ const Setup = () => {
                         IA · Sofia
                     </button>
                     <button
+                        data-wizard-id="setup-tab-usuarios"
                         onClick={() => setActiveTab("usuarios")}
                         className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
                             activeTab === "usuarios"
@@ -944,6 +989,17 @@ const Setup = () => {
 
             </div>
         </div>
+
+        {/* Sofia in-module guide — shown once per user */}
+        {user && (
+            <SofiaContextGuide
+                guideKey="setup-module"
+                steps={SETUP_GUIDE_STEPS}
+                userId={user.id}
+                delay={1000}
+            />
+        )}
+        </>
     );
 };
 

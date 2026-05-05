@@ -22,6 +22,8 @@ import {
     Zap,
 } from "lucide-react";
 import { aiConfigApi } from "@/services/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { SofiaContextGuide, WizardStep } from "@/components/SofiaWizard";
 
 // ─── Types ─────────────────────────────────────────────────────
 interface AISettings {
@@ -146,9 +148,49 @@ function InputRow({ label, settingKey, settings, onChange, type = "text", suffix
     );
 }
 
+// ─── Sofia guide steps for AI Config module ───────────────────
+const AI_GUIDE_STEPS: WizardStep[] = [
+  {
+    id: "ai-welcome",
+    title: "Configurações da IA 🧠",
+    text: "Aqui você me molda! Cada card a seguir controla um aspecto do meu comportamento. Vou explicar os mais importantes.",
+  },
+  {
+    id: "ai-identity",
+    targetId: "ai-identity-card",
+    title: "Minha Identidade 👤",
+    text: "Aqui você define quem eu sou: meu nome, idade e como me apresento. Se quiser me chamar de outro nome ou me dar uma personalidade mais formal ou descontraída, é aqui!",
+  },
+  {
+    id: "ai-typing",
+    targetId: "ai-typing-card",
+    title: "Delay de Digitação ⌨️",
+    text: "Simulo digitação real com delays variáveis. O 'Por caractere' é o mais importante — quanto maior o valor, mais devagar eu 'digito'. Recomendo entre 20-40ms para parecer humano sem demorar demais.",
+  },
+  {
+    id: "ai-business-hours",
+    targetId: "ai-business-hours-card",
+    title: "Horário de Atendimento 🕐",
+    text: "Configure aqui o horário em que atendo. Fora desse período, envio uma mensagem humanizada informando que retorno em breve. Lembre que o fuso é BRT (Brasília)!",
+  },
+  {
+    id: "ai-emotional",
+    targetId: "ai-emotional-card",
+    title: "Detecção Emocional ❤️",
+    text: "Analiso o tom emocional das mensagens dos clientes e adapto minha resposta. Se o cliente estiver ansioso, sou mais acolhedora. Se estiver irritado, uso linguagem mais calma e empática.",
+  },
+  {
+    id: "ai-save",
+    targetId: "ai-save-btn",
+    title: "Salvar Configurações 💾",
+    text: "Não esqueça de clicar em 'Salvar Alterações' depois de editar! As mudanças só entram em vigor depois de salvar. O botão fica dourado quando há alterações pendentes.",
+  },
+];
+
 // ─── Main Page ─────────────────────────────────────────────────
 const AIConfig = () => {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [settings, setSettings] = useState<AISettings>({});
     const [stats, setStats] = useState<AIStats>({ activeMemoryPatterns: 0, totalLeads: 0, botActiveLeads: 0 });
     const [loading, setLoading] = useState(true);
@@ -208,6 +250,7 @@ const AIConfig = () => {
     }
 
     return (
+        <>
         <div className="min-h-screen bg-card text-card-foreground">
             {/* ── Top bar ── */}
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/90 backdrop-blur px-6 py-4">
@@ -229,6 +272,8 @@ const AIConfig = () => {
                         <RefreshCw className="h-3.5 w-3.5" /> Recarregar
                     </button>
                     <button
+                        id="ai-save-btn"
+                        data-wizard-id="ai-save-btn"
                         onClick={handleSave}
                         disabled={saving || !dirty}
                         className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
@@ -271,6 +316,7 @@ const AIConfig = () => {
                 {/* ── Feature Cards Grid ── */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {/* 1. Identity */}
+                    <div data-wizard-id="ai-identity-card">
                     <FeatureCard
                         icon={<User className="h-5 w-5" />}
                         title="Identidade — Sofia"
@@ -292,8 +338,10 @@ const AIConfig = () => {
                             />
                         </div>
                     </FeatureCard>
+                    </div>
 
                     {/* 2. Typing Delay */}
+                    <div data-wizard-id="ai-typing-card">
                     <FeatureCard
                         icon={<Keyboard className="h-5 w-5" />}
                         title="Delay de Digitação"
@@ -307,6 +355,7 @@ const AIConfig = () => {
                         <InputRow label="Delay máximo" settingKey="typing_delay_max_ms" settings={settings} onChange={handleChange} type="number" suffix="ms" />
                         <InputRow label="Por caractere" settingKey="typing_delay_per_char_ms" settings={settings} onChange={handleChange} type="number" suffix="ms" />
                     </FeatureCard>
+                    </div>
 
                     {/* 3. Typing Presence */}
                     <FeatureCard
@@ -342,6 +391,7 @@ const AIConfig = () => {
                     </FeatureCard>
 
                     {/* 5. Emotional Detection */}
+                    <div data-wizard-id="ai-emotional-card">
                     <FeatureCard
                         icon={<Heart className="h-5 w-5" />}
                         title="Detecção Emocional"
@@ -366,8 +416,10 @@ const AIConfig = () => {
                             </div>
                         </div>
                     </FeatureCard>
+                    </div>
 
                     {/* 6. Business Hours */}
+                    <div data-wizard-id="ai-business-hours-card">
                     <FeatureCard
                         icon={<Clock className="h-5 w-5" />}
                         title="Horário de Funcionamento"
@@ -385,6 +437,7 @@ const AIConfig = () => {
                             "Oi! Aqui é a Sofia da Legacy 👋 Estou fora do horário, mas já vi sua mensagem! Amanhã cedinho te dou todo suporte."
                         </div>
                     </FeatureCard>
+                    </div>
 
                     {/* 7. Anti-anxiety */}
                     <FeatureCard
@@ -474,6 +527,17 @@ const AIConfig = () => {
                 </div>
             </div>
         </div>
+
+        {/* Sofia in-module guide */}
+        {user && (
+            <SofiaContextGuide
+                guideKey="ai-config-module"
+                steps={AI_GUIDE_STEPS}
+                userId={user.id}
+                delay={900}
+            />
+        )}
+        </>
     );
 };
 

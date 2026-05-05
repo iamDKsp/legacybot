@@ -47,44 +47,35 @@ services:
   # WhatsApp — Evolution API (Baileys, open source)
   # Infra barata: sem custos de terceiros
   # ──────────────────────────────────────────────────────────
-  evolution:
-    image: atendai/evolution-api:latest
-    container_name: legacy_evolution
+  # ──────────────────────────────────────────────────────────
+  # WhatsApp Bridge — Baileys based
+  # ──────────────────────────────────────────────────────────
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    container_name: legacy_whatsapp_bridge
     restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "8081:8081"
     environment:
-      SERVER_TYPE: http
-      SERVER_PORT: 8080
-      SERVER_URL: http://evolution:8080
-      # Autenticação da Evolution API
-      AUTHENTICATION_TYPE: apikey
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:-legacy-evolution-api-key-2026}
-      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
-      # Banco de dados da Evolution (SQLite — sem custo extra)
-      DATABASE_ENABLED: "false"
-      # Log
-      LOG_LEVEL: ERROR
-      LOG_COLOR: "true"
-      # Webhook padrão → nosso backend
-      WEBHOOK_GLOBAL_URL: http://backend:3001/api/webhook/whatsapp
-      WEBHOOK_GLOBAL_ENABLED: "true"
-      WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
-      # Eventos que queremos receber
-      WEBHOOK_EVENTS_MESSAGES_UPSERT: "true"
-      WEBHOOK_EVENTS_MESSAGES_UPDATE: "true"
-      WEBHOOK_EVENTS_CONNECTION_UPDATE: "true"
-      WEBHOOK_EVENTS_QRCODE_UPDATED: "true"
-      # Mídia — transferir base64 no webhook (para análise Gemini)
-      CONFIG_SESSION_PHONE_CLIENT: Legacy CRM
-      CONFIG_SESSION_PHONE_NAME: Chrome
-      # Instância padrão
-      INSTANCE_NAME: ${WHATSAPP_INSTANCE:-legacy-crm}
+      PORT: 8081
+      EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:-legacy-evolution-api-key-2026}
+      WEBHOOK_URL: http://backend:3001/api/webhook/whatsapp
     volumes:
-      - evolution_data:/evolution/instances
-      - evolution_store:/evolution/store
-    depends_on:
-      - backend
+      - whatsapp_sessions:/app/sessions
+    networks:
+      - legacy_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: legacy_redis
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - legacy_network
 
@@ -113,13 +104,16 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY:-}
-      GOOGLE_AI_MODEL: ${GOOGLE_AI_MODEL:-gemini-1.5-flash}
-      WHATSAPP_API_URL: http://evolution:8080
+      GOOGLE_AI_MODEL: ${GOOGLE_AI_MODEL:-gemini-3.1-flash-lite-preview}
+      GOOGLE_AI_MEDIA_MODEL: ${GOOGLE_AI_MEDIA_MODEL:-gemini-2.0-flash-lite}
+      WHATSAPP_API_URL: http://whatsapp-bridge:8081
       WHATSAPP_API_KEY: ${EVOLUTION_API_KEY:-legacy-evolution-api-key-2026}
       WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-legacy-crm}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:-legacy-webhook-secret-2026}
     ports:
       - "3001:3001"
+    volumes:
+      - uploads_data:/app/uploads
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:3001/health" ]
       interval: 30s
@@ -154,10 +148,10 @@ services:
 volumes:
   db_data:
     name: legacy_db_data
-  evolution_data:
-    name: legacy_evolution_data
-  evolution_store:
-    name: legacy_evolution_store
+  whatsapp_sessions:
+    name: legacy_whatsapp_sessions
+  uploads_data:
+    name: legacy_uploads_data
 
 # ──────────────────────────────────────────────────────────
 # Networks

@@ -8,6 +8,9 @@ import BottomNavBar from "../modules/crm/components/BottomNavBar";
 import DashboardView from "../modules/crm/components/dashboard/DashboardView";
 import TasksView from "../modules/crm/components/tasks/TasksView";
 import PHCView from "../modules/crm/components/phc/PHCView";
+import SofiaTaskNotifier from "@/components/SofiaTaskNotifier";
+import SofiaMessageNotifier from "@/components/SofiaMessageNotifier";
+import { SofiaContextGuide, WizardStep } from "@/components/SofiaWizard";
 
 type Tab = "crm" | "phc" | "painel" | "tarefas";
 
@@ -17,13 +20,48 @@ const NAV_ICONS = [
   { icon: Cpu, label: "Processos IA", path: "/ai-config" },
 ] as const;
 
-import SofiaTaskNotifier from "@/components/SofiaTaskNotifier";
-import SofiaMessageNotifier from "@/components/SofiaMessageNotifier";
+// ── Sofia guide steps for the CRM module ─────────────────────
+const CRM_GUIDE_STEPS: WizardStep[] = [
+  {
+    id: "crm-welcome",
+    title: "Módulo de Processos 📋",
+    text: "Bem-vindo ao coração do Legacy Bot! Aqui você acompanha cada cliente no funil de atendimento em tempo real.",
+  },
+  {
+    id: "crm-kanban",
+    targetId: "crm-kanban-board",
+    title: "Quadro Kanban 🗂️",
+    text: "Cada coluna representa uma etapa do processo. Os cards são seus leads. Clique num card para ver os detalhes, histórico de mensagens e documentos enviados.",
+  },
+  {
+    id: "crm-funnels",
+    targetId: "crm-funnel-tabs",
+    title: "Funis de Atendimento 🎯",
+    text: "Cada funil tem um fluxo diferente! Trabalhista, Negativado, Golpe do Pix... Alterne entre eles aqui em cima para ver os leads de cada especialidade.",
+  },
+  {
+    id: "crm-add-lead",
+    targetId: "crm-new-lead-btn",
+    title: "Adicionar Lead ➕",
+    text: "Use este botão para cadastrar um lead manualmente. Normalmente eu já faço isso automaticamente quando o cliente me envia a primeira mensagem!",
+  },
+  {
+    id: "crm-bottom-nav",
+    targetId: "crm-bottom-nav",
+    title: "Navegação do CRM 📱",
+    text: "Use a barra de baixo para alternar entre o Kanban, o PHC (Pré-Histórico de Casos), o Painel de métricas e as Tarefas pendentes para sua equipe.",
+  },
+  {
+    id: "crm-tasks",
+    title: "Tarefas e PHC ✅",
+    text: "Quando preciso que um humano entre em ação — como pedir um documento presencialmente — crio uma Tarefa automaticamente. Confira a aba Tarefas para não perder nada!",
+  },
+];
 
 const CRM = () => {
   const [activeTab, setActiveTab] = useState<Tab>("crm");
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">
@@ -68,7 +106,6 @@ const CRM = () => {
                 title={label}
               >
                 <Icon className="h-4.5 w-4.5" />
-                {/* Tooltip */}
                 <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-0.5 text-[10px] font-medium text-accent bg-card/90 backdrop-blur-sm rounded-md border border-border/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap pointer-events-none shadow-lg">
                   {label}
                 </span>
@@ -147,9 +184,20 @@ const CRM = () => {
           )}
         </AnimatePresence>
       </div>
+
       <BottomNavBar activeTab={activeTab} onTabChange={setActiveTab} />
       <SofiaTaskNotifier />
       <SofiaMessageNotifier />
+
+      {/* Sofia in-module guide — shown once per user */}
+      {user && (
+        <SofiaContextGuide
+          guideKey="crm-module"
+          steps={CRM_GUIDE_STEPS}
+          userId={user.id}
+          delay={1000}
+        />
+      )}
     </div>
   );
 };
