@@ -54,9 +54,9 @@ export async function login(req: Request, res: Response): Promise<void> {
                 },
             },
         });
-    } catch (err) {
+    } catch (err: any) {
         console.error('Login error:', err);
-        res.status(500).json({ success: false, error: 'Erro ao realizar login' });
+        res.status(500).json({ success: false, error: 'Erro ao realizar login', debug: err?.message });
     }
 }
 
