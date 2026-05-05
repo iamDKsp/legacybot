@@ -69,8 +69,8 @@ export async function getCharts(req: Request, res: Response): Promise<void> {
                 .groupBy('status'),
 
             db('leads')
-                .select(db.raw('DATE(created_at) as date'), db.raw('COUNT(id) as count'))
-                .whereRaw('created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)')
+                .select(db.raw("DATE(created_at) as date"), db.raw('COUNT(id) as count'))
+                .whereRaw("created_at >= NOW() - INTERVAL '30 days'")
                 .where('status', '!=', 'archived')
                 .groupByRaw('DATE(created_at)')
                 .orderBy('date', 'asc'),

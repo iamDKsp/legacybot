@@ -493,15 +493,15 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 return;
             }
 
-            const [leadId] = await db('leads').insert({
+            const [{ id: leadId }] = await db('leads').insert({
                 name: name || phone,
                 phone,
                 origin: 'whatsapp',
                 funnel_id: defaultFunnel.id,
                 stage_id: defaultStage.id,
                 whatsapp_id: whatsappId,
-                bot_active: 1,
-            });
+                bot_active: true,
+            }).returning('id');
 
             lead = await db('leads').where({ id: leadId }).first();
 
@@ -511,7 +511,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 lead_id: leadId,
                 session_token: sessionToken,
                 step: 'greeting',
-                is_active: 1,
+                is_active: true,
             });
 
             await db('leads').where({ id: leadId }).update({ bot_session_id: sessionToken });
@@ -564,7 +564,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 address: null,
                 email: null,
                 bot_stage: 'reception',
-                bot_active: 1,
+                bot_active: true,
                 stage_id: resetStageId,
                 funnel_id: defaultFunnelReset?.id ?? lead.funnel_id, // reset funnel so Sofia doesn't bias toward previous case
                 updated_at: new Date(),
@@ -587,12 +587,12 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         // Find or create conversation
         let conversation = await db('conversations').where({ lead_id: lead.id }).first();
         if (!conversation) {
-            const [convId] = await db('conversations').insert({
+            const [{ id: convId }] = await db('conversations').insert({
                 lead_id: lead.id,
                 whatsapp_chat_id: chatId || whatsappId,
                 channel: 'whatsapp',
                 status: 'open',
-            });
+            }).returning('id');
             conversation = await db('conversations').where({ id: convId }).first();
         }
 
@@ -605,14 +605,14 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             mediaType = 'image';
             const filePath = saveImageToDisk(lead.id as number, imageBase64, imageMimeType, `midia_${Date.now()}`);
             if (filePath) {
-                const [docId] = await db('documents').insert({
+                const [{ id: docId }] = await db('documents').insert({
                     lead_id: lead.id,
                     name: `Mídia WhatsApp`,
                     file_type: imageMimeType,
                     file_path: filePath,
                     status: 'recebido',
                     notes: 'Em análise...'
-                });
+                }).returning('id');
                 documentId = docId;
                 imageUrl = `/api/leads/${lead.id}/documents/${docId}/download`;
             }
@@ -620,7 +620,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             mediaType = 'audio';
         }
 
-        const [msgId] = await db('messages').insert({
+        const [{ id: msgId }] = await db('messages').insert({
             conversation_id: conversation.id,
             lead_id: lead.id,
             content: message,
@@ -628,7 +628,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             sender: 'lead',
             media_type: mediaType,
             image_url: imageUrl
-        });
+        }).returning('id');
 
         // Update conversation last message
         await db('conversations').where({ id: conversation.id }).update({
@@ -856,7 +856,7 @@ async function processDocumentImage(
                 rejDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
             } else {
                 const rejFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, `recebido_rejeitado_${Date.now()}`);
-                const [rejDocId] = await db('documents').insert({ lead_id: leadId, name: `[Ilegível] ${docType}`, file_type: imageMimeType, file_path: rejFilePath, status: 'rejeitado', notes: analysis.issues });
+                const [{ id: rejDocId }] = await db('documents').insert({ lead_id: leadId, name: `[Ilegível] ${docType}`, file_type: imageMimeType, file_path: rejFilePath, status: 'rejeitado', notes: analysis.issues }).returning('id');
                 rejDocUrl = rejFilePath ? `/api/leads/${leadId}/documents/${rejDocId}/download` : null;
             }
 
@@ -933,7 +933,7 @@ async function processDocumentImage(
                     frontDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
                     const frontFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, `${docType}_frente`);
-                    const [frontDocId] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, status: 'aprovado', notes: textData });
+                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, status: 'aprovado', notes: textData }).returning('id');
                     frontDocUrl = frontFilePath ? `/api/leads/${leadId}/documents/${frontDocId}/download` : null;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} frente aprovada | Nome: ${extractedName || 'N/D'} | CPF: ${extractedCpf || 'N/D'}` });
@@ -964,7 +964,7 @@ async function processDocumentImage(
                     backDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
                     const backFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, `${docType}_verso`);
-                    const [backDocId] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, status: 'aprovado', notes: textData });
+                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, status: 'aprovado', notes: textData }).returning('id');
                     backDocUrl = backFilePath ? `/api/leads/${leadId}/documents/${backDocId}/download` : null;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} verso aprovado` });
@@ -1043,7 +1043,7 @@ async function processDocumentImage(
                     genericDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
                     const genericFilePath = saveImageToDisk(leadId, imageBase64, imageMimeType, docSavedName.replace(/\s+/g, '_'));
-                    const [genericDocId] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, status: 'aprovado', notes: textData });
+                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, status: 'aprovado', notes: textData }).returning('id');
                     genericDocUrl = genericFilePath ? `/api/leads/${leadId}/documents/${genericDocId}/download` : null;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docSavedName} aprovado | Dados: ${textData.substring(0, 100) || 'N/D'}` });
@@ -1504,14 +1504,14 @@ export async function sendMessage(req: Request, res: Response): Promise<void> {
             return;
         }
 
-        const [msgId] = await db('messages').insert({
+        const [{ id: msgId }] = await db('messages').insert({
             conversation_id: conversation.id,
             lead_id: Number(lead_id),
             content,
             direction: 'outbound',
             sender: 'assessor',
             sender_user_id: req.user?.userId,
-        });
+        }).returning('id');
 
         const message = await db('messages').where({ id: msgId }).first();
 

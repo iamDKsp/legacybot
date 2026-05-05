@@ -193,7 +193,7 @@ Responda apenas o JSON, sem explicações.`;
                             100,
                             (existing as { confidence_score: number }).confidence_score + (p.converted ? 5 : 1)
                         ),
-                        lead_converted: p.converted ? 1 : (existing as { lead_converted: number }).lead_converted,
+                        lead_converted: p.converted ? true : Boolean((existing as { lead_converted: boolean | number }).lead_converted),
                     });
             } else {
                 await db('bot_memory').insert({
@@ -201,10 +201,10 @@ Responda apenas o JSON, sem explicações.`;
                     trigger_pattern: p.trigger.slice(0, 200),
                     successful_response: p.response?.slice(0, 500) || null,
                     legal_area: p.area || null,
-                    lead_converted: p.converted ? 1 : 0,
+                    lead_converted: p.converted,
                     usage_count: 1,
                     confidence_score: p.converted ? 65 : 45,
-                    is_active: 1,
+                    is_active: true,
                 });
             }
         }
@@ -244,7 +244,7 @@ export async function getTopPatterns(
     category?: string,
     limit = 20
 ): Promise<BotMemoryRow[]> {
-    let query = db('bot_memory').where('is_active', 1);
+    let query = db('bot_memory').where('is_active', true);
     if (category) query = query.where('category', category);
     return query.orderBy('usage_count', 'desc').orderBy('confidence_score', 'desc').limit(limit);
 }
@@ -255,11 +255,11 @@ export async function getTopPatterns(
 export async function getLearningSummary(): Promise<LearningSummary> {
     const [total, active] = await Promise.all([
         db('bot_memory').count('id as count').first(),
-        db('bot_memory').where('is_active', 1).count('id as count').first(),
+        db('bot_memory').where('is_active', true).count('id as count').first(),
     ]);
 
     const byCategory = await db('bot_memory')
-        .where('is_active', 1)
+        .where('is_active', true)
         .groupBy('category')
         .select('category')
         .count('id as count');

@@ -1,0 +1,45 @@
+# ── Ambiente / Segredos ──────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.env.local
+
+# ── Node modules ─────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Build outputs ────────────────────────────────────────────
+dist/
+build/
+**/dist/
+**/build/
+
+# ── Logs ─────────────────────────────────────────────────────
+*.log
+logs/
+backend_*.log
+npm-debug.log*
+
+# ── Sessões WhatsApp (dados de runtime — NÃO commitar) ───────
+whatsapp-bridge/sessions/
+
+# ── Uploads de usuário (runtime — Railway usa Volume) ────────
+backend/uploads/
+
+# ── TypeScript cache ─────────────────────────────────────────
+*.tsbuildinfo
+**/tsconfig.tsbuildinfo
+
+# ── Vite cache ───────────────────────────────────────────────
+*.timestamp-*.mjs
+**/.vite/
+
+# ── OS files ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user

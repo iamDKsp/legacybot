@@ -1,23 +1,28 @@
-import knex from 'knex';
+import knex, { Knex } from 'knex';
 import { config } from './env';
 
-export const db = knex({
-    client: 'mysql2',
-    connection: {
+// Railway injeta DATABASE_URL — tem prioridade absoluta sobre vars individuais
+const connection: string | Knex.PgConnectionConfig = config.db.url
+    ? config.db.url
+    : {
         host: config.db.host,
         port: config.db.port,
         database: config.db.name,
         user: config.db.user,
         password: config.db.password,
-        charset: 'utf8mb4',
-        timezone: 'America/Sao_Paulo',
-    },
+        // SSL obrigatório no Railway PostgreSQL
+        ssl: config.nodeEnv === 'production' ? { rejectUnauthorized: false } : false,
+    };
+
+export const db = knex({
+    client: 'pg',
+    connection,
     pool: {
-        min: 2,
-        max: 10,
+        min: 1,   // Railway free tier: conservar conexões
+        max: 5,   // Railway free tier: máximo seguro
         acquireTimeoutMillis: 30000,
         createTimeoutMillis: 30000,
-        idleTimeoutMillis: 30000,
+        idleTimeoutMillis: 600000,   // 10min: fecha conexões ociosas
     },
     debug: config.nodeEnv === 'development',
 });
@@ -25,7 +30,7 @@ export const db = knex({
 export async function testConnection(): Promise<void> {
     try {
         await db.raw('SELECT 1');
-        console.log('✅ Database connected successfully');
+        console.log('✅ Database (PostgreSQL) connected successfully');
     } catch (error) {
         console.error('❌ Database connection failed:', error);
         throw error;

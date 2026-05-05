@@ -57,7 +57,7 @@ export async function getAIConfig(_req: Request, res: Response): Promise<void> {
 
         // Also fetch learning stats for the dashboard
         const memoryCount = await db('bot_memory')
-            .where('is_active', 1)
+            .where('is_active', true)
             .count('id as count')
             .first();
 
@@ -66,7 +66,7 @@ export async function getAIConfig(_req: Request, res: Response): Promise<void> {
             .first();
 
         const botActiveLeads = await db('leads')
-            .where('bot_active', 1)
+            .where('bot_active', true)
             .count('id as count')
             .first();
 

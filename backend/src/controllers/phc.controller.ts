@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../config/database';
-import { generateAndSavePhcPdf } from '../services/phc-pdf.service';
-import fs from 'fs';
+import { generatePhcPdfBuffer } from '../services/phc-pdf.service';
 
 // ============================================================
 // PHC Lawyers — CRUD
@@ -26,7 +25,7 @@ export const createLawyer = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        const [id] = await db('phc_lawyers').insert({ name, oab, cpf, email, phone, address, city, state, additional_info });
+        const [{ id }] = await db('phc_lawyers').insert({ name, oab, cpf, email, phone, address, city, state, additional_info }).returning('id');
         const lawyer = await db('phc_lawyers').where({ id }).first();
         res.status(201).json({ success: true, data: lawyer });
     } catch (err) {
@@ -158,14 +157,14 @@ export const createPhcDocument = async (req: Request, res: Response): Promise<vo
             return;
         }
 
-        const [id] = await db('phc_documents').insert({
+        const [{ id }] = await db('phc_documents').insert({
             lead_id,
             lawyer_id,
             doc_type,
             funnel_slug,
             notes,
             status: 'rascunho',
-        });
+        }).returning('id');
 
         const doc = await db('phc_documents as pd')
             .join('leads as l', 'pd.lead_id', 'l.id')
@@ -225,7 +224,7 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
         const doc = await db('phc_documents as pd')
             .join('leads as l', 'pd.lead_id', 'l.id')
             .join('phc_lawyers as pl', 'pd.lawyer_id', 'pl.id')
-            .join('funnels as f', 'l.funnel_id', 'f.id')
+            .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
             .select(
                 'pd.id', 'pd.doc_type', 'pd.status', 'pd.notes', 'pd.file_path',
                 // Lead data
@@ -249,53 +248,41 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        let filePath = doc.file_path as string | null;
+        const lead = {
+            name:           String(doc.lead_name || ''),
+            cpf:            doc.lead_cpf            as string | null,
+            rg:             doc.lead_rg             as string | null,
+            marital_status: doc.lead_marital_status as string | null,
+            nationality:    doc.lead_nationality    as string | null,
+            address:        doc.lead_address        as string | null,
+            city:           doc.lead_city           as string | null,
+            state:          doc.lead_state          as string | null,
+            phone:          doc.lead_phone          as string | null,
+            email:          doc.lead_email          as string | null,
+            description:    doc.lead_description    as string | null,
+            funnel_name:    doc.funnel_name         as string | null,
+            birthdate:      doc.lead_birthdate      as string | null,
+        };
 
-        // Re-use cached file if it still exists on disk
-        if (filePath && fs.existsSync(filePath)) {
-            console.log(`[PHC] Serving cached PDF: ${filePath}`);
-        } else {
-            // Build typed objects for the PDF service
-            const lead = {
-                name:           String(doc.lead_name || ''),
-                cpf:            doc.lead_cpf            as string | null,
-                rg:             doc.lead_rg             as string | null,
-                marital_status: doc.lead_marital_status as string | null,
-                nationality:    doc.lead_nationality    as string | null,
-                address:        doc.lead_address        as string | null,
-                city:           doc.lead_city           as string | null,
-                state:          doc.lead_state          as string | null,
-                phone:          doc.lead_phone          as string | null,
-                email:          doc.lead_email          as string | null,
-                description:    doc.lead_description    as string | null,
-                funnel_name:    doc.funnel_name         as string | null,
-                birthdate:      doc.lead_birthdate      as string | null,
-            };
+        const lawyer = {
+            name:            String(doc.lawyer_name || ''),
+            oab:             String(doc.lawyer_oab  || ''),
+            cpf:             doc.lawyer_cpf             as string | null,
+            address:         doc.lawyer_address         as string | null,
+            city:            doc.lawyer_city            as string | null,
+            state:           doc.lawyer_state           as string | null,
+            additional_info: doc.lawyer_additional_info as string | null,
+        };
 
-            const lawyer = {
-                name:            String(doc.lawyer_name || ''),
-                oab:             String(doc.lawyer_oab  || ''),
-                cpf:             doc.lawyer_cpf             as string | null,
-                address:         doc.lawyer_address         as string | null,
-                city:            doc.lawyer_city            as string | null,
-                state:           doc.lawyer_state           as string | null,
-                additional_info: doc.lawyer_additional_info as string | null,
-            };
+        // Gera PDF em memória — sem salvar em disco (Railway filesystem é efêmero)
+        const pdfBuffer = await generatePhcPdfBuffer(
+            doc.doc_type as 'procuracao' | 'declaracao_hipo' | 'contrato',
+            lead,
+            lawyer,
+            doc.notes as string | null
+        );
 
-            filePath = await generateAndSavePhcPdf(
-                doc.doc_type as 'procuracao' | 'declaracao_hipo' | 'contrato',
-                id,
-                lead,
-                lawyer,
-                doc.notes as string | null
-            );
-
-            // Cache path and mark as 'salvo'
-            await db('phc_documents').where({ id }).update({ file_path: filePath, status: 'salvo' });
-            console.log(`[PHC] PDF generated and cached: ${filePath}`);
-        }
-
-        // Always mark as 'baixado' on download
+        // Marca como 'baixado'
         await db('phc_documents').where({ id }).update({ status: 'baixado' });
 
         const docTypeLabels: Record<string, string> = {
@@ -303,15 +290,15 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             declaracao_hipo: 'Declaracao_Hipossuficiencia',
             contrato:        'Contrato_Honorarios',
         };
-        const label     = docTypeLabels[String(doc.doc_type)] ?? 'Documento';
-        const leadName  = String(doc.lead_name || 'cliente').replace(/\s+/g, '_');
-        const filename  = `PHC_${label}_${leadName}.pdf`;
+        const label    = docTypeLabels[String(doc.doc_type)] ?? 'Documento';
+        const leadName = String(doc.lead_name || 'cliente').replace(/\s+/g, '_');
+        const filename = `PHC_${label}_${leadName}.pdf`;
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Length', pdfBuffer.length.toString());
         res.setHeader('Cache-Control', 'private, no-cache');
-
-        fs.createReadStream(filePath as string).pipe(res);
+        res.end(pdfBuffer);
     } catch (err) {
         console.error('[PHC] downloadPhcPdf error:', err);
         res.status(500).json({ success: false, error: 'Erro ao gerar ou baixar o PDF do PHC' });

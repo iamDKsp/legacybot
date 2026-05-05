@@ -22,7 +22,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     try {
         const user = await db('users')
             .where('email', email)
-            .where('is_active', 1)
+            .where('is_active', true)
             .first();
 
         if (!user) {

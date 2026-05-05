@@ -186,7 +186,7 @@ async function processMessage(msgData: Record<string, unknown>): Promise<void> {
             address: null,
             email: null,
             bot_stage: 'reception',
-            bot_active: 1,
+            bot_active: true,
             stage_id: resetStageId,
             updated_at: new Date()
         });
@@ -605,7 +605,7 @@ async function getOrCreateLead(phone: string, pushName?: string): Promise<Record
         const displayPhone = phone.includes('@') ? phone.split('@')[0] : phone;
         const initialName = pushName && pushName.trim().length > 0 ? pushName : `Lead ${displayPhone.slice(-4)}`;
 
-        const [newLeadId] = await db('leads').insert({
+        const [{ id: newLeadId }] = await db('leads').insert({
             name: initialName,
             phone,
             origin: 'whatsapp',
@@ -616,7 +616,7 @@ async function getOrCreateLead(phone: string, pushName?: string): Promise<Record
             bot_stage: 'reception',
             created_at: new Date(),
             updated_at: new Date(),
-        });
+        }).returning('id');
 
         lead = await db('leads').where('id', newLeadId).first();
 
@@ -636,14 +636,14 @@ async function getOrCreateConversation(leadId: number, whatsappChatId: string): 
         .first();
 
     if (!conversation) {
-        const [id] = await db('conversations').insert({
+        const [{ id }] = await db('conversations').insert({
             lead_id: leadId,
             whatsapp_chat_id: whatsappChatId,
             channel: 'whatsapp',
             status: 'open',
             created_at: new Date(),
             updated_at: new Date(),
-        });
+        }).returning('id');
         conversation = await db('conversations').where('id', id).first();
     }
 
@@ -737,7 +737,7 @@ export async function toggleLeadBot(req: Request, res: Response): Promise<void> 
 
     try {
         await db('leads').where('id', id).update({
-            bot_active: active ? 1 : 0,
+            bot_active: Boolean(active),
             bot_stage: active ? 'reception' : db.raw('bot_stage'),
             updated_at: new Date(),
         });
@@ -753,7 +753,7 @@ export async function getBotMemory(req: Request, res: Response): Promise<void> {
     const { category, limit = '50' } = req.query as { category?: string; limit?: string };
 
     try {
-        let query = db('bot_memory').where('is_active', 1);
+        let query = db('bot_memory').where('is_active', true);
         if (category) query = query.where('category', category);
 
         const patterns = await query
@@ -761,7 +761,7 @@ export async function getBotMemory(req: Request, res: Response): Promise<void> {
             .orderBy('confidence_score', 'desc')
             .limit(parseInt(limit, 10));
 
-        const total = await db('bot_memory').where('is_active', 1).count('id as count').first();
+        const total = await db('bot_memory').where('is_active', true).count('id as count').first();
 
         res.json({
             success: true,
@@ -789,15 +789,15 @@ export async function addBotMemory(req: Request, res: Response): Promise<void> {
     }
 
     try {
-        const [id] = await db('bot_memory').insert({
+        const [{ id }] = await db('bot_memory').insert({
             category,
             trigger_pattern,
             successful_response: successful_response || null,
             legal_area: legal_area || null,
             usage_count: 1,
-            confidence_score: 75, // Manual entries start with higher confidence
-            is_active: 1,
-        });
+            confidence_score: 75,
+            is_active: true,
+        }).returning('id');
         res.json({ success: true, id });
     } catch (err) {
         const error = err as { message?: string };
@@ -810,7 +810,7 @@ export async function deleteBotMemory(req: Request, res: Response): Promise<void
     const { id } = req.params;
 
     try {
-        await db('bot_memory').where('id', id).update({ is_active: 0 });
+        await db('bot_memory').where('id', id).update({ is_active: false });
         res.json({ success: true, message: 'Padrão desativado' });
     } catch (err) {
         const error = err as { message?: string };

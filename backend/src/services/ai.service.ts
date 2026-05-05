@@ -316,7 +316,7 @@ export async function getRelevantMemories(userMessage: string): Promise<string> 
         if (keywords.length === 0) return '';
 
         const patterns = await db('bot_memory')
-            .where('is_active', 1)
+            .where('is_active', true)
             .where('category', '!=', 'error_pattern')
             .orderBy('usage_count', 'desc')
             .orderBy('confidence_score', 'desc')
@@ -466,7 +466,7 @@ export async function recordSuccessPattern(
                 .where('id', (existing as { id: number }).id)
                 .increment('usage_count', 1)
                 .update({
-                    lead_converted: converted ? 1 : (existing as { lead_converted: number }).lead_converted,
+                    lead_converted: converted ? true : Boolean((existing as { lead_converted: boolean | number }).lead_converted),
                     confidence_score: Math.min(
                         100,
                         (existing as { confidence_score: number }).confidence_score + (converted ? 5 : 1)
@@ -478,10 +478,10 @@ export async function recordSuccessPattern(
                 trigger_pattern: trigger,
                 successful_response: botReply.slice(0, 500),
                 legal_area: legalArea,
-                lead_converted: converted ? 1 : 0,
+                lead_converted: converted,
                 usage_count: 1,
                 confidence_score: converted ? 60 : 45,
-                is_active: 1,
+                is_active: true,
             });
         }
     } catch {

@@ -53,13 +53,13 @@ export async function createUser(req: Request, res: Response): Promise<void> {
 
         const password_hash = await bcrypt.hash(password, 10);
 
-        const [id] = await db('users').insert({
+        const [{ id }] = await db('users').insert({
             name,
             email,
             password_hash,
             role,
-            is_active: 1,
-        });
+            is_active: true,
+        }).returning('id');
 
         const user = await db('users')
             .select('id', 'name', 'email', 'role', 'avatar_url', 'is_active', 'created_at')
@@ -115,7 +115,7 @@ export async function updateUser(req: Request, res: Response): Promise<void> {
             payload.email = updates.email;
         }
         if (updates.role !== undefined) payload.role = updates.role;
-        if (updates.is_active !== undefined) payload.is_active = updates.is_active ? 1 : 0;
+        if (updates.is_active !== undefined) payload.is_active = Boolean(updates.is_active);
         if (updates.password) {
             payload.password_hash = await bcrypt.hash(updates.password, 10);
         }
@@ -158,7 +158,7 @@ export async function deleteUser(req: Request, res: Response): Promise<void> {
         }
 
         // Soft delete
-        await db('users').where('id', userId).update({ is_active: 0 });
+        await db('users').where('id', userId).update({ is_active: false });
 
         res.json({ success: true, message: 'Usuário desativado com sucesso' });
     } catch (err) {

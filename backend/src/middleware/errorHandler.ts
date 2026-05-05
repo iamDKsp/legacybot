@@ -17,8 +17,8 @@ export function errorHandler(
         method: req.method,
     });
 
-    // MySQL duplicate entry
-    if (err.code === 'ER_DUP_ENTRY') {
+    // PostgreSQL unique violation (equivalente ao ER_DUP_ENTRY do MySQL)
+    if (err.code === '23505' || err.code === 'ER_DUP_ENTRY') {
         res.status(409).json({
             success: false,
             error: 'Registro duplicado. Verifique os dados informados.',
@@ -26,8 +26,8 @@ export function errorHandler(
         return;
     }
 
-    // MySQL foreign key constraint
-    if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+    // PostgreSQL foreign key violation (equivalente ao ER_NO_REFERENCED_ROW_2 do MySQL)
+    if (err.code === '23503' || err.code === 'ER_NO_REFERENCED_ROW_2') {
         res.status(400).json({
             success: false,
             error: 'Referência inválida. Verifique os dados informados.',

@@ -1,0 +1,11 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "node server.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+# Volume persistente para as sessões do Baileys
+# Configure no painel Railway: Service → Volumes → Mount Path: /app/sessions
+# Sem isso, o QR Code precisa ser re-escaneado a cada deploy.

@@ -85,10 +85,10 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
             const term = `%${String(search)}%`;
             query = query.where((builder) => {
                 builder
-                    .where('l.name',  'like', term)
-                    .orWhere('l.phone', 'like', term)
-                    .orWhere('l.cpf',   'like', term)
-                    .orWhere('l.email', 'like', term);
+                    .where('l.name',  'ilike', term)
+                    .orWhere('l.phone', 'ilike', term)
+                    .orWhere('l.cpf',   'ilike', term)
+                    .orWhere('l.email', 'ilike', term);
             });
         }
 
@@ -167,11 +167,11 @@ export async function createLead(req: Request, res: Response): Promise<void> {
         // Default stage to "recebido" (id=1) if not provided
         const stageId = result.data.stage_id || 1;
 
-        const [id] = await db('leads').insert({
+        const [{ id }] = await db('leads').insert({
             ...result.data,
             stage_id: stageId,
             email: result.data.email || null,
-        });
+        }).returning('id');
 
         const lead = await db('leads as l')
             .select('l.*', 'f.name as funnel_name', 'f.color as funnel_color', 's.name as stage_name')
@@ -192,7 +192,7 @@ export async function createLead(req: Request, res: Response): Promise<void> {
         res.status(201).json({ success: true, data: lead });
     } catch (err: unknown) {
         const error = err as { code?: string };
-        if (error.code === 'ER_DUP_ENTRY') {
+        if (error.code === '23505') {
             res.status(409).json({ success: false, error: 'Já existe um lead com este telefone' });
             return;
         }
@@ -475,12 +475,12 @@ export async function createLeadNote(req: Request, res: Response): Promise<void>
 
     const { id } = req.params;
     try {
-        const [noteId] = await db('notes').insert({
+        const [{ id: noteId }] = await db('notes').insert({
             lead_id: Number(id),
             author_type: 'user',
             author_user_id: req.user!.userId,
             content: result.data.content,
-        });
+        }).returning('id');
 
         const note = await db('notes as n')
             .select('n.*', 'u.name as author_name')
@@ -539,11 +539,11 @@ export async function createLeadDocument(req: Request, res: Response): Promise<v
 
     const { id } = req.params;
     try {
-        const [docId] = await db('documents').insert({
+        const [{ id: docId }] = await db('documents').insert({
             lead_id: Number(id),
             uploaded_by: req.user?.userId,
             ...result.data,
-        });
+        }).returning('id');
 
         const doc = await db('documents').where({ id: docId }).first();
         res.status(201).json({ success: true, data: doc });
@@ -626,7 +626,7 @@ export async function getFunnels(req: Request, res: Response): Promise<void> {
     try {
         const funnels = await db('funnels as f')
             .leftJoin('leads as l', 'f.id', 'l.funnel_id')
-            .where('f.is_active', 1)
+            .where('f.is_active', true)
             .groupBy('f.id')
             .orderBy('f.display_order')
             .select('f.*', db.raw('COUNT(l.id) as lead_count'));

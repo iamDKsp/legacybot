@@ -39,7 +39,7 @@ export async function getTasks(req: Request, res: Response): Promise<void> {
             .leftJoin('leads as l', 't.lead_id', 'l.id')
             .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
             .leftJoin('users as u', 't.assigned_to', 'u.id')
-            .orderByRaw(`FIELD(t.priority, 'alta', 'media', 'baixa')`)
+            .orderByRaw(`CASE t.priority WHEN 'alta' THEN 1 WHEN 'media' THEN 2 WHEN 'baixa' THEN 3 ELSE 4 END`)
             .orderBy('t.due_date', 'asc')
             .orderBy('t.created_at', 'desc');
 
@@ -69,10 +69,10 @@ export async function createTask(req: Request, res: Response): Promise<void> {
     }
 
     try {
-        const [id] = await db('tasks').insert({
+        const [{ id }] = await db('tasks').insert({
             ...result.data,
             created_by: req.user!.userId,
-        });
+        }).returning('id');
 
         const task = await db('tasks as t')
             .select('t.*', 'l.name as lead_name', 'f.name as funnel_name', 'f.color as funnel_color')

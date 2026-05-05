@@ -29,10 +29,12 @@ export const config = {
     frontendUrl: process.env.FRONTEND_URL || 'http://localhost:8080',
 
     db: {
+        // Railway injeta DATABASE_URL automaticamente — tem prioridade sobre as vars individuais
+        url: process.env.DATABASE_URL || '',
         host: process.env.DB_HOST || '127.0.0.1',
-        port: parseInt(process.env.DB_PORT || '3307', 10),
+        port: parseInt(process.env.DB_PORT || '5432', 10),
         name: process.env.DB_NAME || 'legacy',
-        user: process.env.DB_USER || 'root',
+        user: process.env.DB_USER || 'postgres',
         password: process.env.DB_PASSWORD || '',
     },
 

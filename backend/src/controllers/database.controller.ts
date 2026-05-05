@@ -12,16 +12,12 @@ import { db } from '../config/database';
 import { BOT_SYSTEM_PROMPT } from '../services/ai.service';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
 
 // ============================================================
-// Multer — stores to disk in /uploads/knowledge/
+// Multer — memoryStorage (Railway não tem filesystem persistente)
 // ============================================================
-const uploadDir = path.join(process.cwd(), 'uploads', 'knowledge');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
 export const knowledgeUpload = multer({
-    dest: uploadDir,
+    storage: multer.memoryStorage(),
     limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
     fileFilter: (_req, file, cb) => {
         const allowed = ['application/pdf', 'application/msword',
@@ -36,39 +32,27 @@ export const knowledgeUpload = multer({
 });
 
 // ============================================================
-// Extract text from uploaded file
+// Extract text from uploaded buffer (memoryStorage)
 // ============================================================
-async function extractTextFromFile(filePath: string, mimeType: string, originalName: string): Promise<string> {
+async function extractTextFromBuffer(buffer: Buffer, mimeType: string, originalName: string): Promise<string> {
     try {
         const ext = path.extname(originalName).toLowerCase();
 
-        // TXT — read directly
         if (mimeType === 'text/plain' || ext === '.txt') {
-            return fs.readFileSync(filePath, 'utf-8').slice(0, 50000);
+            return buffer.toString('utf-8').slice(0, 50000);
         }
 
-        // PDF — use pdf-parse
         if (mimeType === 'application/pdf' || ext === '.pdf') {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
             const pdfParse = require('pdf-parse');
-            const dataBuffer = fs.readFileSync(filePath);
-            const pdfData = await pdfParse(dataBuffer);
+            const pdfData = await pdfParse(buffer);
             return (pdfData.text || '').slice(0, 50000);
         }
 
-        // DOCX — use mammoth
-        if (mimeType.includes('wordprocessingml') || ext === '.docx') {
+        if (mimeType.includes('wordprocessingml') || ext === '.docx' || mimeType === 'application/msword' || ext === '.doc') {
             // eslint-disable-next-line @typescript-eslint/no-var-requires
             const mammoth = require('mammoth');
-            const result = await mammoth.extractRawText({ path: filePath });
-            return (result.value || '').slice(0, 50000);
-        }
-
-        // DOC (old format) — try mammoth anyway
-        if (mimeType === 'application/msword' || ext === '.doc') {
-            // eslint-disable-next-line @typescript-eslint/no-var-requires
-            const mammoth = require('mammoth');
-            const result = await mammoth.extractRawText({ path: filePath });
+            const result = await mammoth.extractRawText({ buffer });
             return (result.value || '').slice(0, 50000);
         }
 
@@ -174,7 +158,7 @@ export async function addKnowledgeFile(req: Request, res: Response): Promise<voi
 
     // Support both real file upload (multipart) and legacy metadata-only body
     if (req.file) {
-        // ── Real file upload path ──
+        // ── Real file upload path (memoryStorage) ──
         const file = req.file;
         const originalName = file.originalname;
         const sizeKb = Math.round(file.size / 1024);
@@ -182,19 +166,16 @@ export async function addKnowledgeFile(req: Request, res: Response): Promise<voi
 
         try {
             console.log(`[Knowledge] Extracting text from ${originalName} (${sizeKb}KB, ${file.mimetype})`);
-            const extractedText = await extractTextFromFile(file.path, file.mimetype, originalName);
+            const extractedText = await extractTextFromBuffer(file.buffer, file.mimetype, originalName);
             console.log(`[Knowledge] Extracted ${extractedText.length} chars from ${originalName}`);
 
-            const [id] = await db('knowledge_files').insert({
+            const [{ id }] = await db('knowledge_files').insert({
                 funnel_slug: funnel,
                 original_name: originalName,
                 file_size_kb: sizeKb,
                 file_type: ext,
                 extracted_text: extractedText || null,
-            });
-
-            // Clean up temp file
-            try { fs.unlinkSync(file.path); } catch { /* ignore */ }
+            }).returning('id');
 
             const fileRow = await db('knowledge_files').where('id', id).first();
             res.status(201).json({
@@ -203,8 +184,6 @@ export async function addKnowledgeFile(req: Request, res: Response): Promise<voi
                 chars_extracted: extractedText.length,
             });
         } catch (err) {
-            // Clean up temp file on error
-            try { fs.unlinkSync(file.path); } catch { /* ignore */ }
             const error = err as { message?: string };
             res.status(500).json({ success: false, error: error.message });
         }
@@ -216,11 +195,11 @@ export async function addKnowledgeFile(req: Request, res: Response): Promise<voi
             return;
         }
         try {
-            const [id] = await db('knowledge_files').insert({
+            const [{ id }] = await db('knowledge_files').insert({
                 funnel_slug: funnel,
                 original_name,
                 file_size_kb: file_size_kb || null,
-            });
+            }).returning('id');
             const file = await db('knowledge_files').where('id', id).first();
             res.status(201).json({ success: true, data: file });
         } catch (err) {
@@ -266,9 +245,9 @@ export async function getCollectedLeads(req: Request, res: Response): Promise<vo
 
         if (search) {
             query = query.where((q) => {
-                q.where('leads.name', 'like', `%${search}%`)
-                    .orWhere('leads.phone', 'like', `%${search}%`)
-                    .orWhere('leads.email', 'like', `%${search}%`);
+                q.where('leads.name', 'ilike', `%${search}%`)
+                    .orWhere('leads.phone', 'ilike', `%${search}%`)
+                    .orWhere('leads.email', 'ilike', `%${search}%`);
             });
         }
         if (funnel) query = query.where('funnels.slug', funnel);
@@ -314,8 +293,8 @@ export async function getVerifiedDocuments(req: Request, res: Response): Promise
 
         if (search) {
             query = query.where((q) => {
-                q.where('l.name', 'like', `%${search}%`)
-                    .orWhere('d.name', 'like', `%${search}%`);
+                q.where('l.name', 'ilike', `%${search}%`)
+                    .orWhere('d.name', 'ilike', `%${search}%`);
             });
         }
 
