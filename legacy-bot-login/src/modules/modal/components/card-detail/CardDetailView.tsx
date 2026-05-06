@@ -14,6 +14,7 @@ import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, us
 import { leadsApi } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckSquare } from "lucide-react";
+import { StyledSelect } from "@/components/ui/StyledSelect";
 
 
 // ─── Types ────────────────────────────────────────────────────
@@ -193,27 +194,21 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
       {editing ? (
         <>
           {type === "select-state" ? (
-            <select
-              ref={inputRef as React.RefObject<HTMLSelectElement>}
+            <StyledSelect
               value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onClick={e => e.stopPropagation()}
-              className={inputClass + " bg-muted"}
-            >
-              <option value="">Selecionar...</option>
-              {ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+              onChange={(v) => { setDraft(v); }}
+              placeholder="Selecionar..."
+              options={ESTADOS.map(s => ({ value: s, label: s }))}
+              className="flex-1 min-w-0"
+            />
           ) : type === "select-civil" ? (
-            <select
-              ref={inputRef as React.RefObject<HTMLSelectElement>}
+            <StyledSelect
               value={draft}
-              onChange={e => setDraft(e.target.value)}
-              onClick={e => e.stopPropagation()}
-              className={inputClass + " bg-muted"}
-            >
-              <option value="">Selecionar...</option>
-              {ESTADO_CIVIL.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
+              onChange={(v) => { setDraft(v); }}
+              placeholder="Selecionar..."
+              options={ESTADO_CIVIL.map(s => ({ value: s.value, label: s.label }))}
+              className="flex-1 min-w-0"
+            />
           ) : (
             <input
               ref={inputRef as React.RefObject<HTMLInputElement>}

@@ -1,11 +1,12 @@
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
-  Search, User, ChevronDown, FileText, Scroll, Scale,
+  Search, User, FileText, Scroll, Scale,
   Eye, Save, Loader2, AlertCircle, CheckCircle2, X
 } from "lucide-react";
 import { phcApi, leadsApi, PhcDocType, Lawyer, Lead } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { StyledSelect } from "@/components/ui/StyledSelect";
 
 const DOC_TYPES: { id: PhcDocType; label: string; icon: React.ReactNode; description: string }[] = [
   {
@@ -248,22 +249,15 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
             Nenhum advogado cadastrado. Vá para a aba <strong>Advogados</strong> para cadastrar.
           </p>
         ) : (
-          <div className="relative">
-            <select
-              value={selectedLawyer?.id ?? ""}
-              onChange={(e) => {
-                const l = lawyers.find((x) => x.id === Number(e.target.value));
-                setSelectedLawyer(l ?? null);
-              }}
-              className="w-full rounded-lg border border-border bg-muted py-2.5 px-4 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 appearance-none"
-            >
-              <option value="">Selecionar advogado...</option>
-              {lawyers.map((l) => (
-                <option key={l.id} value={l.id}>{l.name} — OAB {l.oab}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          </div>
+          <StyledSelect
+            value={selectedLawyer?.id ?? ""}
+            onChange={(v) => {
+              const l = lawyers.find((x) => x.id === Number(v));
+              setSelectedLawyer(l ?? null);
+            }}
+            options={lawyers.map((l) => ({ value: l.id, label: `${l.name} — OAB ${l.oab}` }))}
+            placeholder="Selecionar advogado..."
+          />
         )}
       </div>
 

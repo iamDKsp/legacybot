@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, User, Hash, Mail, Phone, MapPin, FileText, Save, Loader2, Search } from "lucide-react";
 import { phcApi, Lawyer } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { StyledSelect } from "@/components/ui/StyledSelect";
 
 interface LawyerFormProps {
   lawyer?: Lawyer;
@@ -269,10 +270,12 @@ export function LawyerForm({ lawyer, onClose }: LawyerFormProps) {
                   </div>
                   <div>
                     <label className={lbl}>Estado</label>
-                    <select className={inp + " cursor-pointer"} value={form.state} onChange={e => set("state", e.target.value)}>
-                      <option value="">UF</option>
-                      {ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                  <StyledSelect
+                    value={form.state}
+                    onChange={(v) => set("state", v)}
+                    placeholder="UF"
+                    options={ESTADOS.map(s => ({ value: s, label: s }))}
+                  />
                   </div>
                 </div>
               </div>

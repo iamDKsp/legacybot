@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { leadsApi, Lead } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
+import { StyledSelect } from "@/components/ui/StyledSelect";
 
 interface LeadEditModalProps {
   lead: Lead & Record<string, unknown>;
@@ -141,11 +142,12 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                   <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Heart className="h-3 w-3" /> Estado Civil
                   </label>
-                  <select value={form.marital_status} onChange={e => set("marital_status", e.target.value)}
-                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50">
-                    <option value="">Selecionar...</option>
-                    {ESTADO_CIVIL.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
+                  <StyledSelect
+                    value={form.marital_status}
+                    onChange={(v) => set("marital_status", v)}
+                    placeholder="Selecionar..."
+                    options={ESTADO_CIVIL.map(s => ({ value: s.value, label: s.label }))}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -186,11 +188,12 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Estado</label>
-                  <select value={form.state} onChange={e => set("state", e.target.value)}
-                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50">
-                    <option value="">Selecionar...</option>
-                    {ESTADOS.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
+                  <StyledSelect
+                    value={form.state}
+                    onChange={(v) => set("state", v)}
+                    placeholder="Selecionar..."
+                    options={ESTADOS.map(s => ({ value: s, label: s }))}
+                  />
                 </div>
               </div>
             </div>
