@@ -370,8 +370,13 @@ export async function runAutoMigrations(): Promise<void> {
         `).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_lead   ON phc_documents(lead_id)`).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_lawyer ON phc_documents(lawyer_id)`).catch(() => {});
-        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_funnel ON phc_documents(funnel_slug)`).catch(() => {});
         await ensureUpdatedAtTrigger('phc_documents').catch(() => {});
+        // Colunas que podem faltar em tabelas antigas (idempotente)
+        await db.raw(`ALTER TABLE phc_documents ADD COLUMN IF NOT EXISTS funnel_slug VARCHAR(100) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_documents ADD COLUMN IF NOT EXISTS notes       TEXT         DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_documents ADD COLUMN IF NOT EXISTS file_path   VARCHAR(500) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_documents ADD COLUMN IF NOT EXISTS status      VARCHAR(20)  DEFAULT 'rascunho'`).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_funnel ON phc_documents(funnel_slug)`).catch(() => {});
 
         // ── DOC-1. documents: file_path + file_url ───────────────────────────
         await db.raw(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_url  VARCHAR(500) DEFAULT NULL`).catch(() => {});
@@ -389,10 +394,8 @@ export async function runAutoMigrations(): Promise<void> {
                 ADD COLUMN IF NOT EXISTS birthdate      DATE         DEFAULT NULL
         `).catch(() => {});
 
-        // ── PHC-3. phc_documents: file_path (caso tabela já existia) ─────────
-        await db.raw(`ALTER TABLE phc_documents ADD COLUMN IF NOT EXISTS file_path VARCHAR(500) DEFAULT NULL`).catch(() => {});
-
         console.log('[DB] ✅ Auto-migrations concluídas (PostgreSQL)');
+
 
     } catch (err) {
         console.error('[DB] ❌ Migration error (non-fatal):', err);
