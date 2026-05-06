@@ -340,8 +340,8 @@ export async function runAutoMigrations(): Promise<void> {
                 created_at      TIMESTAMP    DEFAULT NOW(),
                 updated_at      TIMESTAMP    DEFAULT NOW()
             )
-        `);
-        await db.raw(`CREATE INDEX IF NOT EXISTS idx_lawyers_name ON phc_lawyers(name)`);
+        `).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_lawyers_name ON phc_lawyers(name)`).catch(() => {});
         await ensureUpdatedAtTrigger('phc_lawyers').catch(() => {});
 
         // ── PHC-2. phc_documents ─────────────────────────────────────────────
@@ -360,10 +360,10 @@ export async function runAutoMigrations(): Promise<void> {
                 created_at  TIMESTAMP    DEFAULT NOW(),
                 updated_at  TIMESTAMP    DEFAULT NOW()
             )
-        `);
-        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_lead   ON phc_documents(lead_id)`);
-        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_lawyer ON phc_documents(lawyer_id)`);
-        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_funnel ON phc_documents(funnel_slug)`);
+        `).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_lead   ON phc_documents(lead_id)`).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_lawyer ON phc_documents(lawyer_id)`).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_funnel ON phc_documents(funnel_slug)`).catch(() => {});
         await ensureUpdatedAtTrigger('phc_documents').catch(() => {});
 
         // ── DOC-1. documents: file_path + file_url ───────────────────────────
