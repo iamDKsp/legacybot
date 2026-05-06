@@ -18,14 +18,21 @@ export const getLawyers = async (_req: Request, res: Response): Promise<void> =>
 
 export const createLawyer = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { name, oab, cpf, email, phone, address, city, state, additional_info } = req.body;
+        const {
+            name, oab, cpf, email, phone,
+            address, city, state, additional_info,
+            // Endereço dividido (v2)
+            cep, street, street_number, neighborhood, complement,
+        } = req.body;
 
         if (!name || !oab) {
             res.status(400).json({ success: false, error: 'Nome e OAB são obrigatórios' });
             return;
         }
 
-        const [{ id }] = await db('phc_lawyers').insert({ name, oab, cpf, email, phone, address, city, state, additional_info }).returning('id');
+        const [{ id }] = await db('phc_lawyers')
+            .insert({ name, oab, cpf, email, phone, address, city, state, additional_info, cep, street, street_number, neighborhood, complement })
+            .returning('id');
         const lawyer = await db('phc_lawyers').where({ id }).first();
         res.status(201).json({ success: true, data: lawyer });
     } catch (err) {
@@ -37,9 +44,17 @@ export const createLawyer = async (req: Request, res: Response): Promise<void> =
 export const updateLawyer = async (req: Request, res: Response): Promise<void> => {
     try {
         const id = parseInt(req.params.id, 10);
-        const { name, oab, cpf, email, phone, address, city, state, additional_info } = req.body;
+        const {
+            name, oab, cpf, email, phone,
+            address, city, state, additional_info,
+            cep, street, street_number, neighborhood, complement,
+        } = req.body;
 
-        await db('phc_lawyers').where({ id }).update({ name, oab, cpf, email, phone, address, city, state, additional_info });
+        await db('phc_lawyers').where({ id }).update({
+            name, oab, cpf, email, phone,
+            address, city, state, additional_info,
+            cep, street, street_number, neighborhood, complement,
+        });
         const lawyer = await db('phc_lawyers').where({ id }).first();
 
         if (!lawyer) {

@@ -342,6 +342,12 @@ export async function runAutoMigrations(): Promise<void> {
         await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS city            VARCHAR(100) DEFAULT NULL`).catch(() => {});
         await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS state           CHAR(2)      DEFAULT NULL`).catch(() => {});
         await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS additional_info TEXT         DEFAULT NULL`).catch(() => {});
+        // Endereço dividido (v2)
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS cep             VARCHAR(9)   DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS street          VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS street_number   VARCHAR(20)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS neighborhood    VARCHAR(100) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS complement      VARCHAR(100) DEFAULT NULL`).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_lawyers_name ON phc_lawyers(name)`).catch(() => {});
         await ensureUpdatedAtTrigger('phc_lawyers').catch(() => {});
 

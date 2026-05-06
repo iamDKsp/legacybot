@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, Scroll, Scale, Loader2, AlertCircle, Trash2, Filter,
-  User, Hash, Calendar, Download, CheckCircle2
+  User, Hash, Calendar, Download, CheckCircle2, ChevronDown, Check
 } from "lucide-react";
 import { phcApi, PhcDocument, PhcDocType, PhcStatus } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +20,102 @@ const STATUS_LABELS: Record<PhcStatus, { label: string; color: string }> = {
   baixado:  { label: "Baixado",  color: "text-accent bg-accent/10 border-accent/30" },
 };
 
+// ── Custom Filter Dropdown ────────────────────────────────────────────────────
+interface FilterOption { value: string; label: string }
+
+interface FilterDropdownProps {
+  value: string;
+  onChange: (v: string) => void;
+  options: FilterOption[];
+  placeholder: string;
+}
+
+function FilterDropdown({ value, onChange, options, placeholder }: FilterDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selected = options.find(o => o.value === value);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(p => !p)}
+        className={[
+          "flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium",
+          "border transition-all duration-200 select-none",
+          open
+            ? "border-accent/60 bg-accent/10 text-accent shadow-[0_0_0_3px_hsl(var(--accent)/0.12)]"
+            : "border-border bg-card text-card-foreground hover:border-accent/40 hover:bg-secondary/60",
+        ].join(" ")}
+      >
+        <span>{selected?.label ?? placeholder}</span>
+        <motion.span animate={{ rotate: open ? 180 : 0 }} transition={{ duration: 0.2 }}>
+          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+        </motion.span>
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            className="absolute right-0 top-full mt-2 z-50 min-w-[170px] rounded-xl border border-border/60 bg-card/95 backdrop-blur-xl shadow-2xl shadow-black/30 overflow-hidden"
+          >
+            <div className="p-1.5 flex flex-col gap-0.5">
+              {options.map((opt) => {
+                const isActive = opt.value === value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => { onChange(opt.value); setOpen(false); }}
+                    className={[
+                      "flex items-center justify-between gap-3 w-full px-3 py-2 rounded-lg text-xs font-medium",
+                      "transition-all duration-150 text-left",
+                      isActive
+                        ? "bg-accent/15 text-accent"
+                        : "text-card-foreground hover:bg-secondary/70 hover:text-foreground",
+                    ].join(" ")}
+                  >
+                    <span>{opt.label}</span>
+                    {isActive && <Check className="h-3 w-3 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── Opções dos filtros ────────────────────────────────────────────────────────
+const FUNNEL_OPTIONS: FilterOption[] = [
+  { value: "", label: "Todos os funis" },
+  { value: "trabalhista", label: "Trabalhista" },
+  { value: "negativado", label: "Negativado" },
+  { value: "golpe-pix", label: "Golpe Pix" },
+  { value: "golpe-cibernetico", label: "Golpe Cibernético" },
+];
+
+const STATUS_OPTIONS: FilterOption[] = [
+  { value: "", label: "Todos os status" },
+  { value: "rascunho", label: "Rascunho" },
+  { value: "salvo", label: "Salvo" },
+  { value: "baixado", label: "Baixado" },
+];
+
+// ── PhcList ───────────────────────────────────────────────────────────────────
 export function PhcList() {
   const qc = useQueryClient();
   const [funnelFilter, setFunnelFilter] = useState("");
@@ -95,27 +191,18 @@ export function PhcList() {
           </div>
           <div className="flex items-center gap-2 sm:ml-auto">
             <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-            <select
+            <FilterDropdown
               value={funnelFilter}
-              onChange={(e) => setFunnelFilter(e.target.value)}
-              className="rounded-lg border border-border bg-muted py-1.5 px-3 text-xs text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
-            >
-              <option value="">Todos os funis</option>
-              <option value="trabalhista">Trabalhista</option>
-              <option value="negativado">Negativado</option>
-              <option value="golpe-pix">Golpe Pix</option>
-              <option value="golpe-cibernetico">Golpe Cibernético</option>
-            </select>
-            <select
+              onChange={setFunnelFilter}
+              options={FUNNEL_OPTIONS}
+              placeholder="Todos os funis"
+            />
+            <FilterDropdown
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-lg border border-border bg-muted py-1.5 px-3 text-xs text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50"
-            >
-              <option value="">Todos os status</option>
-              <option value="rascunho">Rascunho</option>
-              <option value="salvo">Salvo</option>
-              <option value="baixado">Baixado</option>
-            </select>
+              onChange={setStatusFilter}
+              options={STATUS_OPTIONS}
+              placeholder="Todos os status"
+            />
           </div>
         </div>
 

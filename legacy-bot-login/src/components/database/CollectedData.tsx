@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, User, Phone, Mail, Calendar, X, MessageSquare, ChevronRight, Loader2, ExternalLink } from "lucide-react";
+import { Search, User, Phone, Mail, Calendar, X, MessageSquare, ChevronRight, Loader2, ExternalLink, LayoutDashboard } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { databaseApi, CollectedLead } from "@/services/api";
 
@@ -11,8 +11,27 @@ export function CollectedData() {
   const [selectedLead, setSelectedLead] = useState<CollectedLead | null>(null);
   const navigate = useNavigate();
 
+  const handleOpenCrm = (lead: CollectedLead) => {
+    const crmLead = {
+      id: lead.id,
+      name: lead.name,
+      phone: lead.phone,
+      email: lead.email,
+      cpf: lead.cpf,
+      origin: (lead.origin === "whatsapp" ? "whatsapp" : "manual") as "whatsapp" | "manual",
+      status: (lead.status || "active") as "active" | "approved" | "rejected" | "archived",
+      bot_active: lead.bot_active,
+      bot_stage: lead.bot_stage,
+      funnel_name: lead.funnel_name,
+      funnel_slug: lead.funnel_slug,
+      stage_name: lead.stage_name,
+      created_at: lead.created_at,
+      updated_at: lead.updated_at,
+    };
+    navigate("/client-hub", { state: { lead: crmLead } });
+  };
+
   const handleOpenConversation = (lead: CollectedLead) => {
-    // Map CollectedLead to the CRM Lead shape expected by ClientHub
     const crmLead = {
       id: String(lead.id),
       name: lead.name,
@@ -48,9 +67,7 @@ export function CollectedData() {
     return "Em Atendimento";
   };
 
-  const formatDate = (dateStr: string) => {
-    return new Date(dateStr).toLocaleDateString("pt-BR");
-  };
+  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString("pt-BR");
 
   return (
     <div className="relative">
@@ -209,18 +226,32 @@ export function CollectedData() {
                   </div>
                 </div>
 
-                {/* Open Conversation Button */}
-                {selectedLead.message_count > 0 && (
+                {/* Action Buttons */}
+                <div className="flex flex-col gap-3">
+                  {/* Abrir no CRM — sempre visível */}
                   <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    onClick={() => handleOpenConversation(selectedLead)}
-                    className="w-full flex items-center justify-center gap-3 p-4 rounded-xl bg-primary/10 border border-primary/30 text-primary font-semibold hover:bg-primary/20 transition-all duration-200 group"
+                    onClick={() => handleOpenCrm(selectedLead)}
+                    className="w-full flex items-center justify-center gap-3 p-4 rounded-xl bg-accent/15 border border-accent/40 text-accent font-semibold hover:bg-accent/25 transition-all duration-200 group"
                   >
-                    <ExternalLink className="w-5 h-5 transition-transform group-hover:translate-x-0.5" />
-                    Abrir Conversa
+                    <LayoutDashboard className="w-5 h-5 transition-transform group-hover:scale-110" />
+                    Abrir Card no CRM
                   </motion.button>
-                )}
+
+                  {/* Ver conversa — só quando tem mensagens */}
+                  {selectedLead.message_count > 0 && (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handleOpenConversation(selectedLead)}
+                      className="w-full flex items-center justify-center gap-3 p-4 rounded-xl bg-primary/10 border border-primary/30 text-primary font-semibold hover:bg-primary/20 transition-all duration-200 group"
+                    >
+                      <ExternalLink className="w-5 h-5 transition-transform group-hover:translate-x-0.5" />
+                      Ver Conversa
+                    </motion.button>
+                  )}
+                </div>
               </div>
             </motion.div>
           </>

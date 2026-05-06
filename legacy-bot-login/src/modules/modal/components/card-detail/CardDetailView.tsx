@@ -177,12 +177,16 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
   const inputClass = "flex-1 bg-muted rounded-md px-2 py-0.5 text-sm text-card-foreground border border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/60 min-w-0";
 
   return (
-    <div className={cn(
-      "group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
-      editing ? "bg-accent/5 ring-1 ring-accent/20" : "bg-secondary/40 hover:bg-secondary/60",
-      flash === "ok" && "ring-1 ring-green-500/40",
-      flash === "err" && "ring-1 ring-red-500/40",
-    )}>
+    <div
+      className={cn(
+        "group flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors",
+        editing ? "bg-accent/5 ring-1 ring-accent/20" : "bg-secondary/40 hover:bg-secondary/60",
+        flash === "ok" && "ring-1 ring-green-500/40",
+        flash === "err" && "ring-1 ring-red-500/40",
+        !readOnly && !editing && "cursor-pointer",
+      )}
+      onClick={() => { if (!readOnly && !editing) { setDraft(value); setEditing(true); } }}
+    >
       <span className="text-muted-foreground shrink-0">{icon}</span>
       <span className="text-xs text-muted-foreground w-20 shrink-0">{label}</span>
 
@@ -193,6 +197,7 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               ref={inputRef as React.RefObject<HTMLSelectElement>}
               value={draft}
               onChange={e => setDraft(e.target.value)}
+              onClick={e => e.stopPropagation()}
               className={inputClass + " bg-muted"}
             >
               <option value="">Selecionar...</option>
@@ -203,6 +208,7 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               ref={inputRef as React.RefObject<HTMLSelectElement>}
               value={draft}
               onChange={e => setDraft(e.target.value)}
+              onClick={e => e.stopPropagation()}
               className={inputClass + " bg-muted"}
             >
               <option value="">Selecionar...</option>
@@ -215,15 +221,16 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               value={draft}
               placeholder={placeholder}
               onChange={e => setDraft(e.target.value)}
+              onClick={e => e.stopPropagation()}
               onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
               className={inputClass}
             />
           )}
-          <button onClick={commit} disabled={saving}
+          <button onClick={(e) => { e.stopPropagation(); commit(); }} disabled={saving}
             className="p-1 rounded-md text-green-400 hover:bg-green-400/10 transition-colors shrink-0 disabled:opacity-40">
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={cancel}
+          <button onClick={(e) => { e.stopPropagation(); cancel(); }}
             className="p-1 rounded-md text-muted-foreground hover:bg-secondary/80 transition-colors shrink-0">
             <XIcon className="w-3.5 h-3.5" />
           </button>
@@ -238,19 +245,14 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
             {flash === "ok" ? "✓ Salvo!" : flash === "err" ? "Erro ao salvar" : (value || <span className="text-muted-foreground/40 italic">—</span>)}
           </span>
           {!readOnly && (
-            <button
-              onClick={() => setEditing(true)}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded-md text-muted-foreground hover:text-accent hover:bg-accent/10 transition-all shrink-0"
-              title={`Editar ${label}`}
-            >
-              <Pencil className="w-3 h-3" />
-            </button>
+            <Pencil className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-60 transition-all shrink-0" />
           )}
         </>
       )}
     </div>
   );
 }
+
 
 // ─── Info Panel ────────────────────────────────────────────────
 function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknown>; onLeadUpdated: (updated: Partial<Lead>) => void }) {
