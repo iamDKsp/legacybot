@@ -327,20 +327,21 @@ export async function runAutoMigrations(): Promise<void> {
         // ── PHC-1. phc_lawyers ────────────────────────────────────────────────
         await db.raw(`
             CREATE TABLE IF NOT EXISTS phc_lawyers (
-                id              SERIAL PRIMARY KEY,
-                name            VARCHAR(255) NOT NULL,
-                oab             VARCHAR(50)  NOT NULL,
-                cpf             VARCHAR(20)  DEFAULT NULL,
-                email           VARCHAR(150) DEFAULT NULL,
-                phone           VARCHAR(30)  DEFAULT NULL,
-                address         VARCHAR(255) DEFAULT NULL,
-                city            VARCHAR(100) DEFAULT NULL,
-                state           CHAR(2)      DEFAULT NULL,
-                additional_info TEXT         DEFAULT NULL,
-                created_at      TIMESTAMP    DEFAULT NOW(),
-                updated_at      TIMESTAMP    DEFAULT NOW()
+                id         SERIAL PRIMARY KEY,
+                name       VARCHAR(255) NOT NULL,
+                oab        VARCHAR(50)  NOT NULL,
+                created_at TIMESTAMP    DEFAULT NOW(),
+                updated_at TIMESTAMP    DEFAULT NOW()
             )
         `).catch(() => {});
+        // Colunas adicionais — idempotente (tabela pode ter sido criada com schema antigo)
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS cpf             VARCHAR(20)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS email           VARCHAR(150) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS phone           VARCHAR(30)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS address         VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS city            VARCHAR(100) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS state           CHAR(2)      DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_lawyers ADD COLUMN IF NOT EXISTS additional_info TEXT         DEFAULT NULL`).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_lawyers_name ON phc_lawyers(name)`).catch(() => {});
         await ensureUpdatedAtTrigger('phc_lawyers').catch(() => {});
 
