@@ -1,49 +1,50 @@
-ï»¿import type { GenderCtx } from './gender-detect';
+import type { GenderCtx } from './gender-detect';
 
 export type FunnelSlug = 'golpe-cibernetico'|'golpe_cibernetico'|'conta-hackeada'|'conta_hackeada'|'golpe-do-pix'|'golpe_do_pix'|'nome-negativado'|'nome_negativado'|'trabalhista'|'geral';
 
 function norm(s:string):string{ return s.toLowerCase().replace(/[\s_]+/g,'-'); }
 
-// â”€â”€ Objetos por funil â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Objetos por funil ------------------------------------------
 export function getAcaoContrato(slug:string):string {
   const s = norm(slug);
-  if (s.includes('trabalhista')) return 'RECLAMAÃ‡ÃƒO TRABALHISTA C/C VERBAS RESCISÃ“RIAS';
-  if (s.includes('negativado') || s.includes('negativada')) return 'AÃ‡ÃƒO DE DANOS MORAIS C.C. INEXISTÃŠNCIA DE DÃ‰BITOS COM PEDIDO DE TUTELA DE URGÃŠNCIA';
-  return 'AÃ‡ÃƒO DE RESTITUIÃ‡ÃƒO DE QUANTIA PAGA C/C INDENIZAÃ‡ÃƒO POR DANOS MORAIS';
+  if (s.includes('trabalhista')) return 'RECLAMAÇÃO TRABALHISTA C/C VERBAS RESCISÓRIAS';
+  if (s.includes('negativado') || s.includes('negativada')) return 'AÇÃO DE DANOS MORAIS C.C. INEXISTÊNCIA DE DÉBITOS COM PEDIDO DE TUTELA DE URGÊNCIA';
+  // golpe pix, conta hackeada, golpe cibernetico, geral
+  return 'AÇÃO DE RESTITUIÇÃO DE QUANTIA PAGA C/C INDENIZAÇÃO POR DANOS MORAIS';
 }
 
 export function getAcaoProcuracao(slug:string):string {
   const s = norm(slug);
-  if (s.includes('trabalhista')) return 'ReclamaÃ§Ã£o Trabalhista c/c Verbas RescisÃ³rias';
-  if (s.includes('negativado') || s.includes('negativada')) return 'AÃ§Ã£o de Danos Morais C.C. InexistÃªncia de DÃ©bitos com Pedido de Tutela de UrgÃªncia';
-  return 'AÃ§Ã£o de RestituiÃ§Ã£o de Quantia Paga C/C IndenizaÃ§Ã£o por Danos Morais';
+  if (s.includes('trabalhista')) return 'Reclamação Trabalhista c/c Verbas Rescisórias';
+  if (s.includes('negativado') || s.includes('negativada')) return 'Ação de Danos Morais C.C. Inexistência de Débitos com Pedido de Tutela de Urgência';
+  return 'Ação de Restituição de Quantia Paga C/C Indenização por Danos Morais';
 }
 
-// â”€â”€ Helper: montar qualificaÃ§Ã£o do advogado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Helper: montar qualificação do advogado --------------------
 export function advQual(adv:{name:string;oab:string;city?:string|null;state?:string|null;street?:string|null;street_number?:string|null;cep?:string|null}):string {
   const local = [adv.street, adv.street_number].filter(Boolean).join(', ');
   const cidade = [adv.city, adv.state].filter(Boolean).join('/');
   const cep = adv.cep ? `, CEP: ${adv.cep}` : '';
-  return `${adv.name}, advogado inscrito na ${adv.oab}, com escritÃ³rio profissional localizado Ã  ${local||'endereÃ§o nÃ£o informado'}, na cidade de ${cidade||'cidade nÃ£o informada'}${cep}`;
+  return `${adv.name}, advogado inscrito na ${adv.oab}, com escritório profissional localizado à ${local||'endereço não informado'}, na cidade de ${cidade||'cidade não informada'}${cep}`;
 }
 
 export function clienteQual(g:GenderCtx, name:string, rg?:string|null, cpf?:string|null, addr?:string|null, city?:string|null, state?:string|null, cep?:string|null):string {
-  const rgStr  = rg  ? `inscrit${g.o_a} no RG nÂº ${rg}` : '';
-  const cpfStr = cpf ? `CPF nÂº ${cpf}` : '';
+  const rgStr  = rg  ? `inscrit${g.o_a} no RG nº ${rg}` : '';
+  const cpfStr = cpf ? `CPF nº ${cpf}` : '';
   const id     = [rgStr, cpfStr].filter(Boolean).join(' e ');
   const end    = [addr, city && state ? `${city}/${state}` : city||state].filter(Boolean).join(', ');
   const cepStr = cep ? `, CEP ${cep}` : '';
-  return `${name}, ${g.qualificacao}${id ? ', ' + id : ''}${end ? ', residente e domiciliad' + g.o_a + ' Ã  ' + end + cepStr : ''}`;
+  return `${name}, ${g.qualificacao}${id ? ', ' + id : ''}${end ? ', residente e domiciliad' + g.o_a + ' à ' + end + cepStr : ''}`;
 }
 
-// â”€â”€ Template: CONTRATO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Template: CONTRATO -----------------------------------------
 export interface ContratoData {
   advQualificacao: string;
   clienteQualificacao: string;
   g: GenderCtx;
   acao: string;
-  foro: string;
-  localData: string;
+  foro: string; // ex: "São José do Rio Preto/SP"
+  localData: string; // ex: "São José do Rio Preto/SP, 06 de maio de 2026"
   advNome: string;
   advOab: string;
   clienteNome: string;
@@ -55,37 +56,37 @@ export function buildContrato(d:ContratoData): string[] {
   const o = d.g.o_a; const O = d.g.O_A;
   const do_ = d.g.do_da;
   return [
-    `INSTRUMENTO PARTICULAR DE PRESTAÃ‡ÃƒO DE SERVIÃ‡OS ADVOCATÃCIOS "CONTRATO DE RISCO"\nque fazem entre si:`,
-    `${d.advQualificacao}, doravante unicamente denominado de CONTRATADO e de outro lado, ${d.clienteQualificacao}, doravante denominad${o} CONTRATANTE; os quais pactuam o presente contrato conforme as clÃ¡usulas abaixo:`,
+    `INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS "CONTRATO DE RISCO"\nque fazem entre si:`,
+    `${d.advQualificacao}, doravante unicamente denominado de CONTRATADO e de outro lado, ${d.clienteQualificacao}, doravante denominad${o} CONTRATANTE; os quais pactuam o presente contrato conforme as cláusulas abaixo:`,
     `1 - DO OBJETO`,
-    `1.1. O presente instrumento tem por objeto propor ${d.acao}, com atuaÃ§Ã£o atÃ© eventual recurso perante o Tribunal de JustiÃ§a.`,
-    `2 - DOS HONORÃRIOS E DO VENCIMENTO`,
-    `2.1. ${C} se obriga a pagar como honorÃ¡rios contratados em relaÃ§Ã£o Ã s aÃ§Ãµes descritas na clÃ¡usula 1.2 a quantia de 50% (cinquenta por cento), sobre o valor total da condenaÃ§Ã£o em fase de liquidaÃ§Ã£o, bem como, sobre o valor de eventual multa cominatÃ³ria. Ainda que exista acordo entre as partes, a porcentagem continua inalterada.`,
-    `2.2. FicarÃ¡ por conta ${do_} CONTRATANTE as despesas relativas Ã s custas iniciais, preparo, taxa de procuraÃ§Ã£o, honorÃ¡rios de sucumbÃªncia e demais taxas oriundas da referida aÃ§Ã£o;`,
-    `2.3. ${C} autoriza de livre e espontÃ¢nea vontade que o CONTRATADO faÃ§a levantamento de qualquer depÃ³sito judicial nos autos, abatendo honorÃ¡rios contratuais e sucumbenciais, repassando o remanescente.`,
-    `2.4. ${C} fica ciente de que em caso de destituiÃ§Ã£o ou revogaÃ§Ã£o de poderes, deve pagar na integralidade os honorÃ¡rios contratados na clÃ¡usula 2.1, podendo o CONTRATADO, a seu critÃ©rio, compensar tal percentual com eventual indenizaÃ§Ã£o concedida no processo.`,
-    `2.5. Eventuais honorÃ¡rios de sucumbÃªncia pertencerÃ£o ao CONTRATADO os quais nÃ£o possuem vÃ­nculo com os honorÃ¡rios contratados.`,
-    `2.6. Em caso de improcedÃªncia da aÃ§Ã£o, ${C} estarÃ¡ isent${o} do pagamento de honorÃ¡rios advocatÃ­cios ao CONTRATADO, com exceÃ§Ã£o de eventuais custas finais, sucumbÃªncia ou litigÃ¢ncia de mÃ¡-fÃ©, haja vista tratar-se de "CONTRATO DE RISCO".`,
-    `2.7. ${C} confere ao CONTRATADO o direito de preferÃªncia para aquisiÃ§Ã£o de eventual crÃ©dito judicial oriundo de aÃ§Ã£o proposta pelo CONTRATADO, caso queira ceder, negociar ou transferir o referido crÃ©dito, no todo ou em parte, a terceiros. Para tanto, obriga-se a notificar previamente o CONTRATADO, por escrito, informando os termos da proposta recebida, conferindo-lhe o prazo de 5 (cinco) dias Ãºteis para manifestaÃ§Ã£o quanto ao exercÃ­cio de seu direito de preferÃªncia, em igualdade de valores e condiÃ§Ãµes, sob pena de nulidade do negÃ³cio. A ausÃªncia de manifestaÃ§Ã£o do CONTRATADO autoriza a cessÃ£o a terceiros nos mesmos valores e condiÃ§Ãµes comunicadas.`,
-    `2.8. Em caso de cessÃ£o de crÃ©dito judicial, ficam desde jÃ¡ resguardados os direitos do CONTRATADO quanto Ã  reserva e ao levantamento autÃ´nomo dos honorÃ¡rios contratuais e sucumbenciais, nos termos da quantia estipulada na clÃ¡usula 2.1.`,
-    `3 - DAS OBRIGAÃ‡Ã•ES, DA RESCISÃƒO E DA MULTA`,
-    `3.1. Em caso de violaÃ§Ã£o contratual, destituiÃ§Ã£o do defensor ou inadimplemento, ${C} pagarÃ¡ multa de 30% (trinta por cento) sobre o valor atualizado da causa, sem prejuÃ­zo de eventual aÃ§Ã£o por perdas e danos.`,
-    `3.2. Ficam estipulados ainda juros de mora de 1% (um por cento) ao mÃªs, mais atualizaÃ§Ã£o monetÃ¡ria de acordo com a tabela do Tribunal de JustiÃ§a a contar do inadimplemento contratual.`,
-    `3.3. ${C} obriga-se a atualizar seu endereÃ§o e nÃºmeros de telefone junto ao CONTRATADO, sempre que houver alteraÃ§Ã£o.`,
-    `4 - DAS CONSIDERAÃ‡Ã•ES FINAIS`,
-    `4.1. Fica eleito o Foro da Comarca de ${d.foro}, para apreciar todas as questÃµes decorrentes do presente contrato.`,
+    `1.1. O presente instrumento tem por objeto propor ${d.acao}, com atuação até eventual recurso perante o Tribunal de Justiça.`,
+    `2 - DOS HONORÁRIOS E DO VENCIMENTO`,
+    `2.1. ${C} se obriga a pagar como honorários contratados em relação às ações descritas na cláusula 1.2 a quantia de 50% (cinquenta por cento), sobre o valor total da condenação em fase de liquidação, bem como, sobre o valor de eventual multa cominatória. Ainda que exista acordo entre as partes, a porcentagem continua inalterada.`,
+    `2.2. Ficará por conta ${do_} CONTRATANTE as despesas relativas às custas iniciais, preparo, taxa de procuração, honorários de sucumbência e demais taxas oriundas da referida ação;`,
+    `2.3. ${C} autoriza de livre e espontânea vontade que o CONTRATADO faça levantamento de qualquer depósito judicial nos autos, abatendo honorários contratuais e sucumbenciais, repassando o remanescente.`,
+    `2.4. ${C} fica ciente de que em caso de destituição ou revogação de poderes, deve pagar na integralidade os honorários contratados na cláusula 2.1, podendo o CONTRATADO, a seu critério, compensar tal percentual com eventual indenização concedida no processo.`,
+    `2.5. Eventuais honorários de sucumbência pertencerão ao CONTRATADO os quais não possuem vínculo com os honorários contratados.`,
+    `2.6. Em caso de improcedência da ação, ${C} estará isent${o} do pagamento de honorários advocatícios ao CONTRATADO, com exceção de eventuais custas finais, sucumbência ou litigância de má-fé, haja vista tratar-se de "CONTRATO DE RISCO".`,
+    `2.7. ${C} confere ao CONTRATADO o direito de preferência para aquisição de eventual crédito judicial oriundo de ação proposta pelo CONTRATADO, caso queira ceder, negociar ou transferir o referido crédito, no todo ou em parte, a terceiros. Para tanto, obriga-se a notificar previamente o CONTRATADO, por escrito, informando os termos da proposta recebida, conferindo-lhe o prazo de 5 (cinco) dias úteis para manifestação quanto ao exercício de seu direito de preferência, em igualdade de valores e condições, sob pena de nulidade do negócio. A ausência de manifestação do CONTRATADO autoriza a cessão a terceiros nos mesmos valores e condições comunicadas.`,
+    `2.8. Em caso de cessão de crédito judicial, ficam desde já resguardados os direitos do CONTRATADO quanto à reserva e ao levantamento autônomo dos honorários contratuais e sucumbenciais, nos termos da quantia estipulada na cláusula 2.1.`,
+    `3 - DAS OBRIGAÇÕES, DA RESCISÃO E DA MULTA`,
+    `3.1. Em caso de violação contratual, destituição do defensor ou inadimplemento, ${C} pagará multa de 30% (trinta por cento) sobre o valor atualizado da causa, sem prejuízo de eventual ação por perdas e danos.`,
+    `3.2. Ficam estipulados ainda juros de mora de 1% (um por cento) ao mês, mais atualização monetária de acordo com a tabela do Tribunal de Justiça a contar do inadimplemento contratual.`,
+    `3.3. ${C} obriga-se a atualizar seu endereço e números de telefone junto ao CONTRATADO, sempre que houver alteração.`,
+    `4 - DAS CONSIDERAÇÕES FINAIS`,
+    `4.1. Fica eleito o Foro da Comarca de ${d.foro}, para apreciar todas as questões decorrentes do presente contrato.`,
     `Por ser verdade, firmo o presente.\n\n${d.localData}`,
   ];
 }
 
-// â”€â”€ Template: PROCURAÃ‡ÃƒO â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Template: PROCURAÇÃO ---------------------------------------
 export interface ProcuracaoData {
   clienteQualificacao: string;
   advNome: string;
   advOab: string;
-  advEndereco: string;
+  advEndereco: string; // "Rua X, nº Y, Bairro, Cidade/UF, CEP"
   g: GenderCtx;
-  acao: string;
+  acao: string; // objeto da procuração
   localData: string;
   clienteNome: string;
 }
@@ -93,15 +94,15 @@ export interface ProcuracaoData {
 export function buildProcuracao(d:ProcuracaoData): string[] {
   const G = d.g; const o = G.o_a; const O = G.O_A;
   return [
-    `PROCURAÃ‡ÃƒO AD JUDICIA ET EXTRA`,
-    `${d.clienteQualificacao}.\n\nConstitui seu bastante procurador ${d.advNome}, advogado inscrito na ${d.advOab}, com escritÃ³rio profissional Ã  ${d.advEndereco}, a quem confere os mais amplos e gerais poderes das clÃ¡usulas ad juditia et extra, para o foro em geral, nÃ£o importando qual o JuÃ­zo, InstÃ¢ncia ou Tribunal, (inclusive, instÃ¢ncia administrativa ou fiscal), podendo propor contra qualquer pessoa fÃ­sica ou jurÃ­dica de direito pÃºblico ou privado as aÃ§Ãµes que julgar necessÃ¡rias Ã  defesa de seus direitos, e defendÃª-l${o} nas que contra el${o} for proposta, seguindo-as atÃ© final liquidaÃ§Ã£o, podendo, ainda e da mesma forma, intervir em qualquer caso judicial ou extra judicial de interesse ${G.do_da} outorgante, fazer chamamento Ã  autoria, abrir inventÃ¡rios segui-los atÃ© final partilha, requerer abertura de sindicÃ¢ncias administrativas e defender ${G.o_a} outorgante, nas que contra el${o} forem abertas, fazer a defesa ${G.do_da} outorgante em processo e inquÃ©ritos criminais, transigir, desistir, receber e dar quitaÃ§Ãµes de qualquer espÃ©cie, pagar, assinar termos de levantamento e depÃ³sito, firmar compromissos, fazer acordos, concordar e discordar de quaisquer declaraÃ§Ãµes, representÃ¡-l${o} perante repartiÃ§Ãµes pÃºblicas, autarquias ou de economia mista e substabelecer esta no todo ou em parte, com ou sem reservas de poderes, principalmente para representÃ¡-l${o} na ${d.acao}. ${G.O_A} outorgante, ainda, confere ao seu procurador o direito de preferÃªncia para aquisiÃ§Ã£o de eventual crÃ©dito judicial oriundo de aÃ§Ã£o por este proposta, obrigando-se a notificÃ¡-lo previamente sobre qualquer proposta de cessÃ£o, em igualdade de condiÃ§Ãµes com terceiros, no prazo de 5 (cinco) dias Ãºteis para manifestaÃ§Ã£o.`,
+    `PROCURAÇÃO AD JUDICIA ET EXTRA`,
+    `${d.clienteQualificacao}.\n\nConstitui seu bastante procurador ${d.advNome}, advogado inscrito na ${d.advOab}, com escritório profissional à ${d.advEndereco}, a quem confere os mais amplos e gerais poderes das cláusulas ad juditia et extra, para o foro em geral, não importando qual o Juízo, Instância ou Tribunal, (inclusive, instância administrativa ou fiscal), podendo propor contra qualquer pessoa física ou jurídica de direito público ou privado as ações que julgar necessárias à defesa de seus direitos, e defendê-l${o} nas que contra el${o} for proposta, seguindo-as até final liquidação, podendo, ainda e da mesma forma, intervir em qualquer caso judicial ou extra judicial de interesse ${G.do_da} outorgante, fazer chamamento à autoria, abrir inventários segui-los até final partilha, requerer abertura de sindicâncias administrativas e defender ${G.o_a} outorgante, nas que contra el${o} forem abertas, fazer a defesa ${G.do_da} outorgante em processo e inquéritos criminais, transigir, desistir, receber e dar quitações de qualquer espécie, pagar, assinar termos de levantamento e depósito, firmar compromissos, fazer acordos, concordar e discordar de quaisquer declarações, representá-l${o} perante repartições públicas, autarquias ou de economia mista e substabelecer esta no todo ou em parte, com ou sem reservas de poderes, principalmente para representá-l${o} na ${d.acao}. ${G.O_A} outorgante, ainda, confere ao seu procurador o direito de preferência para aquisição de eventual crédito judicial oriundo de ação por este proposta, obrigando-se a notificá-lo previamente sobre qualquer proposta de cessão, em igualdade de condições com terceiros, no prazo de 5 (cinco) dias úteis para manifestação.`,
     d.localData,
   ];
 }
 
-// â”€â”€ Template: DECLARAÃ‡ÃƒO DE HIPOSSUFICIÃŠNCIA â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// -- Template: DECLARAÇÃO DE HIPOSSUFICIÊNCIA -------------------
 export interface HipoData {
-  clienteQualificacao: string;
+  clienteQualificacao: string; // "NOME, brasileiro, solteiro, desempregado, inscrito no RG..."
   g: GenderCtx;
   localData: string;
   clienteNome: string;
@@ -111,7 +112,7 @@ export function buildDeclaracaoHipo(d:HipoData): string[] {
   const G = d.g;
   return [
     G.declaracaoTitulo,
-    `${d.clienteQualificacao}, DECLARO sob as penas da lei, que nÃ£o tenho condiÃ§Ãµes de arcar com as custas judiciais de qualquer natureza, pois isso implicaria em prejuÃ­zo Ã  minha prÃ³pria subsistÃªncia e Ã  de meus familiares.\n\nDiante do meu atual estado de hipossuficiÃªncia econÃ´mica, requeiro a concessÃ£o dos benefÃ­cios da ASSISTÃŠNCIA JUDICIÃRIA GRATUITA, nos termos do artigo 5Âº, inciso LXXIV, da ConstituiÃ§Ã£o Federal, artigo 98 do CÃ³digo de Processo Civil, bem como da legislaÃ§Ã£o aplicÃ¡vel (Lei nÂº 1.060/50, Lei nÂº 5.584/70 e Lei nÂº 7.510/86), por nÃ£o poder arcar com as despesas processuais sem prejuÃ­zo do sustento prÃ³prio e de minha famÃ­lia.`,
+    `${d.clienteQualificacao}, DECLARO sob as penas da lei, que não tenho condições de arcar com as custas judiciais de qualquer natureza, pois isso implicaria em prejuízo à minha própria subsistência e à de meus familiares.\n\nDiante do meu atual estado de hipossuficiência econômica, requeiro a concessão dos benefícios da ASSISTÊNCIA JUDICIÁRIA GRATUITA, nos termos do artigo 5º, inciso LXXIV, da Constituição Federal, artigo 98 do Código de Processo Civil, bem como da legislação aplicável (Lei nº 1.060/50, Lei nº 5.584/70 e Lei nº 7.510/86), por não poder arcar com as despesas processuais sem prejuízo do sustento próprio e de minha família.`,
     `Por ser verdade, firmo a presente.\n\n${d.localData}`,
   ];
 }
