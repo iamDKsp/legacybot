@@ -98,51 +98,53 @@ function collectBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
 
 // ─── Layout components ───────────────────────────────────────────────────────
 
+// ─── Shared layout primitives ────────────────────────────────────────────────
+
 function header(doc: PDFKit.PDFDocument, title: string, sub?: string) {
-  doc.font('MyFont-Bold').fontSize(10.5).fillColor('#1a1a1a').text(title, { align: 'center' });
+  doc.font('MyFont-Bold').fontSize(11).fillColor('#1a1a1a').text(title, { align: 'center' });
   if (sub) {
-    doc.moveDown(0.2).font('MyFont').fontSize(8.5).fillColor('#555').text(sub, { align: 'center' });
+    doc.moveDown(0.3).font('MyFont').fontSize(9).fillColor('#555').text(sub, { align: 'center' });
   }
-  doc.moveDown(0.6);
+  doc.moveDown(1);
 }
 
 function section(doc: PDFKit.PDFDocument, t: string) {
-  doc.moveDown(0.35)
-     .font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914')
+  doc.moveDown(0.6)
+     .font('MyFont-Bold').fontSize(9).fillColor('#8B6914')
      .text(t.toUpperCase());
-  const y = doc.y + 1;
+  const y = doc.y + 2;
   doc.save().moveTo(52, y).lineTo(doc.page.width - 52, y).lineWidth(0.3).strokeColor('#C9A227').stroke().restore();
-  doc.moveDown(0.3);
-}
-
-/** Justified body paragraph */
-function body(doc: PDFKit.PDFDocument, text: string, lineGap = 3) {
-  doc.font('MyFont').fontSize(9).fillColor('#111').text(text, { align: 'justify', lineGap });
   doc.moveDown(0.45);
 }
 
-/** Left-aligned clause — compact */
-function clause(doc: PDFKit.PDFDocument, text: string, lineGap = 2) {
+/** Justified body paragraph */
+function body(doc: PDFKit.PDFDocument, text: string, lineGap = 4) {
+  doc.font('MyFont').fontSize(9).fillColor('#111').text(text, { align: 'justify', lineGap });
+  doc.moveDown(0.65);
+}
+
+/** Left-aligned numbered clause */
+function clause(doc: PDFKit.PDFDocument, text: string, lineGap = 2.5) {
   doc.font('MyFont').fontSize(9).fillColor('#111').text(text, { align: 'left', lineGap });
-  doc.moveDown(0.3);
+  doc.moveDown(0.45);
 }
 
 function sig(doc: PDFKit.PDFDocument, label: string, name: string, extra?: string) {
-  doc.moveDown(1.1);
+  doc.moveDown(1.5);
   const x0 = 80, x1 = doc.page.width - 80;
   doc.save().moveTo(x0, doc.y).lineTo(x1, doc.y).lineWidth(0.45).strokeColor('#555').stroke().restore();
-  doc.moveDown(0.25).font('MyFont').fontSize(8.5).fillColor('#666').text(label, { align: 'center' });
-  doc.font('MyFont-Bold').fontSize(9).fillColor('#111').text(name, { align: 'center' });
-  if (extra) doc.font('MyFont').fontSize(8).fillColor('#666').text(extra, { align: 'center' });
+  doc.moveDown(0.4).font('MyFont').fontSize(9).fillColor('#666').text(label, { align: 'center' });
+  doc.font('MyFont-Bold').fontSize(9.5).fillColor('#111').text(name, { align: 'center' });
+  if (extra) doc.font('MyFont').fontSize(8.5).fillColor('#666').text(extra, { align: 'center' });
 }
 
 function witness(doc: PDFKit.PDFDocument) {
-  doc.moveDown(1.1);
+  doc.moveDown(1.5);
   const mid = doc.page.width / 2, y = doc.y;
   doc.save().moveTo(68, y).lineTo(mid - 10, y).lineWidth(0.45).strokeColor('#555').stroke().restore();
   doc.save().moveTo(mid + 10, y).lineTo(doc.page.width - 68, y).lineWidth(0.45).strokeColor('#555').stroke().restore();
   const lw = mid - 10 - 68, rw = doc.page.width - 68 - (mid + 10);
-  doc.moveDown(0.25).font('MyFont').fontSize(8.5).fillColor('#666');
+  doc.moveDown(0.4).font('MyFont').fontSize(9).fillColor('#666');
   doc.text('Testemunha 1', 68, doc.y, { width: lw, align: 'center' });
   doc.text('Testemunha 2', mid + 10, doc.y - doc.currentLineHeight(), { width: rw, align: 'center' });
 }
@@ -212,13 +214,14 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
 
   header(doc, p[0]);
   // Very tight lineGap to fit the long paragraph in 1 page
-  doc.font('MyFont').fontSize(8.5).fillColor('#111').text(p[1], { align: 'justify', lineGap: 1.5 });
-  doc.moveDown(0.35);
+  // lineGap 2.5 — procuração tem 1 página longa mas com algum espaço para respirar
+  doc.font('MyFont').fontSize(8.5).fillColor('#111').text(p[1], { align: 'justify', lineGap: 2.5 });
+  doc.moveDown(0.7);
 
   if (notes) {
-    doc.moveDown(0.2).font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914').text('OBSERVAÇÕES:');
-    doc.font('MyFont').fontSize(8.5).fillColor('#111').text(notes, { align: 'justify', lineGap: 1.5 });
-    doc.moveDown(0.3);
+    doc.moveDown(0.3).font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914').text('OBSERVAÇÕES:');
+    doc.font('MyFont').fontSize(8.5).fillColor('#111').text(notes, { align: 'justify', lineGap: 2.5 });
+    doc.moveDown(0.5);
   }
 
   doc.font('MyFont').fontSize(9).fillColor('#111').text(p[2], { align: 'left' });
@@ -243,14 +246,15 @@ async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
   const p = buildDeclaracaoHipo(data);
 
   header(doc, p[0]);
-  body(doc, p[1], 3.5);  // short doc — can breathe more
+  // Declaração é curta — usa lineGap generoso para preencher a página com elegância
+  body(doc, p[1], 6);
 
   if (notes) {
-    doc.moveDown(0.2).font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914').text('OBSERVAÇÕES:');
-    body(doc, notes, 3);
+    section(doc, 'OBSERVAÇÕES');
+    body(doc, notes, 5);
   }
 
-  doc.font('MyFont').fontSize(9).fillColor('#111').text(p[2], { align: 'left' });
+  doc.moveDown(0.5).font('MyFont').fontSize(9).fillColor('#111').text(p[2], { align: 'left' });
   sig(doc, 'Declarante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
   addFooter(doc);
   doc.end();
