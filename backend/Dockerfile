@@ -1,4 +1,4 @@
-# ── Estágio 1: Build ───────────────────────────────────────────────────────────
+﻿# ── Estágio 1: Build ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -10,6 +10,7 @@ RUN npm install --frozen-lockfile
 # Copiar fonte e compilar TypeScript
 COPY tsconfig.json ./
 COPY src ./src
+COPY assets ./assets
 
 RUN npm run build
 
@@ -24,6 +25,7 @@ RUN npm install --omit=dev && npm cache clean --force
 
 # Código compilado do estágio anterior
 COPY --from=builder /app/dist ./dist
+COPY assets ./assets
 
 # Diretório de uploads temporário (PDFs gerados em memória não precisam dele,
 # mas o multer pode usar para arquivos de knowledge base)
