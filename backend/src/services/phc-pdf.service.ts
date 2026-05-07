@@ -31,216 +31,173 @@ type DocType = 'procuracao'|'declaracao_hipo'|'contrato';
 
 // --- Helpers -----------------------------------------------------------------
 function todayBR(): string {
-  return new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+  return new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
 }
-function cityState(city?:string|null, state?:string|null): string {
+function cityState(city?: string|null, state?: string|null): string {
   return [city, state].filter(Boolean).join('/') || 'Local não informado';
 }
-function localData(city?:string|null, state?:string|null): string {
-  return `${cityState(city,state)}, ${todayBR()}.`;
+function localData(city?: string|null, state?: string|null): string {
+  return `${cityState(city, state)}, ${todayBR()}.`;
 }
-function lawyerFullAddr(l:LawyerData): string {
+function lawyerFullAddr(l: LawyerData): string {
   const parts = [l.street||l.address, l.street_number, l.neighborhood, l.complement].filter(Boolean).join(', ');
   const cidade = cityState(l.city, l.state);
   const cep    = l.cep ? `, CEP ${l.cep}` : '';
-  return `${parts||'endereço não informado'}, na cidade de ${cidade}${cep}`;
+  return `${parts || 'endereço não informado'}, na cidade de ${cidade}${cep}`;
 }
 
-// --- PDF Factory -------------------------------------------------------------
+// --- PDF core ----------------------------------------------------------------
 const FONT_DIR = path.join(__dirname, '..', 'assets', 'fonts');
 const FONT_REG  = path.join(FONT_DIR, 'Arial-Regular.ttf');
 const FONT_BOLD = path.join(FONT_DIR, 'Arial-Bold.ttf');
 
-/**
- * Creates a PDFDocument with:
- * - top margin = 85 so content always starts BELOW the golden header bar
- * - bottom margin = 50
- * - side margins = 50
- * The decorative bar is drawn at y=48 (top of page), safely above content.
- */
-/**
- * Draws golden top bar + bottom rule on the current page.
- * Safe to call from pageAdded — no doc.text() to avoid infinite recursion.
- */
+/** Only draws lines — safe inside pageAdded (no doc.text which can recurse) */
 function decoratePageLines(doc: PDFKit.PDFDocument) {
-  const w = doc.page.width;
-  const h = doc.page.height;
-  doc.save()
-     .moveTo(50, 48).lineTo(w - 50, 48)
-     .lineWidth(1.5).strokeColor('#B8860B').stroke()
-     .restore();
-  doc.save()
-     .moveTo(50, h - 38).lineTo(w - 50, h - 38)
-     .lineWidth(0.4).strokeColor('#bbb').stroke()
-     .restore();
+  const w = doc.page.width, h = doc.page.height;
+  doc.save().moveTo(50, 46).lineTo(w - 50, 46).lineWidth(1.5).strokeColor('#B8860B').stroke().restore();
+  doc.save().moveTo(50, h - 36).lineTo(w - 50, h - 36).lineWidth(0.35).strokeColor('#ccc').stroke().restore();
 }
 
 /**
- * Draws footer text at an absolute position.
- * Must be called EXPLICITLY before doc.end() — NEVER inside pageAdded,
- * because doc.text() can trigger a new page which re-fires pageAdded → stack overflow.
+ * Footer text — temporarily removes the bottom margin so PDFKit never triggers
+ * continueOnNewPage when writing near the bottom of the page.
  */
 function addFooter(doc: PDFKit.PDFDocument) {
-  const w = doc.page.width;
-  const h = doc.page.height;
-  doc.save()
-     .font('MyFont').fontSize(7.5).fillColor('#bbb')
-     .text('Documento gerado pelo Sistema Legacy.', 50, h - 35, { align: 'center', width: w - 100, lineBreak: false })
-     .restore();
+  const w = doc.page.width, h = doc.page.height;
+  // Temporarily expand bottom margin to 0 so PDFKit won't break page
+  const origBottom = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
+  doc.font('MyFont').fontSize(7).fillColor('#bbb')
+     .text('Documento gerado pelo Sistema Legacy.', 50, h - 33,
+           { align: 'center', width: w - 100, lineBreak: false });
+  // Restore original margin
+  doc.page.margins.bottom = origBottom;
 }
 
+/**
+ * top=78 so content starts well below the bar at y=46.
+ * Reducing margins and font size to maximize usable space.
+ */
 function createDoc(): PDFKit.PDFDocument {
-  const doc = new PDFDocument({
-    size: 'A4',
-    margins: { top: 85, bottom: 50, left: 50, right: 50 },
-  });
+  const doc = new PDFDocument({ size: 'A4', margins: { top: 78, bottom: 45, left: 48, right: 48 } });
   doc.registerFont('MyFont',      FONT_REG);
   doc.registerFont('MyFont-Bold', FONT_BOLD);
-  // Only draw lines (no text) in pageAdded to avoid recursion
   doc.on('pageAdded', () => decoratePageLines(doc));
   decoratePageLines(doc);
   return doc;
 }
 
 function collectBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    doc.on('data', (b: Buffer) => chunks.push(b));
-    doc.on('end',  () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
+  return new Promise((res, rej) => {
+    const c: Buffer[] = [];
+    doc.on('data', (b: Buffer) => c.push(b));
+    doc.on('end', () => res(Buffer.concat(c)));
+    doc.on('error', rej);
   });
 }
 
-// --- Layout helpers ----------------------------------------------------------
+// ─── Layout components ───────────────────────────────────────────────────────
 
-/** Bold centered title */
 function header(doc: PDFKit.PDFDocument, title: string, sub?: string) {
-  doc.font('MyFont-Bold').fontSize(11).fillColor('#1a1a1a')
-     .text(title, { align: 'center' });
+  doc.font('MyFont-Bold').fontSize(10.5).fillColor('#1a1a1a').text(title, { align: 'center' });
   if (sub) {
-    doc.moveDown(0.2)
-       .font('MyFont').fontSize(8.5).fillColor('#555')
-       .text(sub, { align: 'center' });
+    doc.moveDown(0.2).font('MyFont').fontSize(8.5).fillColor('#555').text(sub, { align: 'center' });
   }
-  doc.moveDown(0.8);
+  doc.moveDown(0.6);
 }
 
-/** Golden section heading with thin underline */
 function section(doc: PDFKit.PDFDocument, t: string) {
-  doc.moveDown(0.5)
-     .font('MyFont-Bold').fontSize(9).fillColor('#8B6914')
+  doc.moveDown(0.35)
+     .font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914')
      .text(t.toUpperCase());
-  const y = doc.y + 2;
-  doc.save()
-     .moveTo(54, y).lineTo(doc.page.width - 54, y)
-     .lineWidth(0.35).strokeColor('#C9A227').stroke()
-     .restore();
-  doc.moveDown(0.4);
+  const y = doc.y + 1;
+  doc.save().moveTo(52, y).lineTo(doc.page.width - 52, y).lineWidth(0.3).strokeColor('#C9A227').stroke().restore();
+  doc.moveDown(0.3);
 }
 
 /** Justified body paragraph */
-function body(doc: PDFKit.PDFDocument, text: string, lineGap = 3.5) {
-  doc.font('MyFont').fontSize(9).fillColor('#111')
-     .text(text, { align: 'justify', lineGap });
-  doc.moveDown(0.55);
+function body(doc: PDFKit.PDFDocument, text: string, lineGap = 3) {
+  doc.font('MyFont').fontSize(9).fillColor('#111').text(text, { align: 'justify', lineGap });
+  doc.moveDown(0.45);
 }
 
-/** Left-aligned numbered clause — tighter than body */
-function clause(doc: PDFKit.PDFDocument, text: string) {
-  doc.font('MyFont').fontSize(9).fillColor('#111')
-     .text(text, { align: 'left', lineGap: 2.5 });
-  doc.moveDown(0.4);
+/** Left-aligned clause — compact */
+function clause(doc: PDFKit.PDFDocument, text: string, lineGap = 2) {
+  doc.font('MyFont').fontSize(9).fillColor('#111').text(text, { align: 'left', lineGap });
+  doc.moveDown(0.3);
 }
 
-/** Signature block */
 function sig(doc: PDFKit.PDFDocument, label: string, name: string, extra?: string) {
-  doc.moveDown(1.4);
+  doc.moveDown(1.1);
   const x0 = 80, x1 = doc.page.width - 80;
-  doc.save()
-     .moveTo(x0, doc.y).lineTo(x1, doc.y)
-     .lineWidth(0.5).strokeColor('#555').stroke()
-     .restore();
-  doc.moveDown(0.3)
-     .font('MyFont').fontSize(8.5).fillColor('#666')
-     .text(label, { align: 'center' });
-  doc.font('MyFont-Bold').fontSize(9).fillColor('#111')
-     .text(name, { align: 'center' });
-  if (extra) {
-    doc.font('MyFont').fontSize(8).fillColor('#666')
-       .text(extra, { align: 'center' });
-  }
+  doc.save().moveTo(x0, doc.y).lineTo(x1, doc.y).lineWidth(0.45).strokeColor('#555').stroke().restore();
+  doc.moveDown(0.25).font('MyFont').fontSize(8.5).fillColor('#666').text(label, { align: 'center' });
+  doc.font('MyFont-Bold').fontSize(9).fillColor('#111').text(name, { align: 'center' });
+  if (extra) doc.font('MyFont').fontSize(8).fillColor('#666').text(extra, { align: 'center' });
 }
 
-/** Two-column witness block */
 function witness(doc: PDFKit.PDFDocument) {
-  doc.moveDown(1.4);
-  const mid = doc.page.width / 2;
-  const y   = doc.y;
-  doc.save().moveTo(70, y).lineTo(mid - 12, y).lineWidth(0.5).strokeColor('#555').stroke().restore();
-  doc.save().moveTo(mid + 12, y).lineTo(doc.page.width - 70, y).lineWidth(0.5).strokeColor('#555').stroke().restore();
-  const lw = mid - 12 - 70;
-  const rw = doc.page.width - 70 - (mid + 12);
-  doc.moveDown(0.3).font('MyFont').fontSize(8.5).fillColor('#666');
-  doc.text('Testemunha 1', 70, doc.y, { width: lw, align: 'center' });
-  doc.text('Testemunha 2', mid + 12, doc.y - doc.currentLineHeight(), { width: rw, align: 'center' });
+  doc.moveDown(1.1);
+  const mid = doc.page.width / 2, y = doc.y;
+  doc.save().moveTo(68, y).lineTo(mid - 10, y).lineWidth(0.45).strokeColor('#555').stroke().restore();
+  doc.save().moveTo(mid + 10, y).lineTo(doc.page.width - 68, y).lineWidth(0.45).strokeColor('#555').stroke().restore();
+  const lw = mid - 10 - 68, rw = doc.page.width - 68 - (mid + 10);
+  doc.moveDown(0.25).font('MyFont').fontSize(8.5).fillColor('#666');
+  doc.text('Testemunha 1', 68, doc.y, { width: lw, align: 'center' });
+  doc.text('Testemunha 2', mid + 10, doc.y - doc.currentLineHeight(), { width: rw, align: 'center' });
 }
 
-// --- Geração: Contrato (2 páginas) -------------------------------------------
+// ─── Contrato (meta: 2 páginas) ──────────────────────────────────────────────
 async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|null): Promise<Buffer> {
-  const doc = createDoc();
-  const buf = collectBuffer(doc);
-  const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
+  const doc = createDoc(), buf = collectBuffer(doc);
+  const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const slug = lead.funnel_slug || lead.funnel_name || 'geral';
   const acao = getAcaoContrato(slug);
   const foro = cityState(lawyer.city, lawyer.state);
 
   const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escritório profissional localizado à ${lawyerFullAddr(lawyer)}`;
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
-  const loc    = localData(lead.city, lead.state);
 
   const data: ContratoData = {
     advQualificacao: advStr, clienteQualificacao: cliStr, g, acao, foro,
-    localData: loc, advNome: lawyer.name, advOab: lawyer.oab,
+    localData: localData(lead.city, lead.state),
+    advNome: lawyer.name, advOab: lawyer.oab,
     clienteNome: lead.name.toUpperCase(), clienteCpf: lead.cpf,
   };
   const p = buildContrato(data);
 
   header(doc, 'INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS', '"CONTRATO DE RISCO"');
-  body(doc, p[0]);
-  body(doc, p[1]);
+  clause(doc, p[0], 2);
+  clause(doc, p[1], 2);
 
-  section(doc, p[2]);  // 1 - DO OBJETO
+  section(doc, p[2]);   // 1 - DO OBJETO
   clause(doc, p[3]);
 
-  section(doc, p[4]);  // 2 - DOS HONORÁRIOS
+  section(doc, p[4]);   // 2 - DOS HONORÁRIOS
   for (let i = 5; i <= 13; i++) clause(doc, p[i]);
 
-  section(doc, p[14]); // 3 - DAS OBRIGAÇÕES
+  section(doc, p[14]);  // 3 - DAS OBRIGAÇÕES
   for (let i = 15; i <= 17; i++) clause(doc, p[i]);
 
-  section(doc, p[18]); // 4 - DAS CONSIDERAÇÕES FINAIS
+  section(doc, p[18]);  // 4 - DAS CONSIDERAÇÕES FINAIS
   clause(doc, p[19]);
 
-  if (notes) { section(doc, 'OBSERVAÇÕES'); body(doc, notes); }
+  if (notes) { section(doc, 'OBSERVAÇÕES'); clause(doc, notes); }
 
-  doc.moveDown(0.3)
-     .font('MyFont').fontSize(9).fillColor('#111')
-     .text(p[20], { align: 'left' });
+  doc.moveDown(0.3).font('MyFont').fontSize(9).fillColor('#111').text(p[20], { align: 'left' });
 
   sig(doc, 'Contratado', lawyer.name, `OAB ${lawyer.oab}`);
   sig(doc, `Contratante${lead.cpf ? ' — CPF: ' + lead.cpf : ''}`, lead.name.toUpperCase());
   witness(doc);
   addFooter(doc);
-
   doc.end();
   return buf;
 }
 
-// --- Geração: Procuração (1 página) ------------------------------------------
+// ─── Procuração (meta: 1 página) ─────────────────────────────────────────────
 async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|null): Promise<Buffer> {
-  const doc = createDoc();
-  const buf = collectBuffer(doc);
-  const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
+  const doc = createDoc(), buf = collectBuffer(doc);
+  const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const slug = lead.funnel_slug || lead.funnel_name || 'geral';
   const acao = getAcaoProcuracao(slug);
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
@@ -253,26 +210,29 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
   };
   const p = buildProcuracao(data);
 
-  header(doc, p[0]);  // PROCURAÇÃO AD JUDICIA ET EXTRA
-  // Long body — use slightly tighter line gap to fit on 1 page
-  body(doc, p[1], 2.5);
-  if (notes) { section(doc, 'OBSERVAÇÕES'); body(doc, notes, 2.5); }
-  doc.moveDown(0.4)
-     .font('MyFont').fontSize(9).fillColor('#111')
-     .text(p[2], { align: 'left' });
+  header(doc, p[0]);
+  // Very tight lineGap to fit the long paragraph in 1 page
+  doc.font('MyFont').fontSize(8.5).fillColor('#111').text(p[1], { align: 'justify', lineGap: 1.5 });
+  doc.moveDown(0.35);
+
+  if (notes) {
+    doc.moveDown(0.2).font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914').text('OBSERVAÇÕES:');
+    doc.font('MyFont').fontSize(8.5).fillColor('#111').text(notes, { align: 'justify', lineGap: 1.5 });
+    doc.moveDown(0.3);
+  }
+
+  doc.font('MyFont').fontSize(9).fillColor('#111').text(p[2], { align: 'left' });
 
   sig(doc, 'Outorgante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
   addFooter(doc);
-
   doc.end();
   return buf;
 }
 
-// --- Geração: Declaração de Hipossuficiência (1 página) ----------------------
+// ─── Declaração de Hipossuficiência (meta: 1 página) ─────────────────────────
 async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
-  const doc = createDoc();
-  const buf = collectBuffer(doc);
-  const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
+  const doc = createDoc(), buf = collectBuffer(doc);
+  const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
 
   const data: HipoData = {
@@ -282,16 +242,17 @@ async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
   };
   const p = buildDeclaracaoHipo(data);
 
-  header(doc, p[0]);   // DECLARAÇÃO DE POBREZA / DECLARAÇÃO
-  body(doc, p[1], 4);  // 2 paragraphs (qualification + request) — more breathing room
-  if (notes) { section(doc, 'OBSERVAÇÕES'); body(doc, notes); }
-  doc.moveDown(0.4)
-     .font('MyFont').fontSize(9).fillColor('#111')
-     .text(p[2], { align: 'left' });
+  header(doc, p[0]);
+  body(doc, p[1], 3.5);  // short doc — can breathe more
 
+  if (notes) {
+    doc.moveDown(0.2).font('MyFont-Bold').fontSize(8.5).fillColor('#8B6914').text('OBSERVAÇÕES:');
+    body(doc, notes, 3);
+  }
+
+  doc.font('MyFont').fontSize(9).fillColor('#111').text(p[2], { align: 'left' });
   sig(doc, 'Declarante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
   addFooter(doc);
-
   doc.end();
   return buf;
 }
