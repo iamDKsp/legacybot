@@ -47,7 +47,7 @@ function lawyerFullAddr(l:LawyerData): string {
 }
 
 // --- PDF Layout Helpers -------------------------------------------------------
-const FONT_DIR = path.join(__dirname, '..', '..', 'assets', 'fonts');
+const FONT_DIR = path.join(__dirname, '..', 'assets', 'fonts');
 const FONT_REG  = path.join(FONT_DIR, 'Arial-Regular.ttf');
 const FONT_BOLD = path.join(FONT_DIR, 'Arial-Bold.ttf');
 
