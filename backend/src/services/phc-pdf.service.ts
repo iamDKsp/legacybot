@@ -1,4 +1,4 @@
-import PDFDocument from 'pdfkit';
+ï»¿import PDFDocument from 'pdfkit';
 import { buildCtx } from './gender-detect';
 import {
   getAcaoContrato, getAcaoProcuracao, advQual, clienteQual,
@@ -33,7 +33,7 @@ function todayBR(): string {
   return new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
 }
 function cityState(city?:string|null, state?:string|null): string {
-  return [city, state].filter(Boolean).join('/') || 'Local não informado';
+  return [city, state].filter(Boolean).join('/') || 'Local nï¿½o informado';
 }
 function localData(city?:string|null, state?:string|null): string {
   return `${cityState(city,state)}, ${todayBR()}.`;
@@ -42,12 +42,12 @@ function lawyerFullAddr(l:LawyerData): string {
   const parts = [l.street||l.address, l.street_number, l.neighborhood, l.complement].filter(Boolean).join(', ');
   const cidade = cityState(l.city, l.state);
   const cep    = l.cep ? `, CEP ${l.cep}` : '';
-  return `${parts||'endereço não informado'}, na cidade de ${cidade}${cep}`;
+  return `${parts||'endereï¿½o nï¿½o informado'}, na cidade de ${cidade}${cep}`;
 }
 
 // --- PDF Layout Helpers -------------------------------------------------------
 function createDoc(): PDFKit.PDFDocument {
-  const doc = new PDFDocument({ size:'A4', margins:{top:90,bottom:80,left:60,right:60} });
+  const doc = new PDFDocument({ size:'A4', margins:{top:50,bottom:50,left:50,right:50} });
   const drawLines = () => {
     const w=doc.page.width, h=doc.page.height;
     doc.save().moveTo(60,75).lineTo(w-60,75).lineWidth(1.5).strokeColor('#B8860B').stroke().restore();
@@ -64,13 +64,12 @@ function collectBuffer(doc:PDFKit.PDFDocument): Promise<Buffer> {
   });
 }
 function header(doc:PDFKit.PDFDocument, title:string, sub?:string) {
-  doc.font('Helvetica-Bold').fontSize(16).fillColor('#B8860B').text('LEGACY ASSESSORIA JURIDICA',{align:'center'});
   doc.moveDown(0.3).font('Helvetica-Bold').fontSize(12).fillColor('#222').text(title,{align:'center'});
   if(sub) doc.moveDown(0.2).font('Helvetica').fontSize(9).fillColor('#555').text(sub,{align:'center'});
   doc.moveDown(1);
 }
 function section(doc:PDFKit.PDFDocument, t:string) {
-  doc.moveDown(0.8).font('Helvetica-Bold').fontSize(10).fillColor('#B8860B').text(t.toUpperCase());
+  doc.moveDown(0.4).font('Helvetica-Bold').fontSize(10).fillColor('#B8860B').text(t.toUpperCase());
   doc.moveDown(0.3);
   doc.save().moveTo(60,doc.y).lineTo(doc.page.width-60,doc.y).lineWidth(0.4).strokeColor('#B8860B').stroke().restore();
   doc.moveDown(0.5);
@@ -84,14 +83,14 @@ function clause(doc:PDFKit.PDFDocument, text:string) {
   doc.moveDown(0.4);
 }
 function sig(doc:PDFKit.PDFDocument, label:string, name:string, extra?:string) {
-  doc.moveDown(2);
+  doc.moveDown(1.5);
   doc.save().moveTo(100,doc.y).lineTo(doc.page.width-100,doc.y).lineWidth(0.5).strokeColor('#333').stroke().restore();
   doc.moveDown(0.3).font('Helvetica').fontSize(9).fillColor('#555').text(label,{align:'center'});
   doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text(name,{align:'center'});
   if(extra) doc.font('Helvetica').fontSize(9).fillColor('#555').text(extra,{align:'center'});
 }
 function witness(doc:PDFKit.PDFDocument) {
-  doc.moveDown(3);
+  doc.moveDown(1.5);
   const mid = (doc.page.width)/2;
   const y   = doc.y;
   doc.save().moveTo(80,y).lineTo(mid-20,y).lineWidth(0.5).strokeColor('#333').stroke().restore();
@@ -106,7 +105,7 @@ function footer(doc:PDFKit.PDFDocument) {
     .text('Documento gerado pelo Sistema Legacy.',60,h-45,{align:'center',width:w-120}).restore();
 }
 
-// --- Geração: Contrato --------------------------------------------------------
+// --- Geraï¿½ï¿½o: Contrato --------------------------------------------------------
 async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null): Promise<Buffer> {
   const doc = createDoc(); const buf = collectBuffer(doc);
   const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
@@ -114,7 +113,7 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   const acao = getAcaoContrato(slug);
   const foro = cityState(lawyer.city, lawyer.state);
 
-  const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escritório profissional localizado à ${lawyerFullAddr(lawyer)}`;
+  const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escritï¿½rio profissional localizado ï¿½ ${lawyerFullAddr(lawyer)}`;
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
   const loc    = localData(lead.city, lead.state);
 
@@ -125,9 +124,9 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   };
   const paragraphs = buildContrato(data);
 
-  header(doc, 'INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS', '"CONTRATO DE RISCO"');
+  header(doc, 'INSTRUMENTO PARTICULAR DE PRESTAï¿½ï¿½O DE SERVIï¿½OS ADVOCATï¿½CIOS', '"CONTRATO DE RISCO"');
 
-  // Cabeçalho do contrato (quem faz entre si)
+  // Cabeï¿½alho do contrato (quem faz entre si)
   body(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
   doc.moveDown(0.5);
@@ -148,7 +147,7 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   section(doc, paragraphs[18]);
   clause(doc, paragraphs[19]);
 
-  if(notes){ section(doc,'OBSERVAÇÕES'); body(doc,notes); }
+  if(notes){ section(doc,'OBSERVAï¿½ï¿½ES'); body(doc,notes); }
 
   body(doc, paragraphs[20]);
 
@@ -158,7 +157,7 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   footer(doc); doc.end(); return buf;
 }
 
-// --- Geração: Procuração -----------------------------------------------------
+// --- Geraï¿½ï¿½o: Procuraï¿½ï¿½o -----------------------------------------------------
 async function genProcuracao(lead:LeadData, lawyer:LawyerData, notes?:string|null): Promise<Buffer> {
   const doc = createDoc(); const buf = collectBuffer(doc);
   const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
@@ -177,14 +176,14 @@ async function genProcuracao(lead:LeadData, lawyer:LawyerData, notes?:string|nul
 
   header(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
-  if(notes){ section(doc,'OBSERVAÇÕES'); body(doc,notes); }
+  if(notes){ section(doc,'OBSERVAï¿½ï¿½ES'); body(doc,notes); }
   doc.moveDown(1).font('Helvetica').fontSize(10).fillColor('#111').text(paragraphs[2]);
   doc.moveDown(3);
   sig(doc, 'Outorgante', lead.name.toUpperCase(), lead.cpf ? 'CPF: '+lead.cpf : undefined);
   footer(doc); doc.end(); return buf;
 }
 
-// --- Geração: Declaração de Hipossuficiência ----------------------------------
+// --- Geraï¿½ï¿½o: Declaraï¿½ï¿½o de Hipossuficiï¿½ncia ----------------------------------
 async function genHipo(lead:LeadData, notes?:string|null): Promise<Buffer> {
   const doc = createDoc(); const buf = collectBuffer(doc);
   const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
@@ -199,7 +198,7 @@ async function genHipo(lead:LeadData, notes?:string|null): Promise<Buffer> {
 
   header(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
-  if(notes){ section(doc,'OBSERVAÇÕES'); body(doc,notes); }
+  if(notes){ section(doc,'OBSERVAï¿½ï¿½ES'); body(doc,notes); }
   body(doc, paragraphs[2]);
   sig(doc, 'Declarante', lead.name.toUpperCase(), lead.cpf ? 'CPF: '+lead.cpf : undefined);
   footer(doc); doc.end(); return buf;
