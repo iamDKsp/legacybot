@@ -405,3 +405,4 @@ export async function runAutoMigrations(): Promise<void> {
         // Não bloqueia o startup do servidor
     }
 }
+

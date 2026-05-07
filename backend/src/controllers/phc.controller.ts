@@ -248,12 +248,16 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
                 'l.address as lead_address', 'l.city as lead_city', 'l.state as lead_state',
                 'l.rg as lead_rg', 'l.marital_status as lead_marital_status',
                 'l.nationality as lead_nationality', 'l.birthdate as lead_birthdate',
+                'l.occupation as lead_occupation', 'l.gender as lead_gender',
                 // Funnel
-                'f.name as funnel_name',
+                'f.name as funnel_name', 'f.slug as funnel_slug',
                 // Lawyer data
                 'pl.name as lawyer_name', 'pl.oab as lawyer_oab', 'pl.cpf as lawyer_cpf',
-                'pl.address as lawyer_address', 'pl.city as lawyer_city',
-                'pl.state as lawyer_state', 'pl.additional_info as lawyer_additional_info'
+                'pl.address as lawyer_address', 'pl.street as lawyer_street',
+                'pl.street_number as lawyer_street_number', 'pl.neighborhood as lawyer_neighborhood',
+                'pl.complement as lawyer_complement', 'pl.city as lawyer_city',
+                'pl.state as lawyer_state', 'pl.cep as lawyer_cep',
+                'pl.additional_info as lawyer_additional_info'
             )
             .where('pd.id', id)
             .first() as Record<string, unknown> | undefined;
@@ -276,7 +280,10 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             email:          doc.lead_email          as string | null,
             description:    doc.lead_description    as string | null,
             funnel_name:    doc.funnel_name         as string | null,
+            funnel_slug:    doc.funnel_slug         as string | null,
             birthdate:      doc.lead_birthdate      as string | null,
+            occupation:     doc.lead_occupation     as string | null,
+            gender:         doc.lead_gender         as 'F'|'M'|null,
         };
 
         const lawyer = {
@@ -284,8 +291,13 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             oab:             String(doc.lawyer_oab  || ''),
             cpf:             doc.lawyer_cpf             as string | null,
             address:         doc.lawyer_address         as string | null,
+            street:          doc.lawyer_street          as string | null,
+            street_number:   doc.lawyer_street_number   as string | null,
+            neighborhood:    doc.lawyer_neighborhood    as string | null,
+            complement:      doc.lawyer_complement      as string | null,
             city:            doc.lawyer_city            as string | null,
             state:           doc.lawyer_state           as string | null,
+            cep:             doc.lawyer_cep             as string | null,
             additional_info: doc.lawyer_additional_info as string | null,
         };
 
@@ -319,3 +331,4 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
         res.status(500).json({ success: false, error: 'Erro ao gerar ou baixar o PDF do PHC' });
     }
 };
+

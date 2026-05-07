@@ -160,3 +160,4 @@ export default function NewLeadModal({ funnels, currentFunnelId, onClose }: NewL
         </div>
     );
 }
+
