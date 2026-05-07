@@ -60,7 +60,9 @@ export async function runAutoMigrations(): Promise<void> {
             ALTER TABLE leads
                 ADD COLUMN IF NOT EXISTS bot_stage    VARCHAR(50)  DEFAULT 'reception',
                 ADD COLUMN IF NOT EXISTS bot_last_seen TIMESTAMP   DEFAULT NULL,
-                ADD COLUMN IF NOT EXISTS case_summary TEXT         DEFAULT NULL
+                ADD COLUMN IF NOT EXISTS case_summary TEXT         DEFAULT NULL,
+                ADD COLUMN IF NOT EXISTS gender       CHAR(1)      DEFAULT NULL,
+                ADD COLUMN IF NOT EXISTS occupation   VARCHAR(255) DEFAULT NULL
         `).catch(() => {});
 
         // ── 3b. documents: file_data BYTEA (armazena binário no DB para persistência em Railway) ──
@@ -248,6 +250,27 @@ export async function runAutoMigrations(): Promise<void> {
                 }
             }
             console.log('[DB] ✅ funnel_stages populado');
+
+            // ── Seed Lawyer: João Paulo Gabriel ───────────────────────
+            const jpExists = await db('phc_lawyers').where({ oab: 'OAB/SP nº 243.936' }).first();
+            if (!jpExists) {
+                console.log('[DB] 👨‍⚖️ Semeando Advogado Padrão (João Paulo Gabriel)...');
+                await db('phc_lawyers').insert({
+                    name: 'JOÃO PAULO GABRIEL',
+                    oab: 'OAB/SP nº 243.936',
+                    street: 'Rua Boa Vista',
+                    street_number: '865',
+                    neighborhood: 'Boa Vista',
+                    city: 'São José do Rio Preto',
+                    state: 'SP',
+                    cep: '15025-010',
+                    additional_info: 'brasileiro, casado, advogado',
+                    created_at: new Date(),
+                    updated_at: new Date()
+                });
+                console.log('[DB] ✅ Advogado Padrão criado com sucesso!');
+            }
+
         }
 
         // ── 9c. Garante funnel_stages para 'geral' se ainda vazio ────────────
@@ -405,4 +428,5 @@ export async function runAutoMigrations(): Promise<void> {
         // Não bloqueia o startup do servidor
     }
 }
+
 
