@@ -58,6 +58,37 @@ const FONT_BOLD = path.join(FONT_DIR, 'Arial-Bold.ttf');
  * - side margins = 50
  * The decorative bar is drawn at y=48 (top of page), safely above content.
  */
+/**
+ * Draws golden top bar + bottom rule on the current page.
+ * Safe to call from pageAdded — no doc.text() to avoid infinite recursion.
+ */
+function decoratePageLines(doc: PDFKit.PDFDocument) {
+  const w = doc.page.width;
+  const h = doc.page.height;
+  doc.save()
+     .moveTo(50, 48).lineTo(w - 50, 48)
+     .lineWidth(1.5).strokeColor('#B8860B').stroke()
+     .restore();
+  doc.save()
+     .moveTo(50, h - 38).lineTo(w - 50, h - 38)
+     .lineWidth(0.4).strokeColor('#bbb').stroke()
+     .restore();
+}
+
+/**
+ * Draws footer text at an absolute position.
+ * Must be called EXPLICITLY before doc.end() — NEVER inside pageAdded,
+ * because doc.text() can trigger a new page which re-fires pageAdded → stack overflow.
+ */
+function addFooter(doc: PDFKit.PDFDocument) {
+  const w = doc.page.width;
+  const h = doc.page.height;
+  doc.save()
+     .font('MyFont').fontSize(7.5).fillColor('#bbb')
+     .text('Documento gerado pelo Sistema Legacy.', 50, h - 35, { align: 'center', width: w - 100, lineBreak: false })
+     .restore();
+}
+
 function createDoc(): PDFKit.PDFDocument {
   const doc = new PDFDocument({
     size: 'A4',
@@ -65,29 +96,9 @@ function createDoc(): PDFKit.PDFDocument {
   });
   doc.registerFont('MyFont',      FONT_REG);
   doc.registerFont('MyFont-Bold', FONT_BOLD);
-
-  const decoratePage = () => {
-    const w = doc.page.width;
-    const h = doc.page.height;
-    // Golden top bar — drawn at y=48, well above the 85px content margin
-    doc.save()
-       .moveTo(50, 48).lineTo(w - 50, 48)
-       .lineWidth(1.5).strokeColor('#B8860B').stroke()
-       .restore();
-    // Subtle bottom rule
-    doc.save()
-       .moveTo(50, h - 38).lineTo(w - 50, h - 38)
-       .lineWidth(0.4).strokeColor('#bbb').stroke()
-       .restore();
-    // Footer text
-    doc.save()
-       .font('MyFont').fontSize(7.5).fillColor('#bbb')
-       .text('Documento gerado pelo Sistema Legacy.', 50, h - 35, { align: 'center', width: w - 100 })
-       .restore();
-  };
-
-  doc.on('pageAdded', decoratePage);
-  decoratePage();
+  // Only draw lines (no text) in pageAdded to avoid recursion
+  doc.on('pageAdded', () => decoratePageLines(doc));
+  decoratePageLines(doc);
   return doc;
 }
 
@@ -219,6 +230,7 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
   sig(doc, 'Contratado', lawyer.name, `OAB ${lawyer.oab}`);
   sig(doc, `Contratante${lead.cpf ? ' — CPF: ' + lead.cpf : ''}`, lead.name.toUpperCase());
   witness(doc);
+  addFooter(doc);
 
   doc.end();
   return buf;
@@ -250,6 +262,7 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
      .text(p[2], { align: 'left' });
 
   sig(doc, 'Outorgante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
+  addFooter(doc);
 
   doc.end();
   return buf;
@@ -277,6 +290,7 @@ async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
      .text(p[2], { align: 'left' });
 
   sig(doc, 'Declarante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
+  addFooter(doc);
 
   doc.end();
   return buf;
