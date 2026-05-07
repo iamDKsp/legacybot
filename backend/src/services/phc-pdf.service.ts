@@ -1,4 +1,5 @@
 ﻿import PDFDocument from 'pdfkit';
+import * as path from 'path';
 import { buildCtx } from './gender-detect';
 import {
   getAcaoContrato, getAcaoProcuracao, advQual, clienteQual,
@@ -46,12 +47,18 @@ function lawyerFullAddr(l:LawyerData): string {
 }
 
 // --- PDF Layout Helpers -------------------------------------------------------
+const FONT_DIR = path.join(__dirname, '..', 'assets', 'fonts');
+const FONT_REG  = path.join(FONT_DIR, 'Arial-Regular.ttf');
+const FONT_BOLD = path.join(FONT_DIR, 'Arial-Bold.ttf');
+
 function createDoc(): PDFKit.PDFDocument {
   const doc = new PDFDocument({ size:'A4', margins:{top:50,bottom:50,left:50,right:50} });
+  doc.registerFont('MyFont',     FONT_REG);
+  doc.registerFont('MyFont-Bold', FONT_BOLD);
   const drawLines = () => {
     const w=doc.page.width, h=doc.page.height;
-    doc.save().moveTo(60,75).lineTo(w-60,75).lineWidth(1.5).strokeColor('#B8860B').stroke().restore();
-    doc.save().moveTo(60,h-55).lineTo(w-60,h-55).lineWidth(0.5).strokeColor('#888').stroke().restore();
+    doc.save().moveTo(50,72).lineTo(w-50,72).lineWidth(1.5).strokeColor('#B8860B').stroke().restore();
+    doc.save().moveTo(50,h-45).lineTo(w-50,h-45).lineWidth(0.5).strokeColor('#888').stroke().restore();
   };
   doc.on('pageAdded', drawLines); drawLines(); return doc;
 }
@@ -64,30 +71,30 @@ function collectBuffer(doc:PDFKit.PDFDocument): Promise<Buffer> {
   });
 }
 function header(doc:PDFKit.PDFDocument, title:string, sub?:string) {
-  doc.moveDown(0.3).font('Helvetica-Bold').fontSize(12).fillColor('#222').text(title,{align:'center'});
-  if(sub) doc.moveDown(0.2).font('Helvetica').fontSize(9).fillColor('#555').text(sub,{align:'center'});
+  doc.moveDown(0.3).font('MyFont-Bold').fontSize(12).fillColor('#222').text(title,{align:'center'});
+  if(sub) doc.moveDown(0.2).font('MyFont').fontSize(9).fillColor('#555').text(sub,{align:'center'});
   doc.moveDown(1);
 }
 function section(doc:PDFKit.PDFDocument, t:string) {
-  doc.moveDown(0.4).font('Helvetica-Bold').fontSize(10).fillColor('#B8860B').text(t.toUpperCase());
+  doc.moveDown(0.4).font('MyFont-Bold').fontSize(10).fillColor('#B8860B').text(t.toUpperCase());
   doc.moveDown(0.3);
   doc.save().moveTo(60,doc.y).lineTo(doc.page.width-60,doc.y).lineWidth(0.4).strokeColor('#B8860B').stroke().restore();
   doc.moveDown(0.5);
 }
 function body(doc:PDFKit.PDFDocument, text:string) {
-  doc.font('Helvetica').fontSize(10).fillColor('#111').text(text,{align:'justify',lineGap:2});
+  doc.font('MyFont').fontSize(10).fillColor('#111').text(text,{align:'justify',lineGap:2});
   doc.moveDown(0.5);
 }
 function clause(doc:PDFKit.PDFDocument, text:string) {
-  doc.font('Helvetica').fontSize(10).fillColor('#111').text(text,{align:'left',lineGap:2});
+  doc.font('MyFont').fontSize(10).fillColor('#111').text(text,{align:'left',lineGap:2});
   doc.moveDown(0.4);
 }
 function sig(doc:PDFKit.PDFDocument, label:string, name:string, extra?:string) {
   doc.moveDown(1.5);
   doc.save().moveTo(100,doc.y).lineTo(doc.page.width-100,doc.y).lineWidth(0.5).strokeColor('#333').stroke().restore();
-  doc.moveDown(0.3).font('Helvetica').fontSize(9).fillColor('#555').text(label,{align:'center'});
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text(name,{align:'center'});
-  if(extra) doc.font('Helvetica').fontSize(9).fillColor('#555').text(extra,{align:'center'});
+  doc.moveDown(0.3).font('MyFont').fontSize(9).fillColor('#555').text(label,{align:'center'});
+  doc.font('MyFont-Bold').fontSize(10).fillColor('#111').text(name,{align:'center'});
+  if(extra) doc.font('MyFont').fontSize(9).fillColor('#555').text(extra,{align:'center'});
 }
 function witness(doc:PDFKit.PDFDocument) {
   doc.moveDown(1.5);
@@ -95,13 +102,13 @@ function witness(doc:PDFKit.PDFDocument) {
   const y   = doc.y;
   doc.save().moveTo(80,y).lineTo(mid-20,y).lineWidth(0.5).strokeColor('#333').stroke().restore();
   doc.save().moveTo(mid+20,y).lineTo(doc.page.width-80,y).lineWidth(0.5).strokeColor('#333').stroke().restore();
-  doc.moveDown(0.4).font('Helvetica').fontSize(9).fillColor('#555');
+  doc.moveDown(0.4).font('MyFont').fontSize(9).fillColor('#555');
   doc.text('Testemunha 1', 80, doc.y, {width:(mid-20-80), align:'center'});
   doc.text('Testemunha 2', mid+20, doc.y-doc.currentLineHeight(), {width:(doc.page.width-80-mid-20), align:'center'});
 }
 function footer(doc:PDFKit.PDFDocument) {
   const w=doc.page.width, h=doc.page.height;
-  doc.save().font('Helvetica').fontSize(8).fillColor('#888')
+  doc.save().font('MyFont').fontSize(8).fillColor('#888')
     .text('Documento gerado pelo Sistema Legacy.',60,h-45,{align:'center',width:w-120}).restore();
 }
 
@@ -177,7 +184,7 @@ async function genProcuracao(lead:LeadData, lawyer:LawyerData, notes?:string|nul
   header(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
   if(notes){ section(doc,'OBSERVA��ES'); body(doc,notes); }
-  doc.moveDown(1).font('Helvetica').fontSize(10).fillColor('#111').text(paragraphs[2]);
+  doc.moveDown(1).font('MyFont').fontSize(10).fillColor('#111').text(paragraphs[2]);
   doc.moveDown(3);
   sig(doc, 'Outorgante', lead.name.toUpperCase(), lead.cpf ? 'CPF: '+lead.cpf : undefined);
   footer(doc); doc.end(); return buf;
