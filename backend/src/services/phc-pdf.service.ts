@@ -1,4 +1,4 @@
-﻿import PDFDocument from 'pdfkit';
+import PDFDocument from 'pdfkit';
 import * as path from 'path';
 import { buildCtx } from './gender-detect';
 import {
@@ -34,7 +34,7 @@ function todayBR(): string {
   return new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
 }
 function cityState(city?:string|null, state?:string|null): string {
-  return [city, state].filter(Boolean).join('/') || 'Local n�o informado';
+  return [city, state].filter(Boolean).join('/') || 'Local não informado';
 }
 function localData(city?:string|null, state?:string|null): string {
   return `${cityState(city,state)}, ${todayBR()}.`;
@@ -43,7 +43,7 @@ function lawyerFullAddr(l:LawyerData): string {
   const parts = [l.street||l.address, l.street_number, l.neighborhood, l.complement].filter(Boolean).join(', ');
   const cidade = cityState(l.city, l.state);
   const cep    = l.cep ? `, CEP ${l.cep}` : '';
-  return `${parts||'endere�o n�o informado'}, na cidade de ${cidade}${cep}`;
+  return `${parts||'endereço não informado'}, na cidade de ${cidade}${cep}`;
 }
 
 // --- PDF Layout Helpers -------------------------------------------------------
@@ -112,7 +112,7 @@ function footer(doc:PDFKit.PDFDocument) {
     .text('Documento gerado pelo Sistema Legacy.',60,h-45,{align:'center',width:w-120}).restore();
 }
 
-// --- Gera��o: Contrato --------------------------------------------------------
+// --- Geração: Contrato --------------------------------------------------------
 async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null): Promise<Buffer> {
   const doc = createDoc(); const buf = collectBuffer(doc);
   const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
@@ -120,7 +120,7 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   const acao = getAcaoContrato(slug);
   const foro = cityState(lawyer.city, lawyer.state);
 
-  const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escrit�rio profissional localizado � ${lawyerFullAddr(lawyer)}`;
+  const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escritório profissional localizado à ${lawyerFullAddr(lawyer)}`;
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
   const loc    = localData(lead.city, lead.state);
 
@@ -131,30 +131,25 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   };
   const paragraphs = buildContrato(data);
 
-  header(doc, 'INSTRUMENTO PARTICULAR DE PRESTA��O DE SERVI�OS ADVOCAT�CIOS', '"CONTRATO DE RISCO"');
+  header(doc, 'INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS', '"CONTRATO DE RISCO"');
 
-  // Cabe�alho do contrato (quem faz entre si)
   body(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
   doc.moveDown(0.5);
 
-  // Cap 1
   section(doc, paragraphs[2]);
   body(doc, paragraphs[3]);
 
-  // Cap 2
   section(doc, paragraphs[4]);
   for(let i=5;i<=13;i++) clause(doc, paragraphs[i]);
 
-  // Cap 3
   section(doc, paragraphs[14]);
   for(let i=15;i<=17;i++) clause(doc, paragraphs[i]);
 
-  // Cap 4
   section(doc, paragraphs[18]);
   clause(doc, paragraphs[19]);
 
-  if(notes){ section(doc,'OBSERVA��ES'); body(doc,notes); }
+  if(notes){ section(doc,'OBSERVAÇÕES'); body(doc,notes); }
 
   body(doc, paragraphs[20]);
 
@@ -164,7 +159,7 @@ async function genContrato(lead:LeadData, lawyer:LawyerData, notes?:string|null)
   footer(doc); doc.end(); return buf;
 }
 
-// --- Gera��o: Procura��o -----------------------------------------------------
+// --- Geração: Procuração -----------------------------------------------------
 async function genProcuracao(lead:LeadData, lawyer:LawyerData, notes?:string|null): Promise<Buffer> {
   const doc = createDoc(); const buf = collectBuffer(doc);
   const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
@@ -183,14 +178,14 @@ async function genProcuracao(lead:LeadData, lawyer:LawyerData, notes?:string|nul
 
   header(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
-  if(notes){ section(doc,'OBSERVA��ES'); body(doc,notes); }
+  if(notes){ section(doc,'OBSERVAÇÕES'); body(doc,notes); }
   doc.moveDown(1).font('MyFont').fontSize(10).fillColor('#111').text(paragraphs[2]);
   doc.moveDown(3);
   sig(doc, 'Outorgante', lead.name.toUpperCase(), lead.cpf ? 'CPF: '+lead.cpf : undefined);
   footer(doc); doc.end(); return buf;
 }
 
-// --- Gera��o: Declara��o de Hipossufici�ncia ----------------------------------
+// --- Geração: Declaração de Hipossuficiência ----------------------------------
 async function genHipo(lead:LeadData, notes?:string|null): Promise<Buffer> {
   const doc = createDoc(); const buf = collectBuffer(doc);
   const g   = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
@@ -205,7 +200,7 @@ async function genHipo(lead:LeadData, notes?:string|null): Promise<Buffer> {
 
   header(doc, paragraphs[0]);
   body(doc, paragraphs[1]);
-  if(notes){ section(doc,'OBSERVA��ES'); body(doc,notes); }
+  if(notes){ section(doc,'OBSERVAÇÕES'); body(doc,notes); }
   body(doc, paragraphs[2]);
   sig(doc, 'Declarante', lead.name.toUpperCase(), lead.cpf ? 'CPF: '+lead.cpf : undefined);
   footer(doc); doc.end(); return buf;
