@@ -751,7 +751,9 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
 
             {/* Bot toggle */}
             <button
-              onClick={() => toggleBot.mutate(leadId)}
+              onClick={() => toggleBot.mutate(leadId, {
+                onSuccess: () => setLead(prev => prev ? { ...prev, bot_active: !prev.bot_active } : prev)
+              })}
               disabled={toggleBot.isPending}
               title={isBotActive ? "Parar bot" : "Ativar bot"}
               className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ring-1 transition-all",
