@@ -497,7 +497,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         const normalized = normalizeWebhookPayload(payload);
         if (!normalized) return;
 
-        let { phone, name, message, whatsappId, chatId, audioBase64, audioMimeType, imageBase64, imageMimeType } = normalized;
+        let { phone, name, message, whatsappId, chatId, audioBase64, audioMimeType, imageBase64, imageMimeType, pdfBase64, pdfMimeType } = normalized;
 
         // ── Audio transcription ──
         if (audioBase64 && audioMimeType) {
@@ -527,6 +527,31 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         if (!audioBase64 && imageBase64 && imageMimeType) {
             console.log('[Webhook] 🖼️ Image message detected');
             // We store temporarily; processDocumentImage is called after lead is loaded
+        }
+
+        // ── PDF document handling ────────────────────────────────────────
+        let pdfExtractedText: string | undefined;
+        if (pdfBase64 && pdfMimeType) {
+            console.log('[Webhook] 📎 PDF document detected | extracting text...');
+            try {
+                // eslint-disable-next-line @typescript-eslint/no-require-imports
+                const pdfParse = require('pdf-parse') as (buf: Buffer, opts?: Record<string, unknown>) => Promise<{ text: string; numpages: number }>;
+                const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+                const parsed = await pdfParse(pdfBuffer, { max: 5 }) // max 5 pages
+                    .catch((e: Error) => { console.error('[Webhook] 📎 pdf-parse error:', e.message); return null; });
+
+                if (parsed && parsed.text && parsed.text.trim().length > 20) {
+                    pdfExtractedText = parsed.text.trim().slice(0, 3000); // max 3000 chars
+                    message = `[PDF recebido — conteúdo extraído a seguir]\n${pdfExtractedText}`;
+                    console.log(`[Webhook] 📎 PDF text extracted OK (${pdfExtractedText.length} chars): ${pdfExtractedText.substring(0, 100)}`);
+                } else {
+                    message = '[PDF recebido — não foi possível extrair texto. Arquivo pode estar protegido ou ser uma imagem.]';
+                    console.warn('[Webhook] 📎 PDF text extraction returned empty or too short');
+                }
+            } catch (pdfErr) {
+                console.error('[Webhook] 📎 PDF processing error:', (pdfErr as Error).message);
+                message = '[PDF recebido — erro ao processar]';
+            }
         }
 
         // Find or create lead
@@ -688,6 +713,26 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 console.log(`[Audio] ✅ Audio persisted for lead ${lead.id}: docId=${audioDocId}`);
             } catch (audioErr) {
                 console.error('[Audio] Failed to persist audio:', (audioErr as Error).message);
+            }
+        } else if (pdfBase64 && pdfMimeType) {
+            // ── Persist PDF binary to DB ──────────────────────────────────
+            mediaType = 'document';
+            try {
+                const pdfBuffer = Buffer.from(pdfBase64, 'base64');
+                const [{ id: pdfDocId }] = await db('documents').insert({
+                    lead_id: lead.id,
+                    name: 'Comprovante PDF WhatsApp',
+                    file_type: 'application/pdf',
+                    file_path: `pdf_${lead.id}_${Date.now()}.pdf`,
+                    file_data: pdfBuffer,
+                    status: 'recebido',
+                    notes: pdfExtractedText
+                        ? `Texto extraído:\n${pdfExtractedText.slice(0, 500)}`
+                        : 'PDF recebido — sem texto extraído',
+                }).returning('id');
+                console.log(`[PDF] ✅ PDF persisted for lead ${lead.id}: docId=${pdfDocId}`);
+            } catch (pdfSaveErr) {
+                console.error('[PDF] Failed to persist PDF:', (pdfSaveErr as Error).message);
             }
         }
 
@@ -1412,6 +1457,8 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
     audioMimeType?: string;
     imageBase64?: string;
     imageMimeType?: string;
+    pdfBase64?: string;
+    pdfMimeType?: string;
 } | null {
     try {
         // Only process messages.upsert events — ignore connection.update, qrcode.updated, etc.
@@ -1505,10 +1552,27 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
             const dataKeys = Object.keys(data).filter(k => k !== 'message');
             console.log(`[Webhook] Normalize: data keys = [${dataKeys.join(', ')}]`);
 
+            // Check for PDF/document message
+            const documentMessage = messageContent.documentMessage as Record<string, unknown> | undefined;
+            let pdfBase64: string | undefined;
+            let pdfMimeType: string | undefined;
+
+            if (documentMessage && !audioBase64 && !imageBase64) {
+                const docMime = (documentMessage.mimetype as string) || '';
+                if (docMime === 'application/pdf' || docMime.includes('pdf')) {
+                    pdfBase64 = (data.documentBase64 ?? data.mediaBase64) as string | undefined;
+                    pdfMimeType = 'application/pdf';
+                    console.log(`[Webhook] Normalize: PDF document found | mime=${docMime} | hasBase64=${!!pdfBase64}`);
+                } else {
+                    // Non-PDF document (Word, etc.) — log and treat as [Documento]
+                    console.log(`[Webhook] Normalize: document received but not PDF | mime=${docMime}`);
+                }
+            }
+
             const message =
                 (messageContent.conversation as string) ||
                 (messageContent.extendedTextMessage as Record<string, string>)?.text ||
-                (audioBase64 || audioMessage ? '[Áudio]' : imageBase64 || imageMessage ? '[Imagem]' : '[Media]');
+                (audioBase64 || audioMessage ? '[Áudio]' : imageBase64 || imageMessage ? '[Imagem]' : pdfBase64 ? '[PDF]' : '[Media]');
 
             const pushName = String(data.pushName || phone);
 
@@ -1522,6 +1586,8 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
                 audioMimeType,
                 imageBase64,
                 imageMimeType,
+                pdfBase64,
+                pdfMimeType,
             };
         }
 
