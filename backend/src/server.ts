@@ -69,10 +69,10 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-// Rate limiting
+// Rate limiting (aumentado significativamente para evitar bloqueios no frontend)
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 200,
+    max: 20000, // Limite praticamente removido para a produção atual
     message: { success: false, error: 'Muitas requisições. Tente novamente em 15 minutos.' },
     skip: (req) => req.originalUrl.startsWith('/api/webhook'),
 });
