@@ -14,7 +14,7 @@ export function formatPhoneDisplay(raw: string | undefined): string {
 
   // Se for um Linked Device ID (números muito grandes gerados pelo WhatsApp para anúncios)
   if (digits.length >= 13 && !digits.startsWith("55")) {
-    return `Oculto (ID: ${digits.slice(0, 4)}...${digits.slice(-4)})`;
+    return `Não permitido ainda`;
   }
 
   // Caso seja um número internacional ou formato desconhecido, retorna os dígitos puros
