@@ -339,10 +339,21 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
 // Helper: append the local JWT token to a backend URL for unauthenticated requests (img/a href)
 function withToken(url: string | null): string | null {
   if (!url) return null;
-  const token = localStorage.getItem('legacy_token');
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}token=${encodeURIComponent(token)}`;
+  
+  let fullUrl = url;
+  if (!url.startsWith('http')) {
+    const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+    if (url.startsWith('/api') && baseUrl.endsWith('/api')) {
+      fullUrl = baseUrl.replace(/\/api$/, '') + url;
+    } else {
+      fullUrl = baseUrl.replace(/\/$/, '') + (url.startsWith('/') ? url : `/${url}`);
+    }
+  }
+
+  const token = localStorage.getItem('legacy_token') || localStorage.getItem('token');
+  if (!token) return fullUrl;
+  const sep = fullUrl.includes('?') ? '&' : '?';
+  return `${fullUrl}${sep}token=${encodeURIComponent(token)}`;
 }
 
 function DocumentsPanel({ leadId }: { leadId: number }) {

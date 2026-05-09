@@ -20,11 +20,21 @@ import { databaseApi, VerifiedDoc } from "@/services/api";
 // ── Helpers ───────────────────────────────────────────────────
 const getAuthUrl = (url?: string | null) => {
   if (!url) return undefined;
-  if (!url.startsWith('http')) return url;
+  
+  let fullUrl = url;
+  if (!url.startsWith('http')) {
+    const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+    if (url.startsWith('/api') && baseUrl.endsWith('/api')) {
+      fullUrl = baseUrl.replace(/\/api$/, '') + url;
+    } else {
+      fullUrl = baseUrl.replace(/\/$/, '') + (url.startsWith('/') ? url : `/${url}`);
+    }
+  }
+
   const token = localStorage.getItem("legacy_token") || localStorage.getItem("token");
-  if (!token) return url;
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}token=${token}`;
+  if (!token) return fullUrl;
+  const separator = fullUrl.includes("?") ? "&" : "?";
+  return `${fullUrl}${separator}token=${token}`;
 };
 
 const getFileTypeColor = (type: string) => {
