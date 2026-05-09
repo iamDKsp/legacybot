@@ -1,5 +1,5 @@
 import { Lead } from "@/services/api";
-import { MessageCircle, User, Phone, CheckCircle2, Clock, Trash2 } from "lucide-react";
+import { MessageCircle, User, Phone, CheckCircle2, Clock, Trash2, Copy, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useLeadChecklist, useDeleteLead } from "@/hooks/useLeads";
@@ -16,6 +16,16 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
   const { data: checklist } = useLeadChecklist(lead.id);
   const deleteLead = useDeleteLead();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const text = `${lead.name}\n${lead.phone}`;
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const hasChecklist = checklist && checklist.totalCount > 0;
   const progress = hasChecklist
@@ -46,7 +56,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
       onClick={() => navigate("/client-hub", { state: { lead } })}
       className="glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group relative"
     >
-      {/* Delete button — aparece no hover do card */}
+      {/* Action buttons — appear on card hover */}
       <button
         id={`delete-lead-${lead.id}`}
         onClick={handleDeleteClick}
@@ -57,6 +67,17 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
                    z-10"
       >
         <Trash2 className="w-3.5 h-3.5" />
+      </button>
+      <button
+        id={`copy-lead-${lead.id}`}
+        onClick={handleCopyClick}
+        title="Copiar nome e telefone"
+        className="absolute top-2 right-9 w-6 h-6 rounded-md flex items-center justify-center
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-150
+                   bg-secondary hover:bg-secondary/70 text-muted-foreground hover:text-foreground
+                   z-10"
+      >
+        {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
       </button>
 
       {/* Confirmação inline de exclusão */}

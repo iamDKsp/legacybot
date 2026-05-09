@@ -255,7 +255,7 @@ Todas as informações foram coletadas. Encerre seu atendimento anunciando que u
 // ============================================================
 export function buildCompressedHistory(
     messages: Array<{ direction: string; content: string; sender: string }>,
-    maxMessages = 4
+    maxMessages = 14
 ): Array<{ role: 'user' | 'model'; parts: string }> {
     const recent = messages.slice(-maxMessages);
     const older = messages.slice(0, -maxMessages);
@@ -397,6 +397,29 @@ export async function buildLeadContext(leadId: number): Promise<string> {
         }
         if (lead.cpf) {
             parts.push(`[CPF JÁ COLETADO: ${lead.cpf} — NÃO peça o CPF ao cliente]`);
+        }
+
+        // ── Inject received/approved documents — CRITICAL to prevent re-asking ──
+        try {
+            const receivedDocs = await db('documents')
+                .where('lead_id', leadId)
+                .whereIn('status', ['aprovado', 'recebido', 'pendente'])
+                .select('name', 'doc_type', 'status', 'notes')
+                .orderBy('created_at', 'asc');
+
+            if (receivedDocs.length > 0) {
+                const docLines = (receivedDocs as Array<{ name: string; doc_type: string; status: string; notes: string }>)
+                    .map(d => {
+                        const tipo = d.doc_type || d.name || 'Documento';
+                        const st = d.status === 'aprovado' ? '✅ APROVADO' : d.status === 'rejeitado' ? '❌ REJEITADO' : '📨 RECEBIDO';
+                        return `  - ${tipo}: ${st}`;
+                    }).join('\n');
+                parts.push(`[DOCUMENTOS JÁ RECEBIDOS — NÃO peça estes de novo]:\n${docLines}\n⚠️ REGRA ABSOLUTA: Se um documento aparece na lista acima como RECEBIDO ou APROVADO, JAMAIS peça ao cliente para enviá-lo novamente. Avance para o próximo documento da fila que ainda não foi recebido.`);
+            } else {
+                parts.push(`[DOCUMENTOS: Nenhum documento recebido ainda — solicite conforme a etapa]`);
+            }
+        } catch {
+            // never block bot due to doc injection error
         }
 
         // Personalização por nome

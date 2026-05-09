@@ -45,7 +45,7 @@ export const config = {
 
     googleAi: {
         apiKey: process.env.GOOGLE_AI_API_KEY || '',
-        model: process.env.GOOGLE_AI_MODEL || 'gemini-3.1-flash-lite-preview',
+        model: process.env.GOOGLE_AI_MODEL || 'gemini-2.0-flash',
         mediaModel: process.env.GOOGLE_AI_MEDIA_MODEL || process.env.GOOGLE_AI_MODEL || 'gemini-2.5-flash',
     },
 

@@ -5,7 +5,7 @@ import {
   FileText, ClipboardList, User, Phone, Mail, Calendar,
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
   MessageCircle, Edit2, Pencil, Check, X as XIcon,
-  MapPin, Hash, Heart, Globe
+  MapPin, Hash, Heart, Globe, Copy, ImageIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,20 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyConversation = () => {
+    const text = messages.map((msg: Record<string, unknown>) => {
+      const dir = msg.direction === 'outbound' ? 'Sofia' : 'Cliente';
+      const time = msg.sent_at ? new Date(msg.sent_at as string).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+      const content = msg.media_type === 'image' ? '[Imagem]' : String(msg.content || '');
+      return `[${time}] ${dir}: ${content}`;
+    }).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const handleSend = async () => {
     if (!draft.trim() || sending) return;
@@ -67,11 +81,30 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Copy button */}
+      <div className="flex justify-end pb-1">
+        <button
+          onClick={handleCopyConversation}
+          title="Copiar conversa"
+          className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+        >
+          {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
+          {copied ? 'Copiado!' : 'Copiar conversa'}
+        </button>
+      </div>
       <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin pb-3">
-        {messages.map((msg: Record<string, unknown>) => {
+        {messages
+          .filter((msg: Record<string, unknown>) => {
+            // Skip messages that are just document-type webhook noise (no real content to show)
+            const content = String(msg.content || '').trim().toLowerCase();
+            const isNoiseMsg = msg.media_type === 'image' && !msg.image_url &&
+              (content === 'documento' || content === '[media]' || content === 'media' || content === '');
+            return !isNoiseMsg;
+          })
+          .map((msg: Record<string, unknown>) => {
           const isOutbound = msg.direction === "outbound";
           const sentAt = msg.sent_at ? new Date(msg.sent_at as string).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
-          const isImage = msg.media_type === 'image' || (msg.content as string || '').startsWith('[Imagem recebida');
+          const isImage = msg.media_type === 'image';
           const imageUrl = withToken(msg.image_url as string | null);
           return (
             <div key={String(msg.id)} className={cn("flex gap-2", isOutbound && "flex-row-reverse")}>
@@ -91,9 +124,9 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
                     onClick={() => window.open(imageUrl, '_blank')}
                   />
                 ) : isImage ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground italic">
-                    <FileText className="w-4 h-4" />
-                    {String(msg.content)}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground italic py-0.5">
+                    <ImageIcon className="w-4 h-4 opacity-60" />
+                    <span>Imagem enviada</span>
                   </div>
                 ) : (
                   <p className="text-sm leading-relaxed whitespace-pre-wrap">{String(msg.content)}</p>
