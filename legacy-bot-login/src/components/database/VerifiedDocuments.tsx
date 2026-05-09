@@ -451,6 +451,23 @@ export function VerifiedDocuments() {
         </div>
       </div>
 
+      {/* ── Tabs ── */}
+      <div className="flex space-x-1 bg-surface p-1 rounded-xl w-full md:w-auto overflow-x-auto">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 md:flex-none px-4 py-2 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
+              activeTab === tab.id
+                ? "bg-primary text-primary-foreground shadow"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       {/* Document count */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <ShieldCheck className="w-4 h-4 text-green-500" />
