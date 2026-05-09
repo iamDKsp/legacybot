@@ -262,12 +262,19 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
       <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin pb-3">
         {(messages as Record<string, unknown>[])
           .filter((msg) => {
-            // ── Drop pure webhook noise: image stubs with no URL and empty/generic content
-            const content = String(msg.content || '').trim().toLowerCase();
-            const noiseContents = ['[media]', 'media', '[imagem]', 'documento', ''];
-            if (msg.media_type === 'image' && !msg.image_url && noiseContents.includes(content)) return false;
-            // Drop audio stubs that have no url and only say "[áudio recebido" without transcription
-            if (msg.media_type === 'audio' && !msg.audio_url && content.startsWith('[áudio recebido')) return false;
+            const content = String(msg.content || '').trim();
+            const lc = content.toLowerCase();
+
+            // Drop any stub that is ONLY a placeholder tag with no real data
+            const NOISE_TAGS = ['[media]', '[mídia]', 'media', '[imagem]', '[documento]', ''];
+            if (NOISE_TAGS.includes(lc) && !msg.image_url && !msg.audio_url) return false;
+
+            // Drop image stubs with no url
+            if (msg.media_type === 'image' && !msg.image_url && NOISE_TAGS.includes(lc)) return false;
+
+            // Drop audio stubs with no url and no transcription
+            if (msg.media_type === 'audio' && !msg.audio_url && lc.startsWith('[áudio recebido')) return false;
+
             return true;
           })
           .map((msg) => {
@@ -336,10 +343,33 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
                       )}
                     </div>
 
-                  /* ── Text message ── */
-                  ) : (
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{String(msg.content)}</p>
-                  )}
+                  /* ── Unknown/unsupported media placeholder ── */
+                  ) : (() => {
+                    const c = String(msg.content || '').trim();
+                    const tag = c.toLowerCase();
+                    if (tag === '[sticker]' || tag === '[figurinha]') return (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground/60 italic">
+                        <span className="text-base">😄</span><span>Sticker</span>
+                      </div>
+                    );
+                    if (tag === '[vídeo]' || tag === '[video]') return (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground/60 italic">
+                        <span className="text-base">🎬</span><span>Vídeo recebido</span>
+                      </div>
+                    );
+                    if (tag === '[pdf]' || tag.startsWith('[pdf recebido')) return (
+                      <div className="flex items-center gap-2 text-xs text-blue-400/80 italic">
+                        <span className="text-base">📄</span><span>PDF recebido</span>
+                      </div>
+                    );
+                    if (tag === '[imagem]' || tag === '[image]') return (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground/60 italic">
+                        <ImageIcon className="w-4 h-4 opacity-50" /><span>Imagem não carregada</span>
+                      </div>
+                    );
+                    // Default: regular text
+                    return <p className="text-sm leading-relaxed whitespace-pre-wrap">{c}</p>;
+                  })()}
 
                   <p className="text-[10px] text-muted-foreground mt-1">{sentAt}</p>
                 </div>
