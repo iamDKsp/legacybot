@@ -192,11 +192,8 @@ export async function runAutoMigrations(): Promise<void> {
 
             const funnelDefs: Record<string, Array<{ slug: string; ord: number; auto: boolean; trig: string | null }>> = {
                 geral: [
-                    { slug: 'recebido',       ord: 1, auto: true,  trig: 'reception'   },
-                    { slug: 'abordagem',      ord: 2, auto: true,  trig: 'approach'    },
-                    { slug: 'documentacao',   ord: 3, auto: true,  trig: 'doc_request' },
-                    { slug: 'analise_espera', ord: 4, auto: false, trig: null          },
-                    { slug: 'finalizado',     ord: 5, auto: false, trig: null          },
+                    // TRIAGEM: apenas uma etapa de triagem inicial
+                    { slug: 'recebido', ord: 1, auto: true, trig: 'reception' },
                 ],
                 trabalhista: [
                     { slug: 'recebido',       ord: 1, auto: true,  trig: 'reception'   },
@@ -278,30 +275,50 @@ export async function runAutoMigrations(): Promise<void> {
 
         }
 
-        // ── 9c. Garante funnel_stages para 'geral' se ainda vazio ────────────
+        // ── 9c. TRIAGEM: Garante apenas uma stage ('recebido') e remove as demais ──
         const geralFunnel = await db('funnels').where({ slug: 'geral' }).first() as { id: number } | undefined;
         if (geralFunnel) {
-            const gCount = await db('funnel_stages').where({ funnel_id: geralFunnel.id }).count('id as c').first();
-            const geralCount = parseInt(String((gCount as { c: string }).c || '0'), 10);
-            if (geralCount === 0) {
-                console.log('[DB] ➕ Seeding funnel_stages para funil "geral"...');
-                const geralDefs = [
-                    { slug: 'recebido', ord: 1, auto: true, trig: 'reception' },
-                    { slug: 'abordagem', ord: 2, auto: true, trig: 'approach' },
-                    { slug: 'documentacao', ord: 3, auto: true, trig: 'doc_request' },
-                    { slug: 'analise_espera', ord: 4, auto: false, trig: null },
-                    { slug: 'finalizado', ord: 5, auto: false, trig: null },
-                ];
-                for (const def of geralDefs) {
-                    const stage = await db('stages').where({ slug: def.slug }).first() as { id: number } | undefined;
-                    if (!stage) continue;
-                    await db('funnel_stages')
-                        .insert({ funnel_id: geralFunnel.id, stage_id: stage.id, display_order: def.ord, is_auto: def.auto, bot_stage_trigger: def.trig })
-                        .onConflict(['funnel_id', 'stage_id']).ignore()
-                        .catch(() => {});
-                }
-                console.log('[DB] ✅ funnel_stages "geral" populado');
+            // Rename funnel display name to TRIAGEM
+            await db('funnels').where({ slug: 'geral' }).update({ name: 'TRIAGEM' });
+
+            // Ensure stage 'recebido' displays as 'GERAL'
+            await db('stages').where({ slug: 'recebido' }).update({ name: 'GERAL' });
+
+            const recebidoStage = await db('stages').where({ slug: 'recebido' }).first() as { id: number } | undefined;
+            if (recebidoStage) {
+                // Seed 'recebido' stage into TRIAGEM funnel if missing
+                await db('funnel_stages')
+                    .insert({ funnel_id: geralFunnel.id, stage_id: recebidoStage.id, display_order: 1, is_auto: true, bot_stage_trigger: 'reception' })
+                    .onConflict(['funnel_id', 'stage_id']).ignore()
+                    .catch(() => {});
+
+                // Move leads from any other stage in TRIAGEM → 'recebido'
+                await db('leads')
+                    .where({ funnel_id: geralFunnel.id })
+                    .whereNot({ stage_id: recebidoStage.id })
+                    .update({ stage_id: recebidoStage.id })
+                    .catch(() => {});
+
+                // Remove all other funnel_stages from TRIAGEM except 'recebido'
+                await db('funnel_stages')
+                    .where({ funnel_id: geralFunnel.id })
+                    .whereNot({ stage_id: recebidoStage.id })
+                    .del()
+                    .catch(() => {});
+
+                console.log('[DB] ✅ TRIAGEM: uma etapa (GERAL). Leads migrados.');
             }
+        }
+
+        // ── 9d. Rename all other funnels to CAPS ─────────────────────────────
+        const capsNames: Record<string, string> = {
+            'trabalhista':       'TRABALHISTA',
+            'negativado':        'CLIENTE NEGATIVADO',
+            'golpe-cibernetico': 'GOLPE CIBERNÉTICO',
+            'golpe-pix':         'GOLPE DO PIX',
+        };
+        for (const [slug, name] of Object.entries(capsNames)) {
+            await db('funnels').where({ slug }).update({ name }).catch(() => {});
         }
 
         // ── 10. Seed inicial bot_memory (se vazio) ────────────────────────────
