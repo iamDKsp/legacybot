@@ -49,10 +49,15 @@ export async function runAutoMigrations(): Promise<void> {
                 ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMP  DEFAULT NOW()
         `).catch(() => {/* colunas já existem */});
 
-        // ── 2. messages: image_url ───────────────────────────────────────────
+        // ── 2. messages: image_url + audio_url ──────────────────────────────
         await db.raw(`
             ALTER TABLE messages
                 ADD COLUMN IF NOT EXISTS image_url VARCHAR(500) DEFAULT NULL
+        `).catch(() => {});
+
+        await db.raw(`
+            ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS audio_url VARCHAR(500) DEFAULT NULL
         `).catch(() => {});
 
         // ── 3. leads: bot_stage + bot_last_seen + case_summary ──────────────

@@ -117,6 +117,34 @@ async function saveImageAndPersist(
     return { filePath, fileData };
 }
 
+// ============================================================
+// Save incoming audio bytes to disk AND to the database
+// Same strategy as images: BYTEA in DB to survive Railway restarts
+// ============================================================
+async function saveAudioAndPersist(
+    leadId: number,
+    base64: string,
+    mimeType: string,
+    label: string
+): Promise<{ filePath: string | null; fileData: Buffer | null }> {
+    const fileData = Buffer.from(base64, 'base64');
+    let filePath: string | null = null;
+    try {
+        const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('mpeg') ? 'mp3' : mimeType.includes('ogg') ? 'ogg' : 'oga';
+        const dirPath = path.join(process.cwd(), 'uploads', 'audio', String(leadId));
+        if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+        const safeName = label.replace(/[^a-z0-9_\-]/gi, '_').slice(0, 40);
+        const filename = `${safeName}_${Date.now()}.${ext}`;
+        const fullPath = path.join(dirPath, filename);
+        fs.writeFileSync(fullPath, fileData);
+        filePath = fullPath;
+        console.log(`[Audio] 💾 Saved audio to disk: ${fullPath}`);
+    } catch (err) {
+        console.warn('[Audio] Disk save failed (will use DB only):', (err as Error).message);
+    }
+    return { filePath, fileData };
+}
+
 
 // ============================================================
 // Per-lead message debounce buffer
@@ -617,9 +645,10 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             conversation = await db('conversations').where({ id: convId }).first();
         }
 
-        // Store the message and image if present
+        // Store the message and image/audio if present
         let mediaType: string | undefined = undefined;
         let imageUrl: string | null = null;
+        let audioUrl: string | null = null;
         let documentId: number | undefined = undefined;
 
         if (imageBase64 && imageMimeType) {
@@ -636,8 +665,30 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             }).returning('id');
             documentId = docId;
             imageUrl = `/api/leads/${lead.id}/documents/${docId}/download`;
-        } else if (audioBase64) {
+        } else if (audioBase64 && audioMimeType) {
+            // ── Persist audio binary to DB so it survives Railway restarts ──
             mediaType = 'audio';
+            try {
+                const { filePath: audioFilePath, fileData: audioFileData } = await saveAudioAndPersist(
+                    lead.id as number,
+                    audioBase64,
+                    audioMimeType,
+                    `audio_${Date.now()}`
+                );
+                const [{ id: audioDocId }] = await db('documents').insert({
+                    lead_id: lead.id,
+                    name: 'Áudio WhatsApp',
+                    file_type: audioMimeType,
+                    file_path: audioFilePath,
+                    file_data: audioFileData,
+                    status: 'recebido',
+                    notes: 'Áudio recebido via WhatsApp',
+                }).returning('id');
+                audioUrl = `/api/leads/${lead.id}/documents/${audioDocId}/download`;
+                console.log(`[Audio] ✅ Audio persisted for lead ${lead.id}: docId=${audioDocId}`);
+            } catch (audioErr) {
+                console.error('[Audio] Failed to persist audio:', (audioErr as Error).message);
+            }
         }
 
         const [{ id: msgId }] = await db('messages').insert({
@@ -647,7 +698,8 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             direction: 'inbound',
             sender: 'lead',
             media_type: mediaType,
-            image_url: imageUrl
+            image_url: imageUrl,
+            audio_url: audioUrl,
         }).returning('id');
 
         // Update conversation last message

@@ -807,3 +807,66 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
         res.status(500).json({ success: false, error: 'Erro ao fazer upload e extração do documento' });
     }
 }
+
+// ── GET /api/leads/:id/location — Returns the exact funnel & stage of a lead ─
+// Useful for finding leads that are "in limbo" (invisible in the Kanban board)
+export async function getLeadLocation(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    try {
+        const lead = await db('leads as l')
+            .select(
+                'l.id',
+                'l.name',
+                'l.phone',
+                'l.status',
+                'l.bot_active',
+                'l.bot_stage',
+                'l.funnel_id',
+                'l.stage_id',
+                'f.name as funnel_name',
+                'f.slug as funnel_slug',
+                'f.is_active as funnel_is_active',
+                's.name as stage_name',
+                's.slug as stage_slug',
+            )
+            .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
+            .leftJoin('stages as s', 'l.stage_id', 's.id')
+            .where('l.id', Number(id))
+            .first();
+
+        if (!lead) {
+            res.status(404).json({ success: false, error: 'Lead não encontrado' });
+            return;
+        }
+
+        // Detect why the lead might be invisible
+        const issues: string[] = [];
+        if (!lead.funnel_id) issues.push('Sem funil atribuído');
+        if (!lead.stage_id)  issues.push('Sem etapa atribuída');
+        if (lead.funnel_is_active === false) issues.push('Funil está inativo');
+        if (lead.status === 'archived') issues.push('Lead está arquivado');
+
+        res.json({
+            success: true,
+            data: {
+                lead_id:         lead.id,
+                lead_name:       lead.name,
+                lead_status:     lead.status,
+                bot_active:      lead.bot_active,
+                bot_stage:       lead.bot_stage,
+                funnel_id:       lead.funnel_id,
+                funnel_name:     lead.funnel_name  || '(funil desconhecido)',
+                funnel_slug:     lead.funnel_slug  || null,
+                funnel_is_active: lead.funnel_is_active,
+                stage_id:        lead.stage_id,
+                stage_name:      lead.stage_name   || '(etapa desconhecida)',
+                stage_slug:      lead.stage_slug   || null,
+                issues,
+                is_visible_in_kanban: issues.length === 0,
+            },
+        });
+    } catch (err) {
+        console.error('Get lead location error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao buscar localização do lead' });
+    }
+}

@@ -4,8 +4,8 @@ import {
   ArrowLeft, CheckCircle, XCircle, MessageSquare, Bot, BotOff,
   FileText, ClipboardList, User, Phone, Mail, Calendar,
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
-  MessageCircle, Edit2, Pencil, Check, X as XIcon,
-  MapPin, Hash, Heart, Globe, Copy, ImageIcon
+  MessageCircle, Pencil, Check, X as XIcon,
+  MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -17,6 +17,54 @@ import { CheckSquare } from "lucide-react";
 import { StyledSelect } from "@/components/ui/StyledSelect";
 import { formatPhoneDisplay } from "@/utils/formatters";
 import { Eye } from "lucide-react";
+
+// ─── Lightbox Modal ───────────────────────────────────────────
+function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        key="lightbox"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ scale: 0.85, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.85, opacity: 0 }}
+          transition={{ type: 'spring', stiffness: 300, damping: 28 }}
+          className="relative max-w-[90vw] max-h-[90vh]"
+          onClick={e => e.stopPropagation()}
+        >
+          <img src={url} alt="Mídia" className="max-w-full max-h-[85vh] rounded-xl object-contain shadow-2xl" />
+          <button
+            onClick={onClose}
+            className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
+          >
+            <XIcon className="w-4 h-4" />
+          </button>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="absolute -bottom-3 right-0 flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            onClick={e => e.stopPropagation()}
+          >
+            <Download className="w-3 h-3" /> Baixar
+          </a>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
 
 
 // ─── Types ────────────────────────────────────────────────────
@@ -34,6 +82,7 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
   const { data: messages = [], isLoading, refetch } = useLeadConversations(leadId);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,10 +91,10 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopyConversation = () => {
-    const text = messages.map((msg: Record<string, unknown>) => {
+    const text = (messages as Record<string, unknown>[]).map((msg) => {
       const dir = msg.direction === 'outbound' ? 'Sofia' : 'Cliente';
       const time = msg.sent_at ? new Date(msg.sent_at as string).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-      const content = msg.media_type === 'image' ? '[Imagem]' : String(msg.content || '');
+      const content = msg.media_type === 'image' ? '[Imagem]' : msg.media_type === 'audio' ? '[Áudio]' : String(msg.content || '');
       return `[${time}] ${dir}: ${content}`;
     }).join('\n');
     navigator.clipboard.writeText(text).then(() => {
@@ -81,6 +130,9 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Lightbox */}
+      {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
+
       {/* Copy button */}
       <div className="flex justify-end pb-1">
         <button
@@ -92,50 +144,107 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
           {copied ? 'Copiado!' : 'Copiar conversa'}
         </button>
       </div>
+
       <div className="flex-1 overflow-y-auto space-y-2 pr-1 scrollbar-thin pb-3">
-        {messages
-          .filter((msg: Record<string, unknown>) => {
-            // Skip messages that are just document-type webhook noise (no real content to show)
+        {(messages as Record<string, unknown>[])
+          .filter((msg) => {
+            // ── Drop pure webhook noise: image stubs with no URL and empty/generic content
             const content = String(msg.content || '').trim().toLowerCase();
-            const isNoiseMsg = msg.media_type === 'image' && !msg.image_url &&
-              (content === 'documento' || content === '[media]' || content === 'media' || content === '');
-            return !isNoiseMsg;
+            const noiseContents = ['[media]', 'media', '[imagem]', 'documento', ''];
+            if (msg.media_type === 'image' && !msg.image_url && noiseContents.includes(content)) return false;
+            // Drop audio stubs that have no url and only say "[áudio recebido" without transcription
+            if (msg.media_type === 'audio' && !msg.audio_url && content.startsWith('[áudio recebido')) return false;
+            return true;
           })
-          .map((msg: Record<string, unknown>) => {
-          const isOutbound = msg.direction === "outbound";
-          const sentAt = msg.sent_at ? new Date(msg.sent_at as string).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
-          const isImage = msg.media_type === 'image';
-          const imageUrl = withToken(msg.image_url as string | null);
-          return (
-            <div key={String(msg.id)} className={cn("flex gap-2", isOutbound && "flex-row-reverse")}>
-              <div className={cn("w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1",
-                isOutbound ? "bg-accent/20" : "bg-secondary")}>
-                {isOutbound
-                  ? <User className="w-3.5 h-3.5 text-accent" />
-                  : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
+          .map((msg) => {
+            const isOutbound = msg.direction === "outbound";
+            const sentAt = msg.sent_at
+              ? new Date(msg.sent_at as string).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+              : "";
+            const isImage = msg.media_type === 'image';
+            const isAudio = msg.media_type === 'audio';
+            const imageUrl = withToken(msg.image_url as string | null);
+            const audioUrl = withToken(msg.audio_url as string | null);
+
+            return (
+              <div key={String(msg.id)} className={cn("flex gap-2", isOutbound && "flex-row-reverse")}>
+                <div className={cn(
+                  "w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1",
+                  isOutbound ? "bg-accent/20" : "bg-secondary"
+                )}>
+                  {isOutbound
+                    ? <User className="w-3.5 h-3.5 text-accent" />
+                    : isAudio
+                    ? <Mic className="w-3.5 h-3.5 text-purple-400" />
+                    : <Bot className="w-3.5 h-3.5 text-muted-foreground" />}
+                </div>
+
+                <div className={cn(
+                  "max-w-[78%] rounded-xl px-3.5 py-2.5",
+                  isOutbound ? "bg-accent/15 rounded-tr-sm" : "bg-secondary rounded-tl-sm"
+                )}>
+                  {/* ── Image message ── */}
+                  {isImage && imageUrl ? (
+                    <div className="relative group cursor-pointer" onClick={() => setLightboxUrl(imageUrl)}>
+                      <img
+                        src={imageUrl}
+                        alt="mídia"
+                        className="max-w-[200px] max-h-[180px] rounded-lg object-contain hover:opacity-90 transition-opacity"
+                      />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 rounded-lg flex items-center justify-center transition-opacity">
+                        <Eye className="w-6 h-6 text-white drop-shadow" />
+                      </div>
+                    </div>
+                  ) : isImage ? (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground italic py-0.5">
+                      <ImageIcon className="w-4 h-4 opacity-60" />
+                      <span>Imagem enviada</span>
+                    </div>
+
+                  /* ── Audio message ── */
+                  ) : isAudio && audioUrl ? (
+                    <div className="flex flex-col gap-1.5 min-w-[220px]">
+                      <div className="flex items-center gap-2 text-xs text-purple-400 font-medium">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Áudio do cliente</span>
+                      </div>
+                      <audio
+                        controls
+                        preload="metadata"
+                        className="w-full h-8 rounded-md"
+                        style={{ accentColor: 'hsl(var(--accent))' }}
+                      >
+                        <source src={audioUrl} />
+                        Seu navegador não suporta reprodução de áudio.
+                      </audio>
+                      {/* Show transcription if content has meaningful text */}
+                      {msg.content && !String(msg.content).startsWith('[Áudio') && (
+                        <p className="text-[11px] text-muted-foreground italic border-t border-border/40 pt-1 mt-0.5">
+                          📝 {String(msg.content)}
+                        </p>
+                      )}
+                    </div>
+                  ) : isAudio ? (
+                    <div className="flex flex-col gap-1 min-w-[180px]">
+                      <div className="flex items-center gap-2 text-xs text-purple-400/70 italic">
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Áudio recebido</span>
+                      </div>
+                      {msg.content && !String(msg.content).startsWith('[Áudio') && (
+                        <p className="text-sm leading-relaxed">{String(msg.content)}</p>
+                      )}
+                    </div>
+
+                  /* ── Text message ── */
+                  ) : (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{String(msg.content)}</p>
+                  )}
+
+                  <p className="text-[10px] text-muted-foreground mt-1">{sentAt}</p>
+                </div>
               </div>
-              <div className={cn("max-w-[76%] rounded-xl px-3.5 py-2.5",
-                isOutbound ? "bg-accent/15 rounded-tr-sm" : "bg-secondary rounded-tl-sm")}>
-                {isImage && imageUrl ? (
-                  <img
-                    src={imageUrl}
-                    alt="documento"
-                    className="max-w-[200px] max-h-[180px] rounded-lg object-contain cursor-pointer hover:opacity-90 transition-opacity"
-                    onClick={() => window.open(imageUrl, '_blank')}
-                  />
-                ) : isImage ? (
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground italic py-0.5">
-                    <ImageIcon className="w-4 h-4 opacity-60" />
-                    <span>Imagem enviada</span>
-                  </div>
-                ) : (
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{String(msg.content)}</p>
-                )}
-                <p className="text-[10px] text-muted-foreground mt-1">{sentAt}</p>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
         <div ref={bottomRef} />
       </div>
 
@@ -395,6 +504,8 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [docType, setDocType] = useState('RG');
   const [showUpload, setShowUpload] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+
 
   const statusStyles: Record<string, string> = {
     pendente: "bg-yellow-500/15 text-yellow-400",
@@ -436,6 +547,9 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
 
   return (
     <div className="space-y-4">
+      {/* Lightbox for documents */}
+      {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
+
       {/* Upload Header/Form */}
       <div className="bg-card rounded-lg p-3 border border-border flex flex-col gap-3">
         <div className="flex items-center justify-between">
@@ -498,7 +612,10 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
             return (
               <div key={String(doc.id)} className="rounded-xl bg-secondary/40 hover:bg-secondary transition-all group overflow-hidden border border-border/40 flex flex-col">
                 {fileUrl && isImage ? (
-                  <div className="relative h-28 bg-black/10 cursor-pointer overflow-hidden shrink-0 border-b border-border/30" onClick={() => window.open(fileUrl, '_blank')}>
+                <div
+                    className="relative h-28 bg-black/10 cursor-pointer overflow-hidden shrink-0 border-b border-border/30"
+                    onClick={() => setLightboxUrl(fileUrl)}
+                  >
                     <img src={fileUrl} alt={docName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
                       <Eye className="w-6 h-6 text-white" />
@@ -643,6 +760,27 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
   const updateStatus = useUpdateLeadStatus();
   const toggleBot = useToggleBotStatus();
 
+  // ── Lead location state ──
+  const [locationData, setLocationData] = useState<Record<string, unknown> | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+
+  const handleLocate = async () => {
+    if (!initialLead) return;
+    setLocationLoading(true);
+    setShowLocationModal(true);
+    try {
+      const token = localStorage.getItem('legacy_token') || '';
+      const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+      const res = await fetch(`${baseUrl}/leads/${initialLead.id}/location`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) setLocationData(json.data);
+    } catch { /* silent */ }
+    finally { setLocationLoading(false); }
+  };
+
   // Local lead state so inline edits reflect immediately without reload
   const [lead, setLead] = useState(initialLead);
   useEffect(() => { setLead(initialLead); }, [initialLead]);
@@ -694,7 +832,86 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
+
+      {/* ── Lead Location Modal ── */}
+      <AnimatePresence>
+        {showLocationModal && (
+          <motion.div
+            key="loc-backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowLocationModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+              className="bg-card border border-border rounded-2xl p-6 w-[360px] shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-bold flex items-center gap-2">
+                  <Navigation className="w-4 h-4 text-accent" /> Localização no Funil
+                </h2>
+                <button onClick={() => setShowLocationModal(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <XIcon className="w-4 h-4" />
+                </button>
+              </div>
+
+              {locationLoading ? (
+                <div className="flex justify-center py-6"><Loader2 className="w-6 h-6 animate-spin text-accent" /></div>
+              ) : locationData ? (
+                <div className="space-y-3">
+                  <div className="bg-secondary/60 rounded-xl p-4 space-y-3">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Funil</p>
+                      <p className="text-sm font-semibold mt-0.5">{String(locationData.funnel_name)}</p>
+                    </div>
+                    <div className="border-t border-border/40 pt-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Etapa</p>
+                      <p className="text-sm font-semibold mt-0.5">{String(locationData.stage_name)}</p>
+                    </div>
+                    <div className="border-t border-border/40 pt-3">
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Estágio do Bot</p>
+                      <p className="text-sm font-semibold mt-0.5 font-mono text-accent">{String(locationData.bot_stage || '—')}</p>
+                    </div>
+                  </div>
+
+                  {(locationData.issues as string[])?.length > 0 ? (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                      <p className="text-xs text-red-400 font-semibold mb-1">⚠️ Motivos do lead estar invisível:</p>
+                      <ul className="text-xs text-red-300/80 space-y-0.5">
+                        {(locationData.issues as string[]).map((issue, i) => (
+                          <li key={i}>• {issue}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 text-xs text-emerald-400">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      <span>Lead visível no Kanban</span>
+                    </div>
+                  )}
+
+                  {locationData.funnel_slug && (
+                    <button
+                      onClick={() => { setShowLocationModal(false); navigate(`/crm?funnel=${String(locationData.funnel_slug)}`); }}
+                      className="w-full mt-1 flex items-center justify-center gap-2 text-xs px-4 py-2.5 rounded-xl bg-accent/15 text-accent hover:bg-accent/25 transition-colors font-medium"
+                    >
+                      <Navigation className="w-3.5 h-3.5" />
+                      Ir para o Funil "{String(locationData.funnel_name)}"
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-4">Erro ao carregar localização</p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
+
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10 shrink-0">
         <div className="flex items-center justify-between px-4 py-3 gap-3">
           {/* Back + name */}
@@ -770,6 +987,21 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
 
             <div className="w-px h-5 bg-border mx-0.5" />
 
+            {/* Localizar no Funil */}
+            <button
+              onClick={handleLocate}
+              disabled={locationLoading}
+              title="Localizar lead no funil"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ring-1 transition-all bg-blue-500/10 text-blue-400 ring-blue-500/30 hover:bg-blue-500/20"
+            >
+              {locationLoading
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Navigation className="w-3.5 h-3.5" />}
+              <span className="hidden sm:inline">Localizar</span>
+            </button>
+
+            <div className="w-px h-5 bg-border mx-0.5" />
+
             {/* Gerar PHC */}
             <button
               onClick={() => navigate("/crm", { state: { activeTab: "phc", subTab: "nova", phcLead: lead } })}
@@ -779,6 +1011,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
               <FileText className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Gerar PHC</span>
             </button>
+
 
             <div className="w-px h-5 bg-border mx-0.5" />
 

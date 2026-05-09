@@ -17,6 +17,7 @@ import {
     getStages,
     getLeadChecklist,
     uploadAndExtractDocument,
+    getLeadLocation,
 } from '../controllers/leads.controller';
 import { getConversations, sendMessage } from '../controllers/webhook.controller';
 import { authMiddleware } from '../middleware/auth';
@@ -54,6 +55,9 @@ router.get('/:id/documents/:docId/download', downloadDocument);
 
 // Lead checklist (document collection progress)
 router.get('/:id/checklist', getLeadChecklist);
+
+// Lead location (find which funnel/stage a lead is in — even if invisible in Kanban)
+router.get('/:id/location', getLeadLocation);
 
 // Lead conversations (WhatsApp messages)
 router.get('/:lead_id/conversations', getConversations);
