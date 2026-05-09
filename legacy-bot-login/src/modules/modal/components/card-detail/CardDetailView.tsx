@@ -10,7 +10,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Lead } from "@/modules/crm/types/crm";
-import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, useUpdateLeadStatus, useToggleBotStatus, useLeadChecklist } from "@/hooks/useLeads";
+import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, useUpdateLeadStatus, useToggleBotStatus, useLeadChecklist, useUploadLeadDocument } from "@/hooks/useLeads";
 import { leadsApi } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckSquare } from "lucide-react";
@@ -262,7 +262,7 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
   }, [lead.id, qc, onLeadUpdated]);
 
   const hasCpf = !!(lead.cpf as string);
-  const hasAddress = !!(lead.address as string);
+  const hasAddress = !!(lead.address as string) || !!(lead.street as string);
 
   const ESTADO_CIVIL_LABEL: Record<string, string> = {
     solteiro: "Solteiro(a)", casado: "Casado(a)", divorciado: "Divorciado(a)",
@@ -304,9 +304,19 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-widest px-1 flex items-center gap-1.5">
           <MapPin className="h-3 w-3" /> Endereço
         </p>
-        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Endereço"  fieldKey="address" value={(lead.address as string) ?? ""} placeholder="Rua, nº, bairro"  onSave={handleSave} />
-        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Cidade"    fieldKey="city"    value={(lead.city as string) ?? ""}    placeholder="Belo Horizonte"  onSave={handleSave} />
-        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Estado"    fieldKey="state"   value={(lead.state as string) ?? ""}   type="select-state"           onSave={handleSave} />
+        {/* Bot-extracted full address — read-only reference when present */}
+        {(lead.address as string) && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/8 border border-amber-500/20 text-[11px] text-amber-400/80">
+            <Bot className="w-3 h-3 shrink-0" />
+            <span className="italic truncate">Extraído pelo bot: {lead.address as string}</span>
+          </div>
+        )}
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Rua"     fieldKey="street"       value={(lead.street as string) ?? ""}       placeholder="Rua das Flores"   onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Número"  fieldKey="number"       value={(lead.number as string) ?? ""}       placeholder="123"              onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Bairro"  fieldKey="neighborhood" value={(lead.neighborhood as string) ?? ""} placeholder="Centro"           onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="CEP"     fieldKey="zip_code"     value={(lead.zip_code as string) ?? ""}     placeholder="00000-000"        onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Cidade"  fieldKey="city"         value={(lead.city as string) ?? ""}         placeholder="Belo Horizonte"   onSave={handleSave} />
+        <FieldRow icon={<MapPin className="w-3.5 h-3.5"/>} label="Estado"  fieldKey="state"        value={(lead.state as string) ?? ""}        type="select-state"            onSave={handleSave} />
       </div>
 
       {/* Section: Outros */}
@@ -335,6 +345,10 @@ function withToken(url: string | null): string | null {
 
 function DocumentsPanel({ leadId }: { leadId: number }) {
   const { data: docs = [], isLoading } = useLeadDocuments(leadId);
+  const uploadDoc = useUploadLeadDocument();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [docType, setDocType] = useState('RG');
+  const [showUpload, setShowUpload] = useState(false);
 
   const statusStyles: Record<string, string> = {
     pendente: "bg-yellow-500/15 text-yellow-400",
@@ -343,61 +357,136 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
     rejeitado: "bg-red-500/15 text-red-400",
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64Full = ev.target?.result as string;
+      const base64 = base64Full.split(',')[1] || base64Full;
+      
+      uploadDoc.mutate(
+        {
+          leadId,
+          data: {
+            fileBase64: base64,
+            mimeType: file.type || 'image/jpeg',
+            docType: docType
+          }
+        },
+        {
+          onSettled: () => {
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            setShowUpload(false);
+          }
+        }
+      );
+    };
+    reader.readAsDataURL(file);
+  };
+
   if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>;
 
-  if (docs.length === 0) return (
-    <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
-      <Upload className="h-10 w-10 opacity-30" />
-      <p className="text-sm">Nenhum documento recebido</p>
-      <p className="text-xs opacity-60">Documentos enviados pelo WhatsApp aparecerão aqui</p>
-    </div>
-  );
-
   return (
-    <div className="space-y-2">
-      {(docs as Record<string, unknown>[]).map((doc) => {
-        const status = String(doc.status || 'recebido');
-        const docName = String(doc.name || doc.file_name || 'Documento');
-        const rawFileUrl = doc.file_url as string | null;
-        const fileUrl = withToken(rawFileUrl);
-        const isImage = (doc.file_type as string || '').startsWith('image/');
-        return (
-          <div key={String(doc.id)} className="rounded-lg bg-secondary/40 hover:bg-secondary transition-colors group overflow-hidden border border-border/30">
-            {/* Thumbnail if image available */}
-            {fileUrl && isImage && (
-              <div className="relative h-24 bg-secondary cursor-pointer overflow-hidden" onClick={() => window.open(fileUrl, '_blank')}>
-                <img src={fileUrl} alt={docName} className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-              </div>
-            )}
-            <div className="flex items-center gap-3 p-2.5">
-              <div className="w-8 h-8 rounded-md bg-card flex items-center justify-center shrink-0">
-                <FileText className="w-4 h-4 text-accent" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{docName}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px] text-muted-foreground">{String(doc.file_type || 'arquivo')}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusStyles[status] || statusStyles.recebido}`}>{status}</span>
-                </div>
-              </div>
-              {fileUrl && (
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <a
-                    href={fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-1.5 rounded-md hover:bg-card transition-colors"
-                    title="Ver / Baixar"
-                  >
-                    <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                  </a>
-                </div>
-              )}
-            </div>
+    <div className="space-y-4">
+      {/* Upload Header/Form */}
+      <div className="bg-card rounded-lg p-3 border border-border flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold">Documentos</h3>
+          <button
+            onClick={() => setShowUpload(!showUpload)}
+            className="text-xs flex items-center gap-1.5 bg-accent/20 text-accent hover:bg-accent/30 px-3 py-1.5 rounded-md transition-colors font-medium"
+          >
+            {showUpload ? <XIcon className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+            {showUpload ? "Cancelar" : "Anexar"}
+          </button>
+        </div>
+
+        {showUpload && (
+          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+            <select
+              value={docType}
+              onChange={(e) => setDocType(e.target.value)}
+              className="flex-1 bg-secondary text-sm rounded-md px-2 py-1.5 border border-border focus:outline-none focus:ring-1 focus:ring-accent"
+            >
+              <option value="RG">RG / CNH</option>
+              <option value="Comprovante de Residência">Comprovante de Residência</option>
+              <option value="Carteira de Trabalho">Carteira de Trabalho</option>
+              <option value="Holerite">Holerite</option>
+              <option value="Comprovante Pix">Comprovante Pix</option>
+              <option value="Outro">Outro</option>
+            </select>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              className="hidden" 
+              accept="image/*,application/pdf"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadDoc.isPending}
+              className="flex items-center gap-1.5 bg-accent text-accent-foreground px-3 py-1.5 rounded-md text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
+            >
+              {uploadDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {uploadDoc.isPending ? "Analisando IA..." : "Selecionar Arquivo"}
+            </button>
           </div>
-        );
-      })}
+        )}
+      </div>
+
+      {docs.length === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-3 py-8 text-muted-foreground">
+          <FileText className="h-10 w-10 opacity-30" />
+          <p className="text-sm">Nenhum documento recebido</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(docs as Record<string, unknown>[]).map((doc) => {
+            const status = String(doc.status || 'recebido');
+            const docName = String(doc.name || doc.file_name || 'Documento');
+            const rawFileUrl = doc.file_url as string | null;
+            const fileUrl = withToken(rawFileUrl);
+            const isImage = (doc.file_type as string || '').startsWith('image/');
+            return (
+              <div key={String(doc.id)} className="rounded-lg bg-secondary/40 hover:bg-secondary transition-colors group overflow-hidden border border-border/30">
+                {fileUrl && isImage && (
+                  <div className="relative h-24 bg-secondary cursor-pointer overflow-hidden" onClick={() => window.open(fileUrl, '_blank')}>
+                    <img src={fileUrl} alt={docName} className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                  </div>
+                )}
+                <div className="flex items-center gap-3 p-2.5">
+                  <div className="w-8 h-8 rounded-md bg-card flex items-center justify-center shrink-0">
+                    <FileText className="w-4 h-4 text-accent" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{docName}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] text-muted-foreground">{String(doc.file_type || 'arquivo')}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusStyles[status] || statusStyles.recebido}`}>{status}</span>
+                    </div>
+                  </div>
+                  {fileUrl && (
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <a
+                        href={fileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1.5 rounded-md hover:bg-card transition-colors"
+                        title="Ver / Baixar"
+                      >
+                        <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

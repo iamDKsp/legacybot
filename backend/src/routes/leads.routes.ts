@@ -16,6 +16,7 @@ import {
     getFunnels,
     getStages,
     getLeadChecklist,
+    uploadAndExtractDocument,
 } from '../controllers/leads.controller';
 import { getConversations, sendMessage } from '../controllers/webhook.controller';
 import { authMiddleware } from '../middleware/auth';
@@ -48,6 +49,7 @@ router.post('/:id/notes', createLeadNote);
 // Lead documents
 router.get('/:id/documents', getLeadDocuments);
 router.post('/:id/documents', createLeadDocument);
+router.post('/:id/documents/upload', uploadAndExtractDocument);
 router.get('/:id/documents/:docId/download', downloadDocument);
 
 // Lead checklist (document collection progress)

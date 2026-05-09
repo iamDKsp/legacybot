@@ -87,6 +87,9 @@ export const leadsApi = {
     createDocument: (id: number, data: Partial<Document>) =>
         api.post<{ success: boolean; data: Document }>(`/leads/${id}/documents`, data),
 
+    uploadDocumentWithExtraction: (id: number, data: { fileBase64: string; mimeType: string; docType: string }) =>
+        api.post<{ success: boolean; data: Document; extracted: Record<string, string> }>(`/leads/${id}/documents/upload`, data),
+
     getConversations: (id: number) =>
         api.get<{ success: boolean; data: Message[] }>(`/leads/${id}/conversations`),
 
@@ -326,7 +329,11 @@ export interface Lead {
     created_at: string;
     updated_at: string;
     // Legal/juridical complement fields (filled by assessor or extracted by bot)
-    address?: string;
+    address?: string;       // Legacy single-string address (bot OCR extraction)
+    street?: string;        // Rua
+    number?: string;        // Número
+    neighborhood?: string;  // Bairro
+    zip_code?: string;      // CEP
     city?: string;
     state?: string;
     rg?: string;

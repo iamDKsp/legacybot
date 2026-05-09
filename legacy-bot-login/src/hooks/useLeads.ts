@@ -187,6 +187,7 @@ export function useCreateNote() {
         mutationFn: ({ leadId, content }: { leadId: number; content: string }) =>
             leadsApi.createNote(leadId, content),
         onSuccess: (_, variables) => {
+
             queryClient.invalidateQueries({ queryKey: ['lead-notes', variables.leadId] });
             toast({ title: 'Nota adicionada' });
         },
@@ -220,5 +221,34 @@ export function useLeadChecklist(leadId: number) {
         enabled: !!leadId,
         staleTime: 15_000,
         refetchInterval: 15_000,
+    });
+}
+
+export function useUploadLeadDocument() {
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    return useMutation({
+        mutationFn: ({ leadId, data }: { leadId: number, data: { fileBase64: string; mimeType: string; docType: string } }) =>
+            leadsApi.uploadDocumentWithExtraction(leadId, data),
+        onSuccess: (res, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['lead-documents', variables.leadId] });
+            queryClient.invalidateQueries({ queryKey: ['lead-checklist', variables.leadId] });
+            queryClient.invalidateQueries({ queryKey: ['lead', variables.leadId] });
+            
+            const extractedKeys = Object.keys(res.data.extracted || {});
+            if (extractedKeys.length > 0) {
+                toast({ title: 'Documento anexado', description: `Extraído: ${extractedKeys.join(', ')}` });
+            } else {
+                toast({ title: 'Documento anexado com sucesso' });
+            }
+        },
+        onError: (err: any) => {
+            toast({ 
+                title: 'Erro ao anexar documento', 
+                description: err.response?.data?.error || err.message,
+                variant: 'destructive' 
+            });
+        },
     });
 }

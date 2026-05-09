@@ -1,4 +1,4 @@
-﻿{
+{
     "name": "legacy-crm-backend",
     "version": "1.0.0",
     "description": "Backend API for Legacy CRM - Legal Advisory Platform",
@@ -17,6 +17,7 @@
         "@google/generative-ai": "^0.21.0",
         "@types/multer": "^2.1.0",
         "@types/pdfkit": "^0.17.6",
+        "@types/pdfmake": "^0.3.2",
         "axios": "^1.13.5",
         "bcryptjs": "^2.4.3",
         "cors": "^2.8.5",
@@ -32,6 +33,7 @@
         "pdf-parse": "^2.4.5",
         "pdfkit": "^0.18.0",
         "pdfkit-table": "^0.1.99",
+        "pdfmake": "^0.3.8",
         "pg": "^8.13.3",
         "socket.io": "^4.8.1",
         "uuid": "^10.0.0",

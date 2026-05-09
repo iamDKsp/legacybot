@@ -38,8 +38,11 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
     name:    lead.name ?? "",
     email:   (lead.email as string) ?? "",
     cpf:     (lead.cpf  as string) ?? "",
-    // Address (may already be extracted by bot from comprovante)
-    address:        (lead.address        as string) ?? "",
+    // Granular address fields
+    street:         (lead.street         as string) ?? "",
+    number:         (lead.number         as string) ?? "",
+    neighborhood:   (lead.neighborhood   as string) ?? "",
+    zip_code:       (lead.zip_code       as string) ?? "",
     city:           (lead.city           as string) ?? "",
     state:          (lead.state          as string) ?? "",
     // Legal
@@ -171,13 +174,37 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mb-3 flex items-center gap-1.5">
                 <MapPin className="h-3.5 w-3.5" /> Endereço
-                {lead.address && <span className="text-green-400 text-[10px] font-medium bg-green-400/10 px-1.5 py-0.5 rounded">extraído pelo bot</span>}
               </p>
+              {/* Bot-extracted full address reference */}
+              {lead.address && (
+                <div className="mb-3 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] text-amber-400/80">
+                  <MapPin className="h-3 w-3 shrink-0" />
+                  <span className="italic truncate">Extraído pelo bot: {lead.address as string}</span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Endereço completo</label>
-                  <input value={form.address} onChange={e => set("address", e.target.value)}
-                    placeholder="Rua das Flores, 123, Bairro"
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Rua</label>
+                  <input value={form.street} onChange={e => set("street", e.target.value)}
+                    placeholder="Rua das Flores"
+                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Número</label>
+                  <input value={form.number} onChange={e => set("number", e.target.value)}
+                    placeholder="123"
+                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Bairro</label>
+                  <input value={form.neighborhood} onChange={e => set("neighborhood", e.target.value)}
+                    placeholder="Centro"
+                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">CEP</label>
+                  <input value={form.zip_code} onChange={e => set("zip_code", e.target.value)}
+                    placeholder="00000-000"
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
                 <div>

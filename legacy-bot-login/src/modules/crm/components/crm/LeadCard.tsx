@@ -1,8 +1,9 @@
 import { Lead } from "@/services/api";
-import { MessageCircle, User, Phone, CheckCircle2, Clock } from "lucide-react";
-import { motion } from "framer-motion";
+import { MessageCircle, User, Phone, CheckCircle2, Clock, Trash2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { useLeadChecklist } from "@/hooks/useLeads";
+import { useLeadChecklist, useDeleteLead } from "@/hooks/useLeads";
+import { useState } from "react";
 
 interface LeadCardProps {
   lead: Lead & Record<string, unknown>;
@@ -12,11 +13,29 @@ interface LeadCardProps {
 const LeadCard = ({ lead, index }: LeadCardProps) => {
   const navigate = useNavigate();
   const { data: checklist } = useLeadChecklist(lead.id);
+  const deleteLead = useDeleteLead();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const hasChecklist = checklist && checklist.totalCount > 0;
   const progress = hasChecklist
     ? Math.round((checklist.receivedCount / checklist.totalCount) * 100)
     : 0;
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(true);
+  };
+
+  const handleConfirmDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    deleteLead.mutate(lead.id);
+    setConfirmDelete(false);
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDelete(false);
+  };
 
   return (
     <motion.div
@@ -24,8 +43,63 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.2 }}
       onClick={() => navigate("/client-hub", { state: { lead } })}
-      className="glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group"
+      className="glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group relative"
     >
+      {/* Delete button — aparece no hover do card */}
+      <button
+        id={`delete-lead-${lead.id}`}
+        onClick={handleDeleteClick}
+        title="Excluir lead"
+        className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center
+                   opacity-0 group-hover:opacity-100 transition-opacity duration-150
+                   bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300
+                   z-10"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
+
+      {/* Confirmação inline de exclusão */}
+      <AnimatePresence>
+        {confirmDelete && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.15 }}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute inset-0 z-20 rounded-lg bg-background/95 backdrop-blur-sm border border-red-500/40
+                       flex flex-col items-center justify-center gap-2 p-3"
+          >
+            <p className="text-xs font-semibold text-foreground text-center leading-tight">
+              Excluir <span className="text-red-400">{lead.name}</span>?
+            </p>
+            <p className="text-[10px] text-muted-foreground text-center">
+              Todos os dados serão removidos permanentemente.
+            </p>
+            <div className="flex gap-2 mt-1">
+              <button
+                id={`confirm-delete-lead-${lead.id}`}
+                onClick={handleConfirmDelete}
+                disabled={deleteLead.isPending}
+                className="px-3 py-1 text-[11px] font-semibold rounded-md
+                           bg-red-500 hover:bg-red-600 text-white transition-colors
+                           disabled:opacity-50"
+              >
+                {deleteLead.isPending ? 'Excluindo...' : 'Sim, excluir'}
+              </button>
+              <button
+                id={`cancel-delete-lead-${lead.id}`}
+                onClick={handleCancelDelete}
+                className="px-3 py-1 text-[11px] font-semibold rounded-md
+                           bg-secondary hover:bg-secondary/70 text-foreground transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header: avatar + name + WhatsApp icon */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
@@ -41,14 +115,13 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
           </div>
         </div>
         {lead.origin === "whatsapp" && (
-          <MessageCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+          <MessageCircle className="w-4 h-4 text-green-500 flex-shrink-0 mr-7" />
         )}
       </div>
 
       {/* Document Checklist Mini-View */}
       {hasChecklist && (
         <div className="mt-2 pt-2 border-t border-border/40">
-          {/* Progress bar */}
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
               Documentos
@@ -74,7 +147,6 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
             />
           </div>
 
-          {/* Individual doc items */}
           <div className="flex flex-col gap-0.5">
             {checklist.flowItems?.map((item: any) => (
               <div key={item.name} className="flex items-center gap-1.5">
@@ -98,9 +170,11 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         </div>
       )}
 
-      {/* Footer: date */}
+      {/* Footer: date + badge completo */}
       <div className="flex items-center justify-between mt-2">
-        <span className="text-[10px] text-muted-foreground">{lead.created_at ? new Date(lead.created_at).toLocaleDateString('pt-BR') : ''}</span>
+        <span className="text-[10px] text-muted-foreground">
+          {lead.created_at ? new Date(lead.created_at).toLocaleDateString('pt-BR') : ''}
+        </span>
         {checklist?.complete && (
           <span className="text-[10px] font-semibold text-green-400 bg-green-400/10 rounded px-1.5 py-0.5">
             ✓ Completo

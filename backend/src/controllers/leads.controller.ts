@@ -5,6 +5,10 @@ import { Lead } from '../types';
 import { logActivity } from '../services/activity.service';
 import jwt from 'jsonwebtoken';
 import { config } from '../config/env';
+import { analyzeImage, DocumentType } from '../services/ai.service';
+import { extractCPF, extractName } from '../services/learning.service';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // ── Document requirements per funnel (mirrors webhook.controller.ts) ──────────
 const DOCS_REQUIRED_BY_AREA: Record<string, string[]> = {
@@ -37,7 +41,13 @@ const createLeadSchema = z.object({
 
 // Update schema also accepts PHC/juridical complement fields (not required on create)
 const updateLeadSchema = createLeadSchema.partial().extend({
+    // Legacy single address field (filled by bot via OCR)
     address:        z.string().optional(),
+    // Granular address fields (filled manually by assessor)
+    street:         z.string().optional(),
+    number:         z.string().optional(),
+    neighborhood:   z.string().optional(),
+    zip_code:       z.string().optional(),
     city:           z.string().optional(),
     state:          z.string().max(2).optional(),
     rg:             z.string().optional(),
@@ -665,5 +675,135 @@ export async function getStages(req: Request, res: Response): Promise<void> {
     } catch (err) {
         console.error('Get stages error:', err);
         res.status(500).json({ success: false, error: 'Erro ao buscar estágios' });
+    }
+}
+
+// Helper to save image to disk and buffer
+async function saveImageAndPersistLocal(
+    leadId: number,
+    base64: string,
+    mimeType: string,
+    docLabel: string
+): Promise<{ filePath: string | null; fileData: Buffer | null }> {
+    const fileData = Buffer.from(base64, 'base64');
+    let filePath: string | null = null;
+    try {
+        const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+        const dirPath = path.join(process.cwd(), 'uploads', 'documents', String(leadId));
+        if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+        const safeName = docLabel.replace(/[^a-z0-9_\-]/gi, '_').slice(0, 40);
+        const filename = `${safeName}_${Date.now()}.${ext}`;
+        const fullPath = path.join(dirPath, filename);
+        fs.writeFileSync(fullPath, fileData);
+        filePath = fullPath;
+    } catch (err) {
+        console.warn('[Doc Local] Disk save failed (will use DB only):', (err as Error).message);
+    }
+    return { filePath, fileData };
+}
+
+export async function uploadAndExtractDocument(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    const schema = z.object({
+        fileBase64: z.string().min(1),
+        mimeType: z.string().min(1),
+        docType: z.string().min(1),
+    });
+
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ success: false, error: 'Dados inválidos para o upload.' });
+        return;
+    }
+
+    const { fileBase64, mimeType, docType } = result.data;
+
+    try {
+        const lead = await db('leads').where({ id: Number(id) }).first();
+        if (!lead) {
+            res.status(404).json({ success: false, error: 'Lead não encontrado' });
+            return;
+        }
+
+        // 1. Analyze image via AI
+        const context = `O usuário está anexando um documento do tipo "${docType}". Valide se a imagem corresponde e extraia as informações essenciais.`;
+        const analysis = await analyzeImage(fileBase64, mimeType, context);
+        
+        if (!analysis.isLegible) {
+            res.status(400).json({ 
+                success: false, 
+                error: 'Imagem ilegível ou inválida',
+                details: analysis.issues 
+            });
+            return;
+        }
+
+        // 2. Extract data based on docType
+        const textData = analysis.extractedText || '';
+        const updates: Record<string, string> = {};
+        
+        if (docType === 'RG' || docType === 'CNH') {
+            const extractedCpf = extractCPF(textData);
+            const extractedName = extractName(textData);
+
+            if (extractedCpf && !lead.cpf) updates.cpf = extractedCpf;
+            
+            const currentName = String(lead.name || '');
+            if (extractedName && (!/^[A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ\s]+$/.test(currentName.trim()) || currentName === String(lead.phone) || currentName.startsWith('Lead '))) {
+                updates.name = extractedName;
+            }
+        } else if (docType === 'Comprovante de Residência') {
+            const roughAddress = textData.split('\n').slice(0, 4).join(', ').trim().substring(0, 200);
+            if (roughAddress && roughAddress.length >= 10 && !lead.address) {
+                updates.address = roughAddress;
+            }
+        }
+
+        // 3. Update lead if any extraction succeeded
+        if (Object.keys(updates).length > 0) {
+            await db('leads').where({ id: Number(id) }).update({ ...updates, updated_at: new Date() });
+            
+            // Log update
+            await logActivity({
+                user_id: req.user?.userId,
+                lead_id: Number(id),
+                action: 'lead_updated',
+                entity_type: 'lead',
+                entity_id: Number(id),
+                new_value: { updates, source: 'ai_extraction_manual_upload' }
+            });
+        }
+
+        // 4. Save the document
+        const { filePath, fileData } = await saveImageAndPersistLocal(Number(id), fileBase64, mimeType, docType);
+        
+        const [{ id: docId }] = await db('documents').insert({
+            lead_id: Number(id),
+            name: docType,
+            file_type: mimeType,
+            file_path: filePath,
+            file_data: fileData,
+            status: 'aprovado',
+            notes: textData,
+            uploaded_by: req.user?.userId
+        }).returning('id');
+
+        const doc = await db('documents').where({ id: docId }).first();
+
+        // Include download URL
+        const protocol = req.protocol;
+        const host = req.get('host') || 'localhost:3001';
+        const baseUrl = `${protocol}://${host}`;
+        doc.file_url = `${baseUrl}/api/leads/${id}/documents/${docId}/download`;
+
+        res.json({ 
+            success: true, 
+            data: doc, 
+            extracted: updates 
+        });
+
+    } catch (err) {
+        console.error('Upload document error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao fazer upload e extração do documento' });
     }
 }
