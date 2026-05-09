@@ -12,6 +12,11 @@ export function formatPhoneDisplay(raw: string | undefined): string {
     return `+55 (${area}) ${firstPart}-${lastPart}`;
   }
 
-  // Se for um Linked Device ID (muitos dígitos, não começa com 55), exibimos formatado ou apenas os números sem o @lid
+  // Se for um Linked Device ID (números muito grandes gerados pelo WhatsApp para anúncios)
+  if (digits.length >= 13 && !digits.startsWith("55")) {
+    return `Oculto (ID: ${digits.slice(0, 4)}...${digits.slice(-4)})`;
+  }
+
+  // Caso seja um número internacional ou formato desconhecido, retorna os dígitos puros
   return digits;
 }
