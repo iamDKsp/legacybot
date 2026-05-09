@@ -15,6 +15,8 @@ import { leadsApi } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { CheckSquare } from "lucide-react";
 import { StyledSelect } from "@/components/ui/StyledSelect";
+import { formatPhoneDisplay } from "@/utils/formatters";
+import { Eye } from "lucide-react";
 
 
 // ─── Types ────────────────────────────────────────────────────
@@ -442,7 +444,7 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
           <p className="text-sm">Nenhum documento recebido</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {(docs as Record<string, unknown>[]).map((doc) => {
             const status = String(doc.status || 'recebido');
             const docName = String(doc.name || doc.file_name || 'Documento');
@@ -450,37 +452,37 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
             const fileUrl = withToken(rawFileUrl);
             const isImage = (doc.file_type as string || '').startsWith('image/');
             return (
-              <div key={String(doc.id)} className="rounded-lg bg-secondary/40 hover:bg-secondary transition-colors group overflow-hidden border border-border/30">
-                {fileUrl && isImage && (
-                  <div className="relative h-24 bg-secondary cursor-pointer overflow-hidden" onClick={() => window.open(fileUrl, '_blank')}>
-                    <img src={fileUrl} alt={docName} className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-                  </div>
-                )}
-                <div className="flex items-center gap-3 p-2.5">
-                  <div className="w-8 h-8 rounded-md bg-card flex items-center justify-center shrink-0">
-                    <FileText className="w-4 h-4 text-accent" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{docName}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-muted-foreground">{String(doc.file_type || 'arquivo')}</span>
-                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusStyles[status] || statusStyles.recebido}`}>{status}</span>
+              <div key={String(doc.id)} className="rounded-xl bg-secondary/40 hover:bg-secondary transition-all group overflow-hidden border border-border/40 flex flex-col">
+                {fileUrl && isImage ? (
+                  <div className="relative h-28 bg-black/10 cursor-pointer overflow-hidden shrink-0 border-b border-border/30" onClick={() => window.open(fileUrl, '_blank')}>
+                    <img src={fileUrl} alt={docName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
+                      <Eye className="w-6 h-6 text-white" />
                     </div>
                   </div>
-                  {fileUrl && (
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                ) : (
+                  <div className="relative h-28 bg-card/40 flex flex-col items-center justify-center shrink-0 border-b border-border/30">
+                    <FileText className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                  </div>
+                )}
+                <div className="flex flex-col p-3 flex-1 items-center text-center">
+                  <p className="text-sm font-semibold truncate text-foreground w-full px-1" title={docName}>{docName}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{String(doc.file_type || 'arquivo')}</p>
+                  
+                  <div className="flex items-center gap-2 mt-2.5">
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${statusStyles[status] || statusStyles.recebido}`}>{status}</span>
+                    {fileUrl && (
                       <a
                         href={fileUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-1.5 rounded-md hover:bg-card transition-colors"
-                        title="Ver / Baixar"
+                        className="p-1 rounded hover:bg-accent/15 text-muted-foreground hover:text-accent transition-colors"
+                        title="Baixar"
                       >
-                        <Download className="w-3.5 h-3.5 text-muted-foreground" />
+                        <Download className="w-3.5 h-3.5" />
                       </a>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -688,8 +690,8 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
                   </button>
                 </div>
               )}
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Phone className="w-3 h-3" /> {lead.phone}
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-1">
+                <Phone className="w-3 h-3" /> {formatPhoneDisplay(lead.phone)}
                 {lead.funnel_name && <><span className="opacity-40">·</span><span>{String(lead.funnel_name)}</span></>}
               </p>
             </div>
@@ -726,7 +728,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
 
             {/* Gerar PHC */}
             <button
-              onClick={() => navigate("/crm", { state: { openPhc: true, phcLead: lead } })}
+              onClick={() => navigate("/crm", { state: { activeTab: "phc", subTab: "nova", phcLead: lead } })}
               title="Gerar PHC para este lead"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ring-1 transition-all bg-amber-500/10 text-amber-400 ring-amber-500/30 hover:bg-amber-500/20"
             >

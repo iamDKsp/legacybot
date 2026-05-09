@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
+import { useLocation } from "react-router-dom";
 import {
   Search, User, FileText, Scroll, Scale,
   Eye, Save, Loader2, AlertCircle, CheckCircle2, X
@@ -37,8 +38,15 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
 
   const qc = useQueryClient();
 
+  const location = useLocation();
   const [leadSearch, setLeadSearch] = useState("");
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+
+  useEffect(() => {
+    if ((location.state as any)?.phcLead && !selectedLead) {
+      setSelectedLead((location.state as any).phcLead);
+    }
+  }, [location.state, selectedLead]);
   const [selectedLawyer, setSelectedLawyer] = useState<Lawyer | null>(null);
   const [selectedDocTypes, setSelectedDocTypes] = useState<Set<PhcDocType>>(new Set());
   const [notes, setNotes] = useState("");

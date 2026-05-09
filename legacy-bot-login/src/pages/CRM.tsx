@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { ArrowLeft, LogOut, Bot, Database, Settings, Cpu } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -61,7 +61,16 @@ const CRM_GUIDE_STEPS: WizardStep[] = [
 const CRM = () => {
   const [activeTab, setActiveTab] = useState<Tab>("crm");
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout, user } = useAuth();
+
+  useEffect(() => {
+    if (location.state?.activeTab) {
+      setActiveTab(location.state.activeTab as Tab);
+      // Opcional: Limpar o state para não reativar no refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   return (
     <div className="h-screen flex flex-col overflow-hidden bg-background">

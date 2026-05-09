@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { FileText, Plus, List, User } from "lucide-react";
 import PhcList from "./PhcList";
@@ -14,7 +15,14 @@ const SUB_TABS: { id: SubTab; label: string; icon: React.ReactNode }[] = [
 ];
 
 export function PHCView() {
-  const [sub, setSub] = useState<SubTab>("lista");
+  const location = useLocation();
+  const [sub, setSub] = useState<SubTab>((location.state as any)?.subTab || "lista");
+
+  useEffect(() => {
+    if ((location.state as any)?.subTab) {
+      setSub((location.state as any).subTab);
+    }
+  }, [location.state]);
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

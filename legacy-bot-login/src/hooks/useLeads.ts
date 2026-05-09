@@ -33,7 +33,12 @@ export function useFunnels() {
         queryKey: ['funnels'],
         queryFn: async () => {
             const response = await leadsApi.getFunnels();
-            return response.data.data;
+            const funnels = response.data.data;
+            return funnels.sort((a: any, b: any) => {
+                if (a.slug === 'geral') return -1;
+                if (b.slug === 'geral') return 1;
+                return (a.display_order || 0) - (b.display_order || 0);
+            });
         },
         staleTime: 5 * 60_000, // funnels rarely change
     });

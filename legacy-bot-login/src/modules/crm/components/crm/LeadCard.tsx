@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useLeadChecklist, useDeleteLead } from "@/hooks/useLeads";
 import { useState } from "react";
+import { formatPhoneDisplay } from "@/utils/formatters";
 
 interface LeadCardProps {
   lead: Lead & Record<string, unknown>;
@@ -110,7 +111,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
             <p className="text-sm font-medium text-foreground leading-tight">{lead.name}</p>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Phone className="w-3 h-3" />
-              {lead.phone}
+              {formatPhoneDisplay(lead.phone)}
             </p>
           </div>
         </div>
