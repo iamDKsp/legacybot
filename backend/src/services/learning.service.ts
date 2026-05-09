@@ -121,15 +121,25 @@ export function extractCPF(text: string): string | null {
 export function extractName(text: string): string | null {
     // Remove CPF if present
     const cleaned = text.replace(/\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[.\s-]?\d{2}/g, '').trim();
-    if (cleaned.length < 3 || cleaned.length > 40) return null;
+    if (cleaned.length < 3 || cleaned.length > 60) return null;
+
+    // Block list: bot names, greetings, and other non-name words
+    const BLOCK_WORDS = new Set([
+        'olá', 'ola', 'oi', 'bom', 'boa', 'dia', 'tarde', 'noite',
+        'sofia', 'legacy', 'assessoria', 'jurídica', 'juridica',
+        'obrigado', 'obrigada', 'sim', 'não', 'nao', 'ok', 'tudo', 'bem',
+        'sr', 'sra', 'dr', 'dra', 'sr.', 'sra.', 'dr.', 'dra.',
+    ]);
 
     // Look for name-like patterns (2-4 words, mostly letters/accents)
-    // Ignore small isolated punctuation or random numbers
     const words = cleaned.split(/\s+/).filter((w) => /^[a-zA-ZÀ-ÿ]{2,}$/.test(w));
 
-    if (words.length >= 2 && words.length <= 5) {
+    // Filter out any known block words
+    const nameWords = words.filter(w => !BLOCK_WORDS.has(w.toLowerCase()));
+
+    if (nameWords.length >= 2 && nameWords.length <= 5) {
         // Capitalize properly (e.g., 'lucas andre' -> 'Lucas Andre')
-        return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        return nameWords.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     }
     return null;
 }

@@ -911,28 +911,13 @@ async function processDocumentImage(
             const extractedCpf = extractCPF(textData);
             const extractedName = extractName(textData);
 
-            // If this is the FRONT (name/cpf not yet gotten) we REQUIRE name + CPF extraction
+            // If this is the FRONT (name/cpf not yet gotten) we try to extract data
             if (!docState.id_front_done) {
+                // NOTE: Even if regexes can't extract name/CPF (rotated doc, unusual font),
+                // the AI already confirmed the image is legible — we ACCEPT it.
+                // Only reject if the AI itself said isLegible=false (handled above).
                 if (!extractedName && !extractedCpf) {
-                    // Extraction failed — reject the document and ask again
-                    const rejectMsg = `Recebi a foto, mas não consegui ler os dados do documento com clareza (nome e CPF precisam estar visíveis). Pode tirar uma nova foto da FRENTE do documento com boa iluminação, sem reflexo e preenchendo bem a tela do celular? 🙏`;
-
-                    const contentStr = `[Imagem recebida — ${docType} frente, dados ilegíveis]`;
-                    if (initialMsgId) {
-                        await db('messages').where({ id: initialMsgId }).update({ content: contentStr });
-                    } else {
-                        await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStr, direction: 'inbound', sender: 'lead', media_type: 'image' });
-                    }
-                    if (initialDocId) {
-                        await db('documents').where({ id: initialDocId }).update({ name: `[Ilegível] ${docType} frente`, status: 'rejeitado' });
-                    }
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: rejectMsg, direction: 'outbound', sender: 'bot' });
-                    await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ❌ ${docType} frente rejeitada — Nome e CPF não extraíveis` });
-
-                    const wss = getWebSocketServer();
-                    if (wss) wss.emit('bot_response', { lead_id: leadId, message: rejectMsg });
-                    await aiService.sendFragmentedMessage(targetPhone, rejectMsg);
-                    return;
+                    console.log(`[Doc] ⚠️ ${docType} front: AI says legible but regex couldn't extract name/CPF — accepting anyway (document is readable)`);
                 }
 
                 // Front validated — extract and save data
@@ -1019,43 +1004,55 @@ async function processDocumentImage(
             }
         }
 
-        // ── Comprovante de Residência: enforce address extraction ──
+        // ── Comprovante de Residência: extract address ──
         if (isComprovante) {
-            const roughAddress = textData.split('\n').slice(0, 4).join(', ').trim().substring(0, 200);
+            const roughAddress = textData.split('\n').slice(0, 6).join(' ').trim().substring(0, 300);
 
             if (!roughAddress || roughAddress.length < 10) {
-                // Extraction failed
-                const rejectMsg = `Recebi a foto, mas não consegui ler o endereço no comprovante. Pode tirar uma foto mais nítida? O endereço precisa aparecer com clareza, sem cortar e sem reflexo 🙏`;
+                // Can't extract address at all — but AI said it's legible. Accept it, log warning.
+                console.warn(`[Doc] ⚠️ Comprovante: AI says legible but couldn't extract address text — accepting anyway`);
+                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ Comprovante aceito — endereço não extraível automaticamente, requer revisão manual` });
+            } else {
+                // Try to parse structured address fields from the extracted text
+                const addressUpdates: Record<string, string> = {};
 
-                const contentStrAddr = '[Imagem recebida — Comprovante, endereço ilegível]';
-                if (initialMsgId) {
-                    await db('messages').where({ id: initialMsgId }).update({ content: contentStrAddr });
-                } else {
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrAddr, direction: 'inbound', sender: 'lead', media_type: 'image' });
+                // CEP: 00000-000 or 00000000
+                const cepMatch = roughAddress.match(/\b(\d{5}[-\s]?\d{3})\b/);
+                if (cepMatch) addressUpdates.zip_code = cepMatch[1].replace(/\D/g, '').replace(/(\d{5})(\d{3})/, '$1-$2');
+
+                // UF/Estado: 2 uppercase letters at end of address line
+                const stateMatch = roughAddress.match(/[-,/\s](AC|AL|AM|AP|BA|CE|DF|ES|GO|MA|MG|MS|MT|PA|PB|PE|PI|PR|RJ|RN|RO|RR|RS|SC|SE|SP|TO)\b/i);
+                if (stateMatch) addressUpdates.state = stateMatch[1].toUpperCase();
+
+                // Street: look for "R.", "Rua", "Av.", "Avenida", "Al.", etc.
+                const streetMatch = roughAddress.match(/(R\.|RUA|AV\.|AVENIDA|AL\.|ALAMEDA|TRV\.|TRAVESSA|EST\.|ESTRADA)[^\d\n,]{3,50}/i);
+                if (streetMatch) addressUpdates.street = streetMatch[0].trim().substring(0, 100);
+
+                // City: try to find a capitalized word before the state abbreviation
+                if (stateMatch) {
+                    const beforeState = roughAddress.substring(0, roughAddress.indexOf(stateMatch[0])).trim();
+                    const cityPart = beforeState.split(/[,\n]/).pop()?.trim();
+                    if (cityPart && cityPart.length > 2 && cityPart.length < 50) {
+                        addressUpdates.city = cityPart;
+                    }
                 }
-                if (initialDocId) {
-                    await db('documents').where({ id: initialDocId }).update({ name: `[Ilegível] Comprovante`, status: 'rejeitado' });
+
+                // Always save the raw address blob too
+                addressUpdates.address = roughAddress.substring(0, 200);
+
+                if (!lead.address) {
+                    await db('leads').where({ id: leadId }).update(addressUpdates);
+                    Object.assign(lead, addressUpdates);
+                    console.log(`[Doc] 📋 Address extracted from Comprovante:`, addressUpdates);
+                    const wss = getWebSocketServer();
+                    if (wss) wss.emit('lead_updated', { lead_id: leadId, ...addressUpdates });
                 }
-                await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: rejectMsg, direction: 'outbound', sender: 'bot' });
-                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ❌ Comprovante de Residência rejeitado — endereço não extraível` });
-
-                const wss = getWebSocketServer();
-                if (wss) wss.emit('bot_response', { lead_id: leadId, message: rejectMsg });
-                await aiService.sendFragmentedMessage(targetPhone, rejectMsg);
-                return;
-            }
-
-            // Save extracted address
-            if (!lead.address) {
-                await db('leads').where({ id: leadId }).update({ address: roughAddress });
-                lead.address = roughAddress;
-                console.log(`[Doc] 📋 Address extracted from Comprovante: ${roughAddress}`);
-                const wss = getWebSocketServer();
-                if (wss) getWebSocketServer()?.emit('lead_updated', { lead_id: leadId, address: roughAddress });
+                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ Comprovante aprovado | Endereço: ${roughAddress.substring(0, 100)}` });
             }
 
             docState.proof_of_address_done = true;
         }
+
 
         // ── Generic: save document and check checklist ──
         if (!isIDDoc || docState.id_back_done) {
