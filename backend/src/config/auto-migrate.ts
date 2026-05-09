@@ -442,6 +442,19 @@ export async function runAutoMigrations(): Promise<void> {
             console.log('[DB] ✅ Advogado Padrão criado com sucesso!');
         }
 
+        // ── 11. ai_error_logs (Painel de Erros da Sofia) ─────────────────────
+        await db.raw(`
+            CREATE TABLE IF NOT EXISTS ai_error_logs (
+                id           SERIAL PRIMARY KEY,
+                lead_id      INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+                error_message TEXT NOT NULL,
+                stack_trace  TEXT,
+                payload      JSONB,
+                created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_ai_error_logs_created ON ai_error_logs(created_at DESC)`).catch(() => {});
+
         console.log('[DB] ✅ Auto-migrations concluídas (PostgreSQL)');
 
 

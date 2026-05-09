@@ -18,6 +18,15 @@ import { useQuery } from "@tanstack/react-query";
 import { databaseApi, VerifiedDoc } from "@/services/api";
 
 // ── Helpers ───────────────────────────────────────────────────
+const getAuthUrl = (url?: string | null) => {
+  if (!url) return undefined;
+  if (!url.startsWith('http')) return url;
+  const token = localStorage.getItem("legacy_token") || localStorage.getItem("token");
+  if (!token) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}token=${token}`;
+};
+
 const getFileTypeColor = (type: string) => {
   const ext = (type || "").toLowerCase().replace("image/", "").replace("jpeg", "jpg");
   switch (ext) {
@@ -83,10 +92,10 @@ function DocumentCard({
       className="group relative rounded-xl bg-card border border-border hover:border-primary/30 transition-all duration-300 overflow-hidden"
     >
       {/* Top section: thumbnail area */}
-      <div className="relative h-36 bg-surface/50 flex items-center justify-center overflow-hidden">
+      <div className="relative h-24 bg-surface/50 flex items-center justify-center overflow-hidden">
         {hasPreview ? (
           <img
-            src={doc.file_url!}
+            src={getAuthUrl(doc.file_url)}
             alt={doc.doc_type}
             className="w-full h-full object-cover"
           />
@@ -108,8 +117,13 @@ function DocumentCard({
         </div>
 
         {/* Status badge */}
-        <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-[10px] font-bold tracking-wider border bg-green-500/20 text-green-400 border-green-500/30">
-          APROVADO
+        <div className={`absolute top-3 right-3 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider border ${
+          doc.status === 'aprovado' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+          doc.status === 'rejeitado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+          doc.status === 'recebido' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+          'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+        }`}>
+          {(doc.status || 'PENDENTE').toUpperCase()}
         </div>
 
         {/* Hover overlay */}
@@ -222,8 +236,13 @@ function DocumentViewer({
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider border bg-green-500/20 text-green-400 border-green-500/30">
-              APROVADO
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wider border ${
+              doc.status === 'aprovado' ? 'bg-green-500/20 text-green-400 border-green-500/30' :
+              doc.status === 'rejeitado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+              doc.status === 'recebido' ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
+              'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+            }`}>
+              {(doc.status || 'PENDENTE').toUpperCase()}
             </span>
             {doc.file_url && (
               <button
@@ -247,7 +266,7 @@ function DocumentViewer({
         <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-background/50">
           {doc.file_url && isImageType(doc.file_type) ? (
             <img
-              src={doc.file_url}
+              src={getAuthUrl(doc.file_url)}
               alt={doc.doc_type}
               className="max-w-full max-h-[60vh] object-contain rounded-lg shadow-2xl"
             />
@@ -256,7 +275,7 @@ function DocumentViewer({
               <FileText className="w-16 h-16 opacity-30" />
               <p className="text-sm">Preview não disponível para este tipo de arquivo</p>
               <a
-                href={doc.file_url}
+                href={getAuthUrl(doc.file_url)}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 transition-opacity"
@@ -312,6 +331,7 @@ export function VerifiedDocuments() {
   const [selectedFunnel, setSelectedFunnel] = useState("Todos os funis");
   const [funnelDropdownOpen, setFunnelDropdownOpen] = useState(false);
   const [viewingDoc, setViewingDoc] = useState<VerifiedDoc | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("todos");
 
   // Fetch from real API
   const { data: docs = [], isLoading } = useQuery({
@@ -341,9 +361,21 @@ export function VerifiedDocuments() {
       const matchesFunnel =
         selectedFunnel === "Todos os funis" || (doc.funnel_name || "Geral") === selectedFunnel;
 
-      return matchesSearch && matchesFunnel;
+      const matchesTab = 
+        activeTab === "todos" || 
+        (activeTab === "pendentes" && (!doc.status || doc.status === "pendente" || doc.status === "recebido")) ||
+        doc.status === activeTab;
+
+      return matchesSearch && matchesFunnel && matchesTab;
     });
-  }, [docs, search, selectedFunnel]);
+  }, [docs, search, selectedFunnel, activeTab]);
+
+  const tabs = [
+    { id: "todos", label: "Todos" },
+    { id: "aprovado", label: "Aprovados" },
+    { id: "pendentes", label: "Pendentes/Recebidos" },
+    { id: "rejeitado", label: "Rejeitados" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -432,12 +464,12 @@ export function VerifiedDocuments() {
           <p className="text-lg font-medium">Nenhum documento encontrado</p>
           <p className="text-sm mt-1 opacity-60">
             {docs.length === 0
-              ? "Documentos aprovados pela Sofia aparecerão aqui"
-              : "Tente ajustar sua busca ou filtro"}
+              ? "Nenhum documento recebido ainda"
+              : "Tente ajustar sua busca, filtro ou aba selecionada"}
           </p>
         </motion.div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
           {filteredDocs.map((doc, i) => (
             <DocumentCard
               key={doc.id}

@@ -24,6 +24,7 @@ import {
 import { aiConfigApi } from "@/services/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { SofiaContextGuide, WizardStep } from "@/components/SofiaWizard";
+import { AILogs } from "@/components/settings/AILogs";
 
 // ─── Types ─────────────────────────────────────────────────────
 interface AISettings {
@@ -197,6 +198,7 @@ const AIConfig = () => {
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [dirty, setDirty] = useState(false);
+    const [activeTab, setActiveTab] = useState<'config' | 'logs'>('config');
 
     // ── Fetch config ──
     const fetchConfig = useCallback(async () => {
@@ -266,31 +268,57 @@ const AIConfig = () => {
                 </div>
                 <div className="flex items-center gap-3">
                     <button
-                        onClick={fetchConfig}
+                        onClick={activeTab === 'config' ? fetchConfig : undefined}
                         className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground transition hover:text-card-foreground"
                     >
                         <RefreshCw className="h-3.5 w-3.5" /> Recarregar
                     </button>
+                    {activeTab === 'config' && (
+                        <button
+                            id="ai-save-btn"
+                            data-wizard-id="ai-save-btn"
+                            onClick={handleSave}
+                            disabled={saving || !dirty}
+                            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                                saved
+                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                                    : dirty
+                                        ? "bg-accent text-accent-foreground hover:opacity-90"
+                                        : "bg-muted text-muted-foreground cursor-not-allowed"
+                            }`}
+                        >
+                            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                            {saving ? "Salvando…" : saved ? "Salvo!" : "Salvar Alterações"}
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {/* ── Tabs ── */}
+            <div className="mx-auto max-w-4xl px-6 pt-4">
+                <div className="flex border-b border-border">
                     <button
-                        id="ai-save-btn"
-                        data-wizard-id="ai-save-btn"
-                        onClick={handleSave}
-                        disabled={saving || !dirty}
-                        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition ${
-                            saved
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : dirty
-                                    ? "bg-accent text-accent-foreground hover:opacity-90"
-                                    : "bg-muted text-muted-foreground cursor-not-allowed"
+                        onClick={() => setActiveTab('config')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                            activeTab === 'config' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
                         }`}
                     >
-                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                        {saving ? "Salvando…" : saved ? "Salvo!" : "Salvar Alterações"}
+                        Configurações Humanas
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('logs')}
+                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+                            activeTab === 'logs' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        Logs de Erro da IA
                     </button>
                 </div>
             </div>
 
             <div className="mx-auto max-w-4xl space-y-6 p-6">
+                {activeTab === 'config' ? (
+                <>
                 {/* ── Stats Row ── */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <StatCard
@@ -525,6 +553,10 @@ const AIConfig = () => {
                         As mudanças afetam imediatamente todas as novas conversas.
                     </p>
                 </div>
+                </>
+                ) : (
+                    <AILogs />
+                )}
             </div>
         </div>
 

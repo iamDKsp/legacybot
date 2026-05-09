@@ -125,3 +125,33 @@ export async function updateAIConfig(req: Request, res: Response): Promise<void>
         res.status(500).json({ success: false, error: 'Erro ao atualizar configurações da IA' });
     }
 }
+
+// GET /api/ai-config/logs — Return recent AI error logs
+export async function getAILogs(req: Request, res: Response): Promise<void> {
+    try {
+        const hasTable = await db.schema.hasTable('ai_error_logs');
+        if (!hasTable) {
+            res.json({ success: true, data: [] });
+            return;
+        }
+
+        const logs = await db('ai_error_logs as a')
+            .leftJoin('leads as l', 'a.lead_id', 'l.id')
+            .select(
+                'a.id',
+                'a.error_message',
+                'a.stack_trace',
+                'a.payload',
+                'a.created_at',
+                'l.name as lead_name',
+                'l.phone as lead_phone'
+            )
+            .orderBy('a.created_at', 'desc')
+            .limit(100);
+
+        res.json({ success: true, data: logs });
+    } catch (err) {
+        console.error('[AI Config] Get logs error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao buscar logs da IA' });
+    }
+}

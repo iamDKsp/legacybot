@@ -486,6 +486,7 @@ export interface VerifiedDoc {
     lead_phone: string;
     doc_type: string;
     description: string;
+    status: 'pendente' | 'recebido' | 'aprovado' | 'rejeitado';
     verified_at: string;
     file_url?: string | null;
     file_type?: string;

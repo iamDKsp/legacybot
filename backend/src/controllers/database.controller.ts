@@ -281,10 +281,9 @@ export async function getVerifiedDocuments(req: Request, res: Response): Promise
         let query = db('documents as d')
             .join('leads as l', 'd.lead_id', 'l.id')
             .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
-            .where('d.status', 'aprovado')
             .select(
                 'd.id', 'd.name as doc_type', 'd.notes as description',
-                'd.file_type', 'd.file_path', 'd.file_url', 'd.created_at as verified_at',
+                'd.status', 'd.file_type', 'd.file_path', 'd.file_url', 'd.created_at as verified_at',
                 'l.name as lead_name', 'l.phone as lead_phone', 'l.id as lead_id',
                 'f.name as funnel_name', 'f.slug as funnel_slug', 'f.color as funnel_color'
             )
@@ -310,7 +309,7 @@ export async function getVerifiedDocuments(req: Request, res: Response): Promise
             file_url: doc.file_url
                 ? doc.file_url
                 : doc.file_path
-                    ? `${baseUrl}/api/documents/${doc.id}/download`
+                    ? `${baseUrl}/api/leads/${doc.lead_id}/documents/${doc.id}/download`
                     : null,
         }));
 

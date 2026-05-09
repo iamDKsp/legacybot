@@ -861,6 +861,13 @@ async function processDocumentImage(
                 replyMsg = 'Opa, tive um probleminha para processar essa imagem. Pode mandar ela de novo, por favor? 🙏';
                 inboundLabel = '[Imagem recebida — erro de processamento]';
                 console.warn(`[Doc] ⚠️ Technical error during analysis: ${analysis.issues}`);
+                
+                await db('ai_error_logs').insert({
+                    lead_id: leadId,
+                    error_message: analysis.issues || 'Erro técnico na IA Vision',
+                    stack_trace: null,
+                    payload: JSON.stringify({ imageMimeType, action: 'analyzeImage' }),
+                }).catch(e => console.error('Failed to log AI error:', e));
             } else {
                 const issueMsg = analysis.issues && analysis.issues !== 'nenhum'
                     ? analysis.issues

@@ -557,6 +557,14 @@ export async function generateBotReply(
         if (!config.googleAi.apiKey) {
             console.error('[AI] ❌ CRITICAL: GOOGLE_AI_API_KEY is empty! Check your .env file.');
         }
+
+        db('ai_error_logs').insert({
+            lead_id: null,
+            error_message: error?.message || 'Erro ao gerar resposta do bot',
+            stack_trace: error?.stack,
+            payload: JSON.stringify({ action: 'generateBotReply', userMessage }),
+        }).catch(e => console.error('Failed to log AI error:', e));
+
         return 'Desculpe, tive um problema técnico. Um assessor vai entrar em contato com você em breve!';
     }
 }
