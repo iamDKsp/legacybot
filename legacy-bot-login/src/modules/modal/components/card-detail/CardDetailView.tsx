@@ -66,6 +66,120 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   );
 }
 
+// ─── Custom Audio Player ──────────────────────────────────────
+function AudioPlayer({ src, transcription }: { src: string; transcription?: string }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const fmt = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec.toString().padStart(2, '0')}`;
+  };
+
+  const toggle = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (playing) { a.pause(); } else { a.play(); }
+    setPlaying(!playing);
+  };
+
+  const handleTimeUpdate = () => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    setCurrentTime(a.currentTime);
+    setProgress((a.currentTime / a.duration) * 100);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const a = audioRef.current;
+    if (!a || !a.duration) return;
+    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    a.currentTime = ratio * a.duration;
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5 min-w-[240px] max-w-[280px]">
+      {/* Header row */}
+      <div className="flex items-center gap-1.5 text-[11px] text-purple-400 font-semibold">
+        <Mic className="w-3 h-3" />
+        <span>Áudio do cliente</span>
+      </div>
+
+      {/* Player card */}
+      <div className="flex items-center gap-2.5 bg-purple-500/10 border border-purple-500/20 rounded-2xl px-3 py-2.5">
+        {/* Play/Pause button */}
+        <button
+          onClick={toggle}
+          className="w-8 h-8 rounded-full bg-purple-500 hover:bg-purple-400 flex items-center justify-center shrink-0 transition-colors shadow-sm shadow-purple-500/30"
+        >
+          {playing ? (
+            <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
+            </svg>
+          ) : (
+            <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24" style={{ marginLeft: '1px' }}>
+              <path d="M8 5v14l11-7z"/>
+            </svg>
+          )}
+        </button>
+
+        {/* Waveform + Progress */}
+        <div className="flex-1 flex flex-col gap-1">
+          {/* Fake waveform bars + clickable progress track */}
+          <div
+            className="relative h-7 flex items-center gap-px cursor-pointer"
+            onClick={handleSeek}
+          >
+            {/* Waveform bars */}
+            {[4, 7, 5, 9, 6, 8, 4, 7, 10, 6, 8, 5, 7, 9, 5, 6, 8, 4, 7, 6].map((h, i) => {
+              const pct = (i / 19) * 100;
+              const filled = pct <= progress;
+              return (
+                <div
+                  key={i}
+                  className="rounded-full flex-1 transition-colors"
+                  style={{
+                    height: `${h * 2.5}px`,
+                    backgroundColor: filled ? 'rgb(168 85 247)' : 'rgba(168,85,247,0.25)',
+                  }}
+                />
+              );
+            })}
+          </div>
+
+          {/* Time display */}
+          <div className="flex justify-between text-[9px] text-purple-300/70 font-mono px-0.5">
+            <span>{fmt(currentTime)}</span>
+            <span>{duration ? fmt(duration) : '–:––'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Transcription */}
+      {transcription && (
+        <p className="text-[11px] text-muted-foreground italic px-1">
+          📝 {transcription}
+        </p>
+      )}
+
+      {/* Hidden native audio */}
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        onLoadedMetadata={() => setDuration(audioRef.current?.duration || 0)}
+        onTimeUpdate={handleTimeUpdate}
+        onEnded={() => { setPlaying(false); setProgress(0); setCurrentTime(0); }}
+        className="hidden"
+      />
+    </div>
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────
 type TabKey = "conversas" | "info" | "documentos" | "checklist";
@@ -203,27 +317,14 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
 
                   /* ── Audio message ── */
                   ) : isAudio && audioUrl ? (
-                    <div className="flex flex-col gap-1.5 min-w-[220px]">
-                      <div className="flex items-center gap-2 text-xs text-purple-400 font-medium">
-                        <Mic className="w-3.5 h-3.5" />
-                        <span>Áudio do cliente</span>
-                      </div>
-                      <audio
-                        controls
-                        preload="metadata"
-                        className="w-full h-8 rounded-md"
-                        style={{ accentColor: 'hsl(var(--accent))' }}
-                      >
-                        <source src={audioUrl} />
-                        Seu navegador não suporta reprodução de áudio.
-                      </audio>
-                      {/* Show transcription if content has meaningful text */}
-                      {msg.content && !String(msg.content).startsWith('[Áudio') && (
-                        <p className="text-[11px] text-muted-foreground italic border-t border-border/40 pt-1 mt-0.5">
-                          📝 {String(msg.content)}
-                        </p>
-                      )}
-                    </div>
+                    <AudioPlayer
+                      src={audioUrl}
+                      transcription={
+                        msg.content && !String(msg.content).startsWith('[Áudio')
+                          ? String(msg.content)
+                          : undefined
+                      }
+                    />
                   ) : isAudio ? (
                     <div className="flex flex-col gap-1 min-w-[180px]">
                       <div className="flex items-center gap-2 text-xs text-purple-400/70 italic">
