@@ -263,6 +263,35 @@ async function connectInstance(instanceName, { clearSession = false } = {}) {
                         }
                     }
 
+                    // ── Document/PDF: download and inject base64 ──
+                    const docMsg = innerMessage.documentMessage || null;
+                    if (docMsg && !audioMsg && !imageMsg) {
+                        const docMime = docMsg.mimetype || '';
+                        console.log(`[${instanceName}] Document received | mime: ${docMime} | filename: ${docMsg.fileName || 'unknown'}`);
+                        if (docMime === 'application/pdf' || docMime.includes('pdf')) {
+                            try {
+                                const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+                                const buffer = await downloadMediaMessage(
+                                    msg, 'buffer', {},
+                                    { logger: pino({ level: 'silent' }), reuploadRequest: sock.updateMediaMessage }
+                                );
+                                if (buffer && buffer.length > 0) {
+                                    const base64 = buffer.toString('base64');
+                                    webhookPayload.data.documentBase64 = base64;
+                                    webhookPayload.data.documentMime = docMime;
+                                    webhookPayload.data.documentFileName = docMsg.fileName || 'documento.pdf';
+                                    console.log(`[${instanceName}] PDF OK | ${Math.round(buffer.length / 1024)}KB | base64: ${base64.length} chars`);
+                                } else {
+                                    console.warn(`[${instanceName}] PDF buffer empty`);
+                                }
+                            } catch (err) {
+                                console.error(`[${instanceName}] PDF download FAILED:`, err.message);
+                            }
+                        } else {
+                            console.log(`[${instanceName}] Non-PDF document received — no base64 injected | mime: ${docMime}`);
+                        }
+                    }
+
                     // Log payload size to verify serialization
                     try {
                         const payloadStr = JSON.stringify(webhookPayload);
