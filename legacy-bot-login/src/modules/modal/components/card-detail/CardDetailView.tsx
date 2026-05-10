@@ -67,7 +67,7 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
 }
 
 // ─── Extract Button (✨ fill lead fields from approved document) ──
-function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: number; onSuccess: (q: object) => void }) {
+function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: number; onSuccess: () => void }) {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
@@ -90,8 +90,7 @@ function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: nu
       if (res.ok && data.success) {
         const filled = Object.keys(data.updated || {}).length;
         showToast(filled > 0 ? `✅ ${filled} campo${filled > 1 ? 's' : ''} preenchido${filled > 1 ? 's' : ''}` : 'ℹ️ Todos os campos já estavam preenchidos', true);
-        onSuccess({ queryKey: ['lead', leadId] });
-        onSuccess({ queryKey: ['leads'] });
+        onSuccess();
       } else {
         showToast(`❌ ${data.error || 'Erro ao extrair'}`, false);
       }
@@ -687,7 +686,7 @@ function withToken(url: string | null): string | null {
 }
 
 function DocumentsPanel({ leadId }: { leadId: number }) {
-  const { data: docs = [], isLoading } = useLeadDocuments(leadId);
+  const { data: docs = [], isLoading, refetch: refetchDocs } = useLeadDocuments(leadId);
   const uploadDoc = useUploadLeadDocument();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [docType, setDocType] = useState('RG');
@@ -832,7 +831,7 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                       </a>
                     )}
                     {status === 'aprovado' && (
-                      <ExtractButton leadId={lead.id} docId={Number(doc.id)} onSuccess={queryClient.invalidateQueries} />
+                      <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
                     )}
                   </div>
                 </div>
