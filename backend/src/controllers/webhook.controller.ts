@@ -825,6 +825,15 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             audio_url: audioUrl,
         }).returning('id');
 
+        // If PDF had no readable content, remove the phantom [PDF] message from history
+        // so Sofia never sees it and never comments on a file she can't access
+        if (pdfReadFailedSilently) {
+            await db('messages').where({ id: msgId }).del()
+                .catch(e => console.error('[PDF] Failed to delete phantom message:', e));
+            console.log('[PDF] 🗑️ Phantom [PDF] message deleted from conversation history');
+            return; // stop here — no further processing
+        }
+
         // Update conversation last message
         await db('conversations').where({ id: conversation.id }).update({
             last_message_at: new Date(),

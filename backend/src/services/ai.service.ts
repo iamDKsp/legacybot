@@ -260,12 +260,26 @@ Todas as informações foram coletadas. Encerre seu atendimento anunciando que u
 // Build Compressed Conversation History (Token-Optimized)
 // Keeps last 6 messages + optional summary of earlier context
 // ============================================================
+// Messages that Sofia cannot process and should never see in history
+const PHANTOM_MESSAGE_PATTERNS = [
+    '[PDF]',
+    '[Vídeo]',
+    '[Mídia]',
+    '[Media]',
+    '[PDF recebido — não foi possível extrair texto',
+    '[PDF recebido — erro ao processar]',
+];
+
 export function buildCompressedHistory(
     messages: Array<{ direction: string; content: string; sender: string }>,
     maxMessages = 14
 ): Array<{ role: 'user' | 'model'; parts: string }> {
-    const recent = messages.slice(-maxMessages);
-    const older = messages.slice(0, -maxMessages);
+    // Remove phantom/unreadable media placeholders — Sofia should never see these
+    const filtered = messages.filter(m =>
+        !PHANTOM_MESSAGE_PATTERNS.some(p => m.content === p || m.content.startsWith(p))
+    );
+    const recent = filtered.slice(-maxMessages);
+    const older = filtered.slice(0, -maxMessages);
     const raw: Array<{ role: 'user' | 'model'; parts: string }> = [];
 
     // Compressed context from older messages (role 'user' so it can go first)
