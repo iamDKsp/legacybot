@@ -81,8 +81,10 @@ function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: nu
     if (loading) return;
     setLoading(true);
     try {
-      const token = localStorage.getItem('auth_token') || '';
-      const res = await fetch(`/api/leads/${leadId}/documents/${docId}/extract`, {
+      const token = localStorage.getItem('legacy_token') || localStorage.getItem('token') || '';
+      const baseUrl = ((import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api').replace(/\/api$/, '');
+      const url = `${baseUrl}/api/leads/${leadId}/documents/${docId}/extract`;
+      const res = await fetch(url, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
