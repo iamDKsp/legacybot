@@ -621,6 +621,24 @@ export interface ImageAnalysisResult {
     description: string;
     extractedText: string;
     issues: string;
+    /** Structured data extracted directly by the AI — no regex needed */
+    extractedData?: {
+        name?: string;
+        cpf?: string;
+        rg?: string;
+        birth_date?: string;   // DD/MM/YYYY
+        gender?: string;       // masculino | feminino
+        nationality?: string;
+        mother?: string;
+        father?: string;
+        // Address fields (from Comprovante de Residência)
+        street?: string;
+        number?: string;
+        neighborhood?: string;
+        city?: string;
+        state?: string;        // UF ex: SP
+        zip_code?: string;
+    };
 }
 
 export async function analyzeImage(
@@ -663,9 +681,38 @@ Analise a imagem e responda APENAS em JSON puro (sem markdown, sem \`\`\`, sem t
   "isLegible": boolean,
   "docType": "RG" | "CNH" | "Holerite" | "Comprovante de Residência" | "Carteira de Trabalho" | "Comprovante Pix" | "Boletim de Ocorrência" | "Prints de Fraude" | "Outro" | "Desconhecido",
   "description": "1 frase descrevendo o que é a imagem",
-  "extractedText": "Dados principais visíveis (nome, CPF, RG, endereço) OU vazio se não dá para ler",
-  "issues": "Problemas REAIS detectados. Se nenhum, escreva 'nenhum'"
+  "extractedText": "Resumo livre dos dados visíveis",
+  "issues": "Problemas REAIS detectados. Se nenhum, escreva 'nenhum'",
+  "extractedData": {
+    "name": "Nome completo do titular (null se não visível)",
+    "cpf": "CPF no formato 000.000.000-00 (null se não visível)",
+    "rg": "Número do RG (null se não visível)",
+    "birth_date": "Data de nascimento DD/MM/AAAA (null se não visível)",
+    "gender": "masculino | feminino | null",
+    "nationality": "Naturalidade/nacionalidade (null se não visível)",
+    "mother": "Nome da mãe (null se não visível)",
+    "father": "Nome do pai (null se não visível)",
+    "street": "Logradouro/rua (null se não visível — apenas comprovante de residência)",
+    "number": "Número do imóvel (null se não visível)",
+    "neighborhood": "Bairro (null se não visível)",
+    "city": "Cidade (null se não visível)",
+    "state": "UF em 2 letras ex: SP (null se não visível)",
+    "zip_code": "CEP no formato 00000-000 (null se não visível)",
+    "pix_value": "Valor do Pix em reais ex: 1500.00 (null se não comprovante Pix)",
+    "pix_recipient": "Nome do destinatário do Pix (null se não comprovante Pix)",
+    "pix_date": "Data da transferência Pix DD/MM/AAAA (null se não comprovante Pix)"
+  }
 }
+
+IMPORTANTE extractedData:
+- Preencha APENAS os campos relevantes para o tipo de documento
+- Coloque null (sem aspas) nos campos que não existem naquele documento ou não são visíveis
+- Para RG: preencher name, rg, birth_date, gender, nationality, mother, father
+- Para CNH: preencher name, cpf, birth_date, gender, nationality
+- Para Comprovante de Residência: preencher name (do titular), street, number, neighborhood, city, state, zip_code
+- Para Holerite: preencher name, cpf
+- Para Comprovante Pix: preencher pix_value, pix_recipient, pix_date
+- Se estiver na foto do VERSO do RG/CNH (sem nome visível), preencha apenas o que estiver visível (ex: CPF)
 
 QUANDO MARCAR isLegible = true (APROVAR):
 - Os campos de texto principais do documento são LEGÍVEIS (nome, número do documento, datas)
@@ -680,7 +727,7 @@ QUANDO MARCAR isLegible = false (REJEITAR) — apenas para problemas GRAVES:
 3. false se flash/reflexo cobre texto ESSENCIAL (nome, número) tornando impossível ler
 4. false se está MUITO escuro, a ponto de NÃO distinguir o texto
 5. false APENAS se genuinamente NÃO DÁ PARA LER os dados importantes
-ATEÑÃO: Screenshots, prints de tela e documentos digitais SÃO VÁLIDOS. Se um screenshot de CNH digital, comprovante do banco, extrato ou qualquer documento digital está legível, marque isLegible=true.
+ATENÇÃO: Screenshots, prints de tela e documentos digitais SÃO VÁLIDOS. Se um screenshot de CNH digital, comprovante do banco, extrato ou qualquer documento digital está legível, marque isLegible=true.
 
 Resumo: Se dá para ler os dados principais → isLegible=true. Só rejeite se REALMENTE não dá para ler.
 
@@ -706,14 +753,23 @@ REGRAS PARA docType:
             const jsonMatch = text.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 const parsed = JSON.parse(jsonMatch[0]);
+                // Clean up extractedData: convert null strings and empty strings to undefined
+                const raw = parsed.extractedData || {};
+                const cleanData: ImageAnalysisResult['extractedData'] = {};
+                for (const [k, v] of Object.entries(raw)) {
+                    if (v !== null && v !== undefined && String(v).trim() !== '' && String(v).toLowerCase() !== 'null') {
+                        (cleanData as Record<string, string>)[k] = String(v).trim();
+                    }
+                }
                 const analysisResult: ImageAnalysisResult = {
                     isLegible: parsed.isLegible ?? false,
                     docType: (parsed.docType as DocumentType) ?? 'Desconhecido',
                     description: parsed.description ?? 'Imagem recebida',
                     extractedText: parsed.extractedText ?? '',
                     issues: parsed.issues ?? '',
+                    extractedData: Object.keys(cleanData).length > 0 ? cleanData : undefined,
                 };
-                console.log(`[AI] 🖼️ Image analysis FINAL: isLegible=${analysisResult.isLegible} | docType=${analysisResult.docType} | issues=${analysisResult.issues} | extractedText=${(analysisResult.extractedText || '').substring(0, 100)}`);
+                console.log(`[AI] 🖼️ Image analysis FINAL: isLegible=${analysisResult.isLegible} | docType=${analysisResult.docType} | extractedData=${JSON.stringify(cleanData)}`);
                 return analysisResult;
             }
 

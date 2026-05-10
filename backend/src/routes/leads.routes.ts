@@ -18,6 +18,7 @@ import {
     getLeadChecklist,
     uploadAndExtractDocument,
     getLeadLocation,
+    extractDocumentData,
 } from '../controllers/leads.controller';
 import { getConversations, sendMessage } from '../controllers/webhook.controller';
 import { authMiddleware } from '../middleware/auth';
@@ -52,6 +53,7 @@ router.get('/:id/documents', getLeadDocuments);
 router.post('/:id/documents', createLeadDocument);
 router.post('/:id/documents/upload', uploadAndExtractDocument);
 router.get('/:id/documents/:docId/download', downloadDocument);
+router.post('/:id/documents/:docId/extract', extractDocumentData);
 
 // Lead checklist (document collection progress)
 router.get('/:id/checklist', getLeadChecklist);

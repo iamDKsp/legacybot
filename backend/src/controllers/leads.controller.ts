@@ -870,3 +870,95 @@ export async function getLeadLocation(req: Request, res: Response): Promise<void
         res.status(500).json({ success: false, error: 'Erro ao buscar localização do lead' });
     }
 }
+
+// ============================================================
+// POST /api/leads/:id/documents/:docId/extract
+// Re-runs AI extraction on a saved document and fills lead fields.
+// Uses cached extractedData from document notes if available,
+// otherwise re-analyzes the image via Gemini.
+// ============================================================
+export async function extractDocumentData(req: Request, res: Response) {
+    try {
+        const leadId = Number(req.params.id);
+        const docId  = Number(req.params.docId);
+        if (isNaN(leadId) || isNaN(docId)) return res.status(400).json({ success: false, error: 'ID inválido' });
+
+        const [lead, doc] = await Promise.all([
+            db('leads').where({ id: leadId }).first(),
+            db('documents').where({ id: docId, lead_id: leadId }).first(),
+        ]);
+        if (!lead) return res.status(404).json({ success: false, error: 'Lead não encontrado' });
+        if (!doc)  return res.status(404).json({ success: false, error: 'Documento não encontrado' });
+
+        // ── Try to read cached extractedData from notes JSON ──
+        let extractedData: Record<string, string> | null = null;
+        if (doc.notes) {
+            try {
+                const parsed = JSON.parse(doc.notes);
+                if (parsed.extractedData && Object.keys(parsed.extractedData).length > 0) {
+                    extractedData = parsed.extractedData;
+                    console.log(`[Extract] Using cached extractedData for doc ${docId}`);
+                }
+            } catch { /* notes is plain text — fall through to re-analysis */ }
+        }
+
+        // ── If no cache, re-analyze the image ──
+        if (!extractedData && doc.file_data) {
+            console.log(`[Extract] No cached data — re-analyzing doc ${docId} with Gemini`);
+            const fileBase64 = Buffer.isBuffer(doc.file_data)
+                ? doc.file_data.toString('base64')
+                : String(doc.file_data);
+            const mimeType   = (doc.file_type as string) || 'image/jpeg';
+            const context    = `Documento do tipo "${doc.name}". Extraia todos os dados pessoais visíveis.`;
+            const analysis   = await analyzeImage(fileBase64, mimeType, context);
+            if (analysis.extractedData && Object.keys(analysis.extractedData).length > 0) {
+                extractedData = analysis.extractedData as Record<string, string>;
+                // Cache for next time
+                const newNotes = JSON.stringify({ extractedText: analysis.extractedText, extractedData });
+                await db('documents').where({ id: docId }).update({ notes: newNotes });
+            }
+        }
+
+        if (!extractedData || Object.keys(extractedData).length === 0) {
+            return res.status(422).json({ success: false, error: 'Não foi possível extrair dados deste documento' });
+        }
+
+        // ── Apply fields to lead (only fill empty fields) ──
+        const updates: Record<string, string> = {};
+        const currentName = String(lead.name || '');
+        const phone       = String(lead.phone || '');
+        const isGeneric   = !currentName || currentName === phone || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
+
+        if (extractedData.name        && isGeneric)             updates.name          = extractedData.name;
+        if (extractedData.cpf         && !lead.cpf)             updates.cpf           = extractedData.cpf;
+        if (extractedData.rg          && !lead.rg)              updates.rg            = extractedData.rg;
+        if (extractedData.birth_date  && !lead.birth_date)      updates.birth_date    = extractedData.birth_date;
+        if (extractedData.gender      && !lead.gender)          updates.gender        = extractedData.gender;
+        if (extractedData.nationality && !lead.nationality)     updates.nationality   = extractedData.nationality;
+        if (extractedData.mother      && !lead.mother)          updates.mother        = extractedData.mother;
+        if (extractedData.father      && !lead.father)          updates.father        = extractedData.father;
+        if (extractedData.street      && !lead.street)          updates.street        = extractedData.street;
+        if (extractedData.number      && !lead.address_number)  updates.address_number = extractedData.number;
+        if (extractedData.neighborhood && !lead.neighborhood)   updates.neighborhood  = extractedData.neighborhood;
+        if (extractedData.city        && !lead.city)            updates.city          = extractedData.city;
+        if (extractedData.state       && !lead.state)           updates.state         = extractedData.state;
+        if (extractedData.zip_code    && !lead.zip_code)        updates.zip_code      = extractedData.zip_code;
+
+        if (Object.keys(updates).length > 0) {
+            await db('leads').where({ id: leadId }).update(updates);
+            await db('notes').insert({
+                lead_id:     leadId,
+                author_type: 'bot',
+                content:     `[Extração manual] ✅ Dados preenchidos via botão "Extrair": ${Object.keys(updates).join(', ')}`,
+            });
+            console.log(`[Extract] Filled lead ${leadId} fields:`, updates);
+        }
+
+        const updatedLead = await db('leads').where({ id: leadId }).first();
+        return res.json({ success: true, updated: updates, lead: updatedLead, extractedData });
+
+    } catch (err) {
+        console.error('extractDocumentData error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao extrair dados do documento' });
+    }
+}

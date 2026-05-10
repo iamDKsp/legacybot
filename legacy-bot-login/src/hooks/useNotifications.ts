@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import sofiaAvatar from '../assets/sofia-3d.png';
 
 const BACKEND_URL = (import.meta.env.VITE_API_URL as string || 'http://localhost:3001')
     .replace('/api', '');
@@ -42,7 +43,7 @@ function showNotification(leadName: string, message: string, leadId: number) {
     try {
         const n = new Notification(`💬 ${leadName}`, {
             body: message.length > 120 ? message.slice(0, 117) + '…' : message,
-            icon: '/favicon.ico',
+            icon: sofiaAvatar,
             tag: `lead-${leadId}`, // Replaces previous notification for same lead
             requireInteraction: false,
         });

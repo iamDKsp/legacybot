@@ -1052,50 +1052,61 @@ async function processDocumentImage(
         const isIDDoc = (docType === 'RG' || docType === 'CNH');
         const isComprovante = (docType === 'Comprovante de Residência');
         const textData = analysis.extractedText || '';
+        const exData = analysis.extractedData || {};
 
-        // ── RG/CNH handling: enforce name + CPF extraction ──
+        // ── Helper: apply extractedData to lead fields ──
+        // Used both here (auto on receive) and by the manual "extract" button
+        const buildLeadUpdates = (data: typeof exData, currentLead: Record<string, unknown>) => {
+            const updates: Record<string, string> = {};
+            const phone = String(currentLead.phone || '');
+            const currentName = String(currentLead.name || '');
+            const isGenericName = !currentName || currentName === phone || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
+
+            if (data.name && isGenericName) updates.name = data.name;
+            if (data.cpf && !currentLead.cpf) updates.cpf = data.cpf;
+            if (data.rg && !currentLead.rg) updates.rg = data.rg;
+            if (data.birth_date && !currentLead.birth_date) updates.birth_date = data.birth_date;
+            if (data.gender && !currentLead.gender) updates.gender = data.gender;
+            if (data.nationality && !currentLead.nationality) updates.nationality = data.nationality;
+            if (data.mother && !currentLead.mother) updates.mother = data.mother;
+            if (data.father && !currentLead.father) updates.father = data.father;
+            // Address fields
+            if (data.street && !currentLead.street) updates.street = data.street;
+            if (data.number && !currentLead.address_number) updates.address_number = data.number;
+            if (data.neighborhood && !currentLead.neighborhood) updates.neighborhood = data.neighborhood;
+            if (data.city && !currentLead.city) updates.city = data.city;
+            if (data.state && !currentLead.state) updates.state = data.state;
+            if (data.zip_code && !currentLead.zip_code) updates.zip_code = data.zip_code;
+            return updates;
+        };
+
+        // ── RG/CNH handling ──
         if (isIDDoc) {
-            const extractedCpf = extractCPF(textData);
-            const extractedName = extractName(textData);
-
             // If this is the FRONT (name/cpf not yet gotten) we try to extract data
             if (!docState.id_front_done) {
-                // NOTE: Even if regexes can't extract name/CPF (rotated doc, unusual font),
-                // the AI already confirmed the image is legible — we ACCEPT it.
-                // Only reject if the AI itself said isLegible=false (handled above).
-                if (!extractedName && !extractedCpf) {
-                    console.log(`[Doc] ⚠️ ${docType} front: AI says legible but regex couldn't extract name/CPF — accepting anyway (document is readable)`);
-                }
-
-                // Front validated — extract and save data
-                const updates: Record<string, string> = {};
-                if (extractedCpf && !lead.cpf) {
-                    updates.cpf = extractedCpf;
-                    console.log(`[Doc] 📋 CPF extracted from ${docType} front: ${extractedCpf}`);
-                }
-                const currentName = String(lead.name || '');
-                if (extractedName && (!/^[A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ\s]+$/.test(currentName.trim()) || currentName === phone || currentName.startsWith('Lead '))) {
-                    updates.name = extractedName;
-                    console.log(`[Doc] 📋 Name extracted from ${docType} front: ${extractedName}`);
-                }
+                const updates = buildLeadUpdates(exData, lead);
                 if (Object.keys(updates).length > 0) {
                     await db('leads').where({ id: leadId }).update(updates);
                     Object.assign(lead, updates);
                     const wssName = getWebSocketServer();
                     if (wssName) wssName.emit('lead_updated', { lead_id: leadId, ...updates });
+                    console.log(`[Doc] 📋 Auto-filled lead fields from ${docType}: ${JSON.stringify(updates)}`);
+                } else {
+                    console.log(`[Doc] ℹ️ ${docType} front: no new fields to fill (already set or not extracted)`);
                 }
 
                 // Save document and mark front as done
+                const notesJson = JSON.stringify({ extractedText: textData, extractedData: exData });
                 let frontDocUrl: string | null = null;
                 if (initialDocId) {
-                    await db('documents').where({ id: initialDocId }).update({ name: `${docType} (frente)`, status: 'aprovado', notes: textData });
+                    await db('documents').where({ id: initialDocId }).update({ name: `${docType} (frente)`, status: 'aprovado', notes: notesJson });
                     frontDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
                     const { filePath: frontFilePath, fileData: frontFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_frente`);
-                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, file_data: frontFileData, status: 'aprovado', notes: textData }).returning('id');
+                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, file_data: frontFileData, status: 'aprovado', notes: notesJson }).returning('id');
                     frontDocUrl = `/api/leads/${leadId}/documents/${frontDocId}/download`;
                 }
-                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} frente aprovada | Nome: ${extractedName || 'N/D'} | CPF: ${extractedCpf || 'N/D'}` });
+                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} frente aprovada | Nome: ${exData.name || 'N/D'} | CPF: ${exData.cpf || 'N/D'} | RG: ${exData.rg || 'N/D'}` });
                 
                 const contentStrFront = `[Imagem recebida — ${docType} frente ✅]`;
                 if (initialMsgId) {
@@ -1117,14 +1128,23 @@ async function processDocumentImage(
 
             } else if (!docState.id_back_done) {
                 // This is the BACK — just accept it (less strict, just needs legibility)
+                const notesJsonBack = JSON.stringify({ extractedText: textData, extractedData: exData });
                 let backDocUrl: string | null = null;
                 if (initialDocId) {
-                    await db('documents').where({ id: initialDocId }).update({ name: `${docType} (verso)`, status: 'aprovado', notes: textData });
+                    await db('documents').where({ id: initialDocId }).update({ name: `${docType} (verso)`, status: 'aprovado', notes: notesJsonBack });
                     backDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
                     const { filePath: backFilePath, fileData: backFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_verso`);
-                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, file_data: backFileData, status: 'aprovado', notes: textData }).returning('id');
+                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, file_data: backFileData, status: 'aprovado', notes: notesJsonBack }).returning('id');
                     backDocUrl = `/api/leads/${leadId}/documents/${backDocId}/download`;
+                }
+                // Also try to fill fields from the back (CNH back has CPF)
+                const backUpdates = buildLeadUpdates(exData, lead);
+                if (Object.keys(backUpdates).length > 0) {
+                    await db('leads').where({ id: leadId }).update(backUpdates);
+                    Object.assign(lead, backUpdates);
+                    const wssBack = getWebSocketServer();
+                    if (wssBack) wssBack.emit('lead_updated', { lead_id: leadId, ...backUpdates });
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} verso aprovado` });
                 
@@ -1151,52 +1171,20 @@ async function processDocumentImage(
             }
         }
 
-        // ── Comprovante de Residência: extract address ──
+        // ── Comprovante de Residência: extract address via AI extractedData ──
         if (isComprovante) {
-            const roughAddress = textData.split('\n').slice(0, 6).join(' ').trim().substring(0, 300);
-
-            if (!roughAddress || roughAddress.length < 10) {
-                // Can't extract address at all — but AI said it's legible. Accept it, log warning.
-                console.warn(`[Doc] ⚠️ Comprovante: AI says legible but couldn't extract address text — accepting anyway`);
-                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ Comprovante aceito — endereço não extraível automaticamente, requer revisão manual` });
+            const addressUpdates = buildLeadUpdates(exData, lead);
+            if (Object.keys(addressUpdates).length > 0) {
+                if (!lead.address && exData.street) addressUpdates.address = [exData.street, exData.number, exData.neighborhood, exData.city, exData.state, exData.zip_code].filter(Boolean).join(', ');
+                await db('leads').where({ id: leadId }).update(addressUpdates);
+                Object.assign(lead, addressUpdates);
+                console.log(`[Doc] 📋 Address extracted from Comprovante via AI:`, addressUpdates);
+                const wssAddr = getWebSocketServer();
+                if (wssAddr) wssAddr.emit('lead_updated', { lead_id: leadId, ...addressUpdates });
             } else {
-                // Try to parse structured address fields from the extracted text
-                const addressUpdates: Record<string, string> = {};
-
-                // CEP: 00000-000 or 00000000
-                const cepMatch = roughAddress.match(/\b(\d{5}[-\s]?\d{3})\b/);
-                if (cepMatch) addressUpdates.zip_code = cepMatch[1].replace(/\D/g, '').replace(/(\d{5})(\d{3})/, '$1-$2');
-
-                // UF/Estado: 2 uppercase letters at end of address line
-                const stateMatch = roughAddress.match(/[-,/\s](AC|AL|AM|AP|BA|CE|DF|ES|GO|MA|MG|MS|MT|PA|PB|PE|PI|PR|RJ|RN|RO|RR|RS|SC|SE|SP|TO)\b/i);
-                if (stateMatch) addressUpdates.state = stateMatch[1].toUpperCase();
-
-                // Street: look for "R.", "Rua", "Av.", "Avenida", "Al.", etc.
-                const streetMatch = roughAddress.match(/(R\.|RUA|AV\.|AVENIDA|AL\.|ALAMEDA|TRV\.|TRAVESSA|EST\.|ESTRADA)[^\d\n,]{3,50}/i);
-                if (streetMatch) addressUpdates.street = streetMatch[0].trim().substring(0, 100);
-
-                // City: try to find a capitalized word before the state abbreviation
-                if (stateMatch) {
-                    const beforeState = roughAddress.substring(0, roughAddress.indexOf(stateMatch[0])).trim();
-                    const cityPart = beforeState.split(/[,\n]/).pop()?.trim();
-                    if (cityPart && cityPart.length > 2 && cityPart.length < 50) {
-                        addressUpdates.city = cityPart;
-                    }
-                }
-
-                // Always save the raw address blob too
-                addressUpdates.address = roughAddress.substring(0, 200);
-
-                if (!lead.address) {
-                    await db('leads').where({ id: leadId }).update(addressUpdates);
-                    Object.assign(lead, addressUpdates);
-                    console.log(`[Doc] 📋 Address extracted from Comprovante:`, addressUpdates);
-                    const wss = getWebSocketServer();
-                    if (wss) wss.emit('lead_updated', { lead_id: leadId, ...addressUpdates });
-                }
-                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ Comprovante aprovado | Endereço: ${roughAddress.substring(0, 100)}` });
+                console.warn(`[Doc] ⚠️ Comprovante: AI accepted but extractedData has no address fields`);
             }
-
+            await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ Comprovante aprovado | ${exData.street || 'endereço não extraído'}` });
             docState.proof_of_address_done = true;
         }
 
@@ -1205,16 +1193,25 @@ async function processDocumentImage(
         if (!isIDDoc || docState.id_back_done) {
             // For non-ID docs or after both sides of ID are done, save normally
             const docSavedName = isComprovante ? 'Comprovante de Residência' : docType;
+            const notesJsonGeneric = JSON.stringify({ extractedText: textData, extractedData: exData });
 
             if (!isIDDoc) {
+                // Also try to fill lead fields from any approved document (Holerite, CTPS, etc.)
+                const genericUpdates = buildLeadUpdates(exData, lead);
+                if (Object.keys(genericUpdates).length > 0) {
+                    await db('leads').where({ id: leadId }).update(genericUpdates);
+                    Object.assign(lead, genericUpdates);
+                    const wssGen = getWebSocketServer();
+                    if (wssGen) wssGen.emit('lead_updated', { lead_id: leadId, ...genericUpdates });
+                }
                 // Save doc normally (for Holerite, CTPS, Comprovante Pix, etc.)
                 let genericDocUrl: string | null = null;
                 if (initialDocId) {
-                    await db('documents').where({ id: initialDocId }).update({ name: docSavedName, status: 'aprovado', notes: textData });
+                    await db('documents').where({ id: initialDocId }).update({ name: docSavedName, status: 'aprovado', notes: notesJsonGeneric });
                     genericDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
                     const { filePath: genericFilePath, fileData: genericFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, docSavedName.replace(/\s+/g, '_'));
-                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: textData }).returning('id');
+                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: notesJsonGeneric }).returning('id');
                     genericDocUrl = `/api/leads/${leadId}/documents/${genericDocId}/download`;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docSavedName} aprovado | Dados: ${textData.substring(0, 100) || 'N/D'}` });

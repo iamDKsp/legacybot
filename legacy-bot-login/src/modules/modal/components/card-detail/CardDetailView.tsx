@@ -5,7 +5,7 @@ import {
   FileText, ClipboardList, User, Phone, Mail, Calendar,
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
   MessageCircle, Pencil, Check, X as XIcon,
-  MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation
+  MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation, Sparkles
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -63,6 +63,61 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
         </motion.div>
       </motion.div>
     </AnimatePresence>
+  );
+}
+
+// ─── Extract Button (✨ fill lead fields from approved document) ──
+function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: number; onSuccess: (q: object) => void }) {
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const showToast = (msg: string, ok: boolean) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const handleExtract = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (loading) return;
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('auth_token') || '';
+      const res = await fetch(`/api/leads/${leadId}/documents/${docId}/extract`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        const filled = Object.keys(data.updated || {}).length;
+        showToast(filled > 0 ? `✅ ${filled} campo${filled > 1 ? 's' : ''} preenchido${filled > 1 ? 's' : ''}` : 'ℹ️ Todos os campos já estavam preenchidos', true);
+        onSuccess({ queryKey: ['lead', leadId] });
+        onSuccess({ queryKey: ['leads'] });
+      } else {
+        showToast(`❌ ${data.error || 'Erro ao extrair'}`, false);
+      }
+    } catch {
+      showToast('❌ Erro de conexão', false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={handleExtract}
+        title="Extrair dados para o cadastro"
+        className="p-1 rounded hover:bg-yellow-400/15 text-muted-foreground hover:text-yellow-400 transition-colors"
+      >
+        {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+      </button>
+      {toast && (
+        <div className={`absolute bottom-7 right-0 z-50 text-[11px] whitespace-nowrap px-2.5 py-1.5 rounded-lg shadow-lg font-medium
+          ${toast.ok ? 'bg-emerald-900/90 text-emerald-200 border border-emerald-700' : 'bg-red-900/90 text-red-200 border border-red-700'}`}>
+          {toast.msg}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -775,6 +830,9 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                       >
                         <Download className="w-3.5 h-3.5" />
                       </a>
+                    )}
+                    {status === 'aprovado' && (
+                      <ExtractButton leadId={lead.id} docId={Number(doc.id)} onSuccess={queryClient.invalidateQueries} />
                     )}
                   </div>
                 </div>
