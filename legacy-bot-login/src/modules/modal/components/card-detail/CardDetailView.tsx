@@ -798,6 +798,7 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
             const rawFileUrl = doc.file_url as string | null;
             const fileUrl = withToken(rawFileUrl);
             const isImage = (doc.file_type as string || '').startsWith('image/');
+            const isPdf = (doc.file_type as string || '').includes('pdf');
             return (
               <div key={String(doc.id)} className="rounded-xl bg-secondary/40 hover:bg-secondary transition-all group overflow-hidden border border-border/40 flex flex-col">
                 {fileUrl && isImage ? (
@@ -806,6 +807,20 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                     onClick={() => setLightboxUrl(fileUrl)}
                   >
                     <img src={fileUrl} alt={docName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
+                      <Eye className="w-6 h-6 text-white" />
+                    </div>
+                  </div>
+                ) : fileUrl && isPdf ? (
+                  <div
+                    className="relative h-28 bg-white cursor-pointer overflow-hidden shrink-0 border-b border-border/30"
+                    onClick={() => window.open(fileUrl, '_blank')}
+                  >
+                    <iframe
+                      src={`${fileUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                      className="w-full h-full pointer-events-none"
+                      title={docName}
+                    />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
                       <Eye className="w-6 h-6 text-white" />
                     </div>

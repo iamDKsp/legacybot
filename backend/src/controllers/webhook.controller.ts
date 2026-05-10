@@ -570,7 +570,6 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             console.warn('[Webhook] 🎤 Audio message detected but no base64 received from bridge — download may have failed');
             message = '[Áudio recebido — transcrição não disponível]';
         }
-
         // ── Image document handling (only if no audio was detected) ──
         if (!audioBase64 && imageBase64 && imageMimeType) {
             console.log('[Webhook] 🖼️ Image message detected (base64 available)');
@@ -579,8 +578,9 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             console.warn('[Webhook] 🖼️ imageMessage detected but no base64 after re-fetch attempt — will store as placeholder');
         }
 
-        // ── PDF document handling ────────────────────────────────────────
+        // ── PDF document handling ──────────────────────────────────────────
         let pdfExtractedText: string | undefined;
+        let pdfReadFailedSilently = false; // if true — don't let Sofia reply
         if (pdfBase64 && pdfMimeType) {
             console.log('[Webhook] 📎 PDF document detected | extracting text...');
             try {
@@ -592,16 +592,44 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
 
                 if (parsed && parsed.text && parsed.text.trim().length > 20) {
                     pdfExtractedText = parsed.text.trim().slice(0, 3000); // max 3000 chars
-                    message = `[PDF recebido — conteúdo extraído a seguir]\n${pdfExtractedText}`;
+                    message = `[PDF recebido — conteúdo extraído a seguir]\n${pdfExtractedText}`;
                     console.log(`[Webhook] 📎 PDF text extracted OK (${pdfExtractedText.length} chars): ${pdfExtractedText.substring(0, 100)}`);
                 } else {
-                    message = '[PDF recebido — não foi possível extrair texto. Arquivo pode estar protegido ou ser uma imagem.]';
-                    console.warn('[Webhook] 📎 PDF text extraction returned empty or too short');
+                    // PDF is image-based (scanned) — try Gemini Vision OCR as fallback
+                    console.warn('[Webhook] 📎 PDF text extraction empty — trying Gemini Vision OCR fallback...');
+                    try {
+                        const { analyzeImage: aiAnalyzeImage } = await import('../services/ai.service');
+                        const ocrResult = await aiAnalyzeImage(
+                            pdfBase64,
+                            'application/pdf',
+                            'PDF enviado pelo cliente via WhatsApp. Extraia TODO o texto visível no documento.'
+                        );
+                        if (ocrResult?.extractedText && ocrResult.extractedText.trim().length > 20) {
+                            pdfExtractedText = ocrResult.extractedText.trim().slice(0, 3000);
+                            message = `[PDF recebido — conteúdo extraído a seguir]\n${pdfExtractedText}`;
+                            console.log(`[Webhook] 📎 PDF OCR via Gemini OK (${pdfExtractedText.length} chars)`);
+                        } else {
+                            // Both text extraction and OCR failed — log internally, don't bother client
+                            pdfReadFailedSilently = true;
+                            message = '[PDF recebido — não foi possível extrair texto. Arquivo pode estar protegido ou ser uma imagem.]';
+                            console.warn('[Webhook] 📎 PDF: both pdf-parse and Gemini OCR returned no text — will suppress Sofia reply');
+                        }
+                    } catch (ocrErr) {
+                        pdfReadFailedSilently = true;
+                        message = '[PDF recebido — erro ao processar]';
+                        console.error('[Webhook] 📎 Gemini OCR fallback error:', (ocrErr as Error).message);
+                    }
                 }
             } catch (pdfErr) {
+                pdfReadFailedSilently = true;
                 console.error('[Webhook] 📎 PDF processing error:', (pdfErr as Error).message);
                 message = '[PDF recebido — erro ao processar]';
             }
+        } else if (!pdfBase64 && message === '[PDF]') {
+            // Bridge sent documentMessage but no base64 (file too large or not downloaded)
+            // Re-fetch was already attempted above. If still no base64, suppress Sofia.
+            pdfReadFailedSilently = true;
+            console.warn('[Webhook] 📎 PDF received but no base64 available after re-fetch — suppressing Sofia reply');
         }
 
         // Find or create lead
@@ -928,7 +956,10 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             const isOffHours = brtHour < 8 || brtHour >= 18;
             // Flag is passed to processAIBotResponse via the lead object
             (lead as Record<string, unknown>)._isOffHours = isOffHours;
-
+            // Pass PDF read failure flag via lead object (same pattern as _isOffHours)
+            if (pdfReadFailedSilently) {
+                (lead as Record<string, unknown>)._pdfReadFailed = true;
+            }
 
             // ── Document image validation pipeline ──
             // Runs for ANY image received, regardless of bot_stage.
@@ -1320,6 +1351,19 @@ async function processAIBotResponse(
             : '';
 
         const fullContext = leadContext + emotionContext + docsContext + offHoursContext;
+
+        // ── PDF could not be read — suppress Sofia, log internally ——
+        const pdfReadFailed = (lead as Record<string, unknown>)._pdfReadFailed === true;
+        if (pdfReadFailed) {
+            await db('notes').insert({
+                lead_id: lead.id as number,
+                author_type: 'bot',
+                content: `⚠️ [PDF não lido — cliente NÃO foi notificado] Não foi possível extrair o conteúdo do PDF enviado pelo cliente. O arquivo pode estar protegido, ser uma imagem sem OCR ou não ter chegado com base64. Verificar manualmente.`,
+            }).catch(e => console.error('[PDF] Failed to save error note:', e));
+            const wssP = getWebSocketServer();
+            if (wssP) wssP.emit('bot_error', { lead_id: lead.id, error: 'PDF não pôde ser lido' });
+            return; // ← Nothing sent to client
+        }
 
         // 🛑 CHECKPOINT 1: Check before calling AI (avoid wasting API call)
         if (signal.aborted) {
