@@ -529,8 +529,8 @@ export async function generateBotReply(
     memories = ''
 ): Promise<string> {
     if (!config.googleAi.apiKey) {
-        console.warn('[AI] No API key configured — using default reply');
-        return 'Olá! Sou o assistente da Legacy Assessoria. Um de nossos assessores entrará em contato em breve!';
+        console.warn('[AI] No API key configured — suppressing reply to client');
+        return '__BOT_ERROR__: API key not configured';
     }
 
     try {
@@ -595,7 +595,8 @@ export async function generateBotReply(
             payload: JSON.stringify({ action: 'generateBotReply', userMessage }),
         }).catch(e => console.error('Failed to log AI error:', e));
 
-        return 'Desculpe, tive um problema técnico. Um assessor vai entrar em contato com você em breve!';
+        // Return a sentinel — the webhook controller will log internally and NOT send to client
+        return `__BOT_ERROR__: ${error?.message || 'unknown error'}`;
     }
 }
 

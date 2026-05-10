@@ -1336,6 +1336,21 @@ async function processAIBotResponse(
 
         if (!botReply) return;
 
+        // ── BOT ERROR SENTINEL: log internally, DO NOT send to client ──
+        if (botReply.startsWith('__BOT_ERROR__')) {
+            const errDetail = botReply.replace('__BOT_ERROR__: ', '');
+            console.error(`[Bot] ❌ AI error — suppressing client reply | ${errDetail}`);
+            // Save internal note visible only in CRM
+            await db('notes').insert({
+                lead_id: lead.id as number,
+                author_type: 'bot',
+                content: `⚠️ [Erro interno — cliente NÃO foi notificado] Sofia não conseguiu responder: ${errDetail}`,
+            }).catch(e => console.error('[Bot] Failed to save error note:', e));
+            const wssErr = getWebSocketServer();
+            if (wssErr) wssErr.emit('bot_error', { lead_id: lead.id, error: errDetail });
+            return; // ← Nothing sent to client
+        }
+
         // 🛑 CHECKPOINT 2: Check after AI responds (discard stale reply)
         if (signal.aborted) {
             console.log(`[Bot] 🛑 STOP & RESTART: Processing cancelled AFTER AI call for ${phone} — discarding reply: "${botReply.substring(0, 60)}..."`);
