@@ -497,7 +497,55 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         const normalized = normalizeWebhookPayload(payload);
         if (!normalized) return;
 
-        let { phone, name, message, whatsappId, chatId, audioBase64, audioMimeType, imageBase64, imageMimeType, pdfBase64, pdfMimeType } = normalized;
+        let { phone, name, message, whatsappId, chatId, audioBase64, audioMimeType, imageBase64, imageMimeType, pdfBase64, pdfMimeType, videoMimeType, hasVideoNoBase64, rawKey, rawData } = normalized;
+
+        // ── Re-fetch media from Evolution API if bridge didn’t include base64 ──
+        // This happens for images, PDFs, and videos that are too large or not auto-downloaded
+        const needsRefetch = (!imageBase64 && message === '[Imagem]') || (!pdfBase64 && message === '[PDF]') || hasVideoNoBase64;
+        if (needsRefetch && rawKey && rawData && config.whatsapp.apiUrl && config.whatsapp.apiKey) {
+            console.log('[Webhook] 🔄 Media missing base64 — trying re-fetch from Evolution API...');
+            try {
+                const refetchUrl = `${config.whatsapp.apiUrl}/chat/getBase64FromMediaMessage/${config.whatsapp.instance}`;
+                const refetchBody = {
+                    message: {
+                        key: rawKey,
+                        message: rawData.message,
+                    },
+                    convertToMp4: false,
+                };
+                const refetchResp = await axios.post(refetchUrl, refetchBody, {
+                    headers: { apikey: config.whatsapp.apiKey, 'Content-Type': 'application/json' },
+                    timeout: 15000,
+                }).catch((e: { message: string }) => { console.warn('[Webhook] 🔄 Evolution re-fetch failed:', e.message); return null; });
+
+                if (refetchResp?.data?.base64) {
+                    const fetchedBase64: string = refetchResp.data.base64;
+                    const fetchedMime: string = refetchResp.data.mimetype || '';
+                    console.log(`[Webhook] 🔄 Re-fetch OK | mime=${fetchedMime} | size=${fetchedBase64.length} chars`);
+
+                    if (fetchedMime.startsWith('image/') || message === '[Imagem]') {
+                        imageBase64 = fetchedBase64;
+                        imageMimeType = fetchedMime || 'image/jpeg';
+                        message = '[Imagem]';
+                    } else if (fetchedMime === 'application/pdf' || message === '[PDF]') {
+                        pdfBase64 = fetchedBase64;
+                        pdfMimeType = 'application/pdf';
+                        message = '[PDF]';
+                    } else if (fetchedMime.startsWith('video/') || message === '[Vídeo]') {
+                        // Save video as document — no inline preview but visible in CRM
+                        imageBase64 = undefined;
+                        pdfBase64 = undefined;
+                        // Store in rawVideoBase64 local var for later persist
+                        (normalized as Record<string, unknown>).videoBase64 = fetchedBase64;
+                        (normalized as Record<string, unknown>).videoMimeType2 = fetchedMime || 'video/mp4';
+                    }
+                } else {
+                    console.warn('[Webhook] 🔄 Evolution re-fetch returned no base64');
+                }
+            } catch (refetchErr) {
+                console.error('[Webhook] 🔄 Re-fetch error:', (refetchErr as Error).message);
+            }
+        }
 
         // ── Audio transcription ──
         if (audioBase64 && audioMimeType) {
@@ -525,8 +573,10 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
 
         // ── Image document handling (only if no audio was detected) ──
         if (!audioBase64 && imageBase64 && imageMimeType) {
-            console.log('[Webhook] 🖼️ Image message detected');
+            console.log('[Webhook] 🖼️ Image message detected (base64 available)');
             // We store temporarily; processDocumentImage is called after lead is loaded
+        } else if (!audioBase64 && message === '[Imagem]' && !imageBase64) {
+            console.warn('[Webhook] 🖼️ imageMessage detected but no base64 after re-fetch attempt — will store as placeholder');
         }
 
         // ── PDF document handling ────────────────────────────────────────
@@ -1459,6 +1509,12 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
     imageMimeType?: string;
     pdfBase64?: string;
     pdfMimeType?: string;
+    videoMimeType?: string;
+    hasVideoNoBase64?: boolean;
+    /** Raw WhatsApp message key — needed to re-fetch media from Evolution API */
+    rawKey?: Record<string, unknown>;
+    /** Full raw data payload from bridge — needed for Evolution API re-fetch */
+    rawData?: Record<string, unknown>;
 } | null {
     try {
         // Only process messages.upsert events — ignore connection.update, qrcode.updated, etc.
@@ -1569,10 +1625,27 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
                 }
             }
 
+            // Check for video message
+            const videoMessage = messageContent.videoMessage as Record<string, unknown> | undefined;
+            let videoMimeType: string | undefined;
+            let hasVideoNoBase64 = false;
+            if (videoMessage && !audioBase64 && !imageBase64 && !pdfBase64) {
+                videoMimeType = (videoMessage.mimetype as string) || 'video/mp4';
+                hasVideoNoBase64 = true; // Videos are almost never sent with base64 inline
+                console.log(`[Webhook] Normalize: video found | mime=${videoMimeType}`);
+            }
+
+            const hasAnyMedia = !!(audioBase64 || audioMessage || imageBase64 || imageMessage || pdfBase64 || documentMessage || videoMessage);
             const message =
                 (messageContent.conversation as string) ||
                 (messageContent.extendedTextMessage as Record<string, string>)?.text ||
-                (audioBase64 || audioMessage ? '[Áudio]' : imageBase64 || imageMessage ? '[Imagem]' : pdfBase64 ? '[PDF]' : '[Media]');
+                (audioBase64 || audioMessage ? '[Áudio]'
+                    : imageBase64 ? '[Imagem]'
+                    : imageMessage ? '[Imagem]' // imageMessage present but no base64 — will try to re-fetch
+                    : pdfBase64 ? '[PDF]'
+                    : documentMessage ? '[PDF]'
+                    : videoMessage ? '[Vídeo]'
+                    : hasAnyMedia ? '[Mídia]' : '[Media]');
 
             const pushName = String(data.pushName || phone);
 
@@ -1588,6 +1661,10 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
                 imageMimeType,
                 pdfBase64,
                 pdfMimeType,
+                videoMimeType,
+                hasVideoNoBase64,
+                rawKey: key,
+                rawData: data,
             };
         }
 

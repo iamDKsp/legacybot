@@ -265,12 +265,14 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
             const content = String(msg.content || '').trim();
             const lc = content.toLowerCase();
 
-            // Drop any stub that is ONLY a placeholder tag with no real data
-            const NOISE_TAGS = ['[media]', '[mídia]', 'media', '[imagem]', '[documento]', ''];
-            if (NOISE_TAGS.includes(lc) && !msg.image_url && !msg.audio_url) return false;
+            // Only drop truly empty messages
+            if (lc === '' || lc === 'undefined' || lc === 'null') return false;
 
-            // Drop image stubs with no url
-            if (msg.media_type === 'image' && !msg.image_url && NOISE_TAGS.includes(lc)) return false;
+            // Drop image stubs that have NEITHER image_url NOR any recognizable content
+            if (msg.media_type === 'image' && !msg.image_url && (lc === '[imagem]' || lc === '[media]' || lc === '[mídia]')) {
+                // Don’t drop — show a placeholder so assessor knows client sent an image
+                // We still show it, just styled differently
+            }
 
             // Drop audio stubs with no url and no transcription
             if (msg.media_type === 'audio' && !msg.audio_url && lc.startsWith('[áudio recebido')) return false;
