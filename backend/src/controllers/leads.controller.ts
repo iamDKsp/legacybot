@@ -950,7 +950,36 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (extractedData.zip_code    && !lead.zip_code)        updates.zip_code      = extractedData.zip_code;
 
         if (Object.keys(updates).length > 0) {
-            await db('leads').where({ id: leadId }).update(updates);
+            // ── Split updates: safe core fields vs extended fields that might not exist yet ──
+            // Core fields are guaranteed to exist in all DB versions
+            const CORE_FIELDS = ['name', 'cpf', 'rg', 'birthdate', 'gender', 'nationality'];
+            const coreUpdates: Record<string, string> = {};
+            const extendedUpdates: Record<string, string> = {};
+
+            for (const [k, v] of Object.entries(updates)) {
+                if (CORE_FIELDS.includes(k)) {
+                    coreUpdates[k] = v;
+                } else {
+                    extendedUpdates[k] = v;
+                }
+            }
+
+            // Always apply core fields (these NEVER fail)
+            if (Object.keys(coreUpdates).length > 0) {
+                await db('leads').where({ id: leadId }).update(coreUpdates);
+            }
+
+            // Apply extended fields one-by-one so a missing column doesn't kill the whole request
+            for (const [col, val] of Object.entries(extendedUpdates)) {
+                try {
+                    await db('leads').where({ id: leadId }).update({ [col]: val });
+                } catch (colErr) {
+                    console.warn(`[Extract] ⚠️  Column "${col}" not found in DB — skipping (run migration to add it):`, (colErr as Error).message?.split('\n')[0]);
+                    // Remove from reported updates so UI doesn't show it as filled
+                    delete updates[col];
+                }
+            }
+
             await db('notes').insert({
                 lead_id:     leadId,
                 author_type: 'bot',
