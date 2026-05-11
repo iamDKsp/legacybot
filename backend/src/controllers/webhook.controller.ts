@@ -1058,7 +1058,14 @@ async function processDocumentImage(
             if (data.name && isGenericName) updates.name = data.name;
             if (data.cpf && !currentLead.cpf) updates.cpf = data.cpf;
             if (data.rg && !currentLead.rg) updates.rg = data.rg;
-            if (data.birth_date && !currentLead.birth_date) updates.birth_date = data.birth_date;
+            // Column is "birthdate" (no underscore); AI returns DD/MM/YYYY → convert to YYYY-MM-DD for PostgreSQL
+            if (data.birth_date && !currentLead.birthdate) {
+                const raw = String(data.birth_date).trim();
+                const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+                updates.birthdate = ddmmyyyy
+                    ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
+                    : raw;
+            }
             if (data.gender && !currentLead.gender) updates.gender = data.gender;
             if (data.nationality && !currentLead.nationality) updates.nationality = data.nationality;
             if (data.mother && !currentLead.mother) updates.mother = data.mother;

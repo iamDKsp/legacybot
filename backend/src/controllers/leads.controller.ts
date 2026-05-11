@@ -935,7 +935,15 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (extractedData.cpf         && !lead.cpf)             updates.cpf           = extractedData.cpf;
         if (extractedData.rg          && !lead.rg)              updates.rg            = extractedData.rg;
         // DB column is "birthdate" (no underscore) — map birth_date from AI to correct column
-        if (extractedData.birth_date  && !lead.birthdate)       updates.birthdate     = extractedData.birth_date;
+        // PostgreSQL DATE expects YYYY-MM-DD; AI returns DD/MM/YYYY — convert before saving
+        if (extractedData.birth_date && !lead.birthdate) {
+            const raw = String(extractedData.birth_date).trim();
+            // Convert DD/MM/YYYY → YYYY-MM-DD
+            const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            updates.birthdate = ddmmyyyy
+                ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
+                : raw; // already ISO or unknown format — pass as-is
+        }
         if (extractedData.gender      && !lead.gender)          updates.gender        = extractedData.gender;
         if (extractedData.nationality && !lead.nationality)     updates.nationality   = extractedData.nationality;
         // mother / father — added via migrate_personal_fields.sql
