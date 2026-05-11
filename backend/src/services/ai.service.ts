@@ -677,6 +677,8 @@ export interface ImageAnalysisResult {
         nationality?: string;
         mother?: string;
         father?: string;
+        org_emissor?: string;  // Órgão emissor do RG ex: SSP, DETRAN, PCSP
+        uf_emissor?: string;   // UF emissora do RG ex: SP, MA, PI
         // Address fields (from Comprovante de Residência)
         street?: string;
         number?: string;
@@ -738,6 +740,8 @@ Analise a imagem e responda APENAS em JSON puro (sem markdown, sem \`\`\`, sem t
     "nationality": "Naturalidade/nacionalidade (null se não visível)",
     "mother": "Nome da mãe (null se não visível)",
     "father": "Nome do pai (null se não visível)",
+    "org_emissor": "Órgão emissor do RG ex: SSP, DETRAN, PC (null se não RG ou não visível)",
+    "uf_emissor": "UF do órgão emissor do RG em 2 letras ex: SP, MA, PI (null se não RG ou não visível — NÃO confundir com naturalidade)",
     "street": "Logradouro/rua (null se não visível — apenas comprovante de residência)",
     "number": "Número do imóvel (null se não visível)",
     "neighborhood": "Bairro (null se não visível)",
@@ -753,7 +757,9 @@ Analise a imagem e responda APENAS em JSON puro (sem markdown, sem \`\`\`, sem t
 IMPORTANTE extractedData:
 - Preencha APENAS os campos relevantes para o tipo de documento
 - Coloque null (sem aspas) nos campos que não existem naquele documento ou não são visíveis
-- Para RG: preencher name, rg, birth_date, gender, nationality, mother, father
+- Para RG: preencher name, rg, birth_date, gender, nationality, mother, father, org_emissor, uf_emissor
+  ATENÇÃO uf_emissor: é a UF do ÓRGÃO EMISSOR (ex: SSP-SP → uf_emissor="SP"), NÃO a naturalidade do titular
+  ATENÇÃO org_emissor: abreviatura do órgão (ex: SSP, DETRAN, PC, IFP). Não incluir a UF aqui.
 - Para CNH: preencher name, cpf, birth_date, gender, nationality
 - Para Comprovante de Residência: preencher name (do titular), street, number, neighborhood, city, state, zip_code
 - Para Holerite: preencher name, cpf

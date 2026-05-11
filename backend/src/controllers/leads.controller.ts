@@ -893,13 +893,22 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (!doc)  return res.status(404).json({ success: false, error: 'Documento não encontrado' });
 
         // ── Try to read cached extractedData from notes JSON ──
+        // Cache is BYPASSED if it lacks org_emissor (new field) for RG documents,
+        // so a fresh re-analysis picks up all new fields.
         let extractedData: Record<string, string> | null = null;
         if (doc.notes) {
             try {
                 const parsed = JSON.parse(doc.notes);
                 if (parsed.extractedData && Object.keys(parsed.extractedData).length > 0) {
-                    extractedData = parsed.extractedData;
-                    console.log(`[Extract] Using cached extractedData for doc ${docId}`);
+                    const cached = parsed.extractedData as Record<string, string>;
+                    const isRG = (doc.doc_type || doc.name || '').toString().toUpperCase().includes('RG');
+                    const missingNewFields = isRG && !cached.org_emissor && !cached.uf_emissor;
+                    if (!missingNewFields) {
+                        extractedData = cached;
+                        console.log(`[Extract] Using cached extractedData for doc ${docId}`);
+                    } else {
+                        console.log(`[Extract] Cache miss (org_emissor absent on RG) — re-analyzing doc ${docId}`);
+                    }
                 }
             } catch { /* notes is plain text — fall through to re-analysis */ }
         }
@@ -925,37 +934,37 @@ export async function extractDocumentData(req: Request, res: Response) {
             return res.status(422).json({ success: false, error: 'Não foi possível extrair dados deste documento' });
         }
 
-        // ── Apply fields to lead (only fill empty fields) ──
+        // ── Apply extracted fields to lead — ALWAYS overwrite (manual admin action) ──
         const updates: Record<string, string> = {};
         const currentName = String(lead.name || '');
         const phone       = String(lead.phone || '');
-        const isGeneric   = !currentName || currentName === phone || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
+        const isGenericName = !currentName || currentName === phone || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
 
-        if (extractedData.name        && isGeneric)             updates.name          = extractedData.name;
-        if (extractedData.cpf         && !lead.cpf)             updates.cpf           = extractedData.cpf;
-        if (extractedData.rg          && !lead.rg)              updates.rg            = extractedData.rg;
-        // DB column is "birthdate" (no underscore) — map birth_date from AI to correct column
-        // PostgreSQL DATE expects YYYY-MM-DD; AI returns DD/MM/YYYY — convert before saving
-        if (extractedData.birth_date && !lead.birthdate) {
+        // Name: always overwrite if we extracted a real name (protect against clearing with blank)
+        if (extractedData.name) updates.name = extractedData.name;
+        if (extractedData.cpf)         updates.cpf           = extractedData.cpf;
+        if (extractedData.rg)          updates.rg            = extractedData.rg;
+        // birthdate: convert DD/MM/YYYY → YYYY-MM-DD for PostgreSQL
+        if (extractedData.birth_date) {
             const raw = String(extractedData.birth_date).trim();
-            // Convert DD/MM/YYYY → YYYY-MM-DD
             const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
             updates.birthdate = ddmmyyyy
                 ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
-                : raw; // already ISO or unknown format — pass as-is
+                : raw;
         }
-        if (extractedData.gender      && !lead.gender)          updates.gender        = extractedData.gender;
-        if (extractedData.nationality && !lead.nationality)     updates.nationality   = extractedData.nationality;
-        // mother / father — added via migrate_personal_fields.sql
-        if (extractedData.mother      && !lead.mother)          updates.mother        = extractedData.mother;
-        if (extractedData.father      && !lead.father)          updates.father        = extractedData.father;
-        if (extractedData.street      && !lead.street)          updates.street        = extractedData.street;
-        // DB column is "number" (granular address field)
-        if (extractedData.number      && !lead.number)          updates.number        = extractedData.number;
-        if (extractedData.neighborhood && !lead.neighborhood)   updates.neighborhood  = extractedData.neighborhood;
-        if (extractedData.city        && !lead.city)            updates.city          = extractedData.city;
-        if (extractedData.state       && !lead.state)           updates.state         = extractedData.state;
-        if (extractedData.zip_code    && !lead.zip_code)        updates.zip_code      = extractedData.zip_code;
+        if (extractedData.gender)      updates.gender        = extractedData.gender;
+        if (extractedData.nationality) updates.nationality   = extractedData.nationality;
+        if (extractedData.mother)      updates.mother        = extractedData.mother;
+        if (extractedData.father)      updates.father        = extractedData.father;
+        if (extractedData.org_emissor) updates.org_emissor   = extractedData.org_emissor;
+        if (extractedData.uf_emissor)  updates.uf_emissor    = extractedData.uf_emissor;
+        if (extractedData.street)      updates.street        = extractedData.street;
+        if (extractedData.number)      updates.number        = extractedData.number;
+        if (extractedData.neighborhood) updates.neighborhood = extractedData.neighborhood;
+        if (extractedData.city)        updates.city          = extractedData.city;
+        if (extractedData.state)       updates.state         = extractedData.state;
+        if (extractedData.zip_code)    updates.zip_code      = extractedData.zip_code;
+
 
         if (Object.keys(updates).length > 0) {
             // ── Split updates: safe core fields vs extended fields that might not exist yet ──

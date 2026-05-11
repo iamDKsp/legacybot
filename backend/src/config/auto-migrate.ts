@@ -290,55 +290,68 @@ export async function runAutoMigrations(): Promise<void> {
 
         }
 
-        // ── 9c. TRIAGEM: Garante etapas 'recebido' e 'abordagem' no funil geral ──
-        const geralFunnel = await db('funnels').where({ slug: 'geral' }).first() as { id: number } | undefined;
-        if (geralFunnel) {
-            // Rename funnel display name to TRIAGEM
-            await db('funnels').where({ slug: 'geral' }).update({ name: 'TRIAGEM' });
+        // ── 9c. TRIAGEM: Garante etapa EXCLUSIVA 'geral' (nome GERAL) no funil geral ─
+        // NUNCA renomeia o stage 'recebido' — ele é compartilhado com outros funis.
+        // A TRIAGEM usa um stage próprio slug='geral' name='GERAL'.
+        await db('funnels').where({ slug: 'geral' }).update({ name: 'TRIAGEM' }).catch(() => {});
 
-            // Ensure stage 'recebido' displays as 'GERAL'
-            await db('stages').where({ slug: 'recebido' }).update({ name: 'GERAL' });
+        // Reverter qualquer renomeação indevida do stage recebido (bug anterior)
+        await db('stages').where({ slug: 'recebido' }).update({ name: 'Recebido' }).catch(() => {});
 
-            const recebidoStage  = await db('stages').where({ slug: 'recebido' }).first()  as { id: number } | undefined;
-            const abordagemStage = await db('stages').where({ slug: 'abordagem' }).first() as { id: number } | undefined;
+        // Criar stage exclusivo da TRIAGEM se não existir
+        await db.raw(`
+            INSERT INTO stages (name, slug, display_order)
+            VALUES ('GERAL', 'geral', 1)
+            ON CONFLICT (slug) DO UPDATE SET name = 'GERAL'
+        `).catch(() => {});
 
+        const geralFunnel    = await db('funnels').where({ slug: 'geral' }).first()    as { id: number } | undefined;
+        const geralStage     = await db('stages').where({ slug: 'geral' }).first()     as { id: number } | undefined;
+        const recebidoStage  = await db('stages').where({ slug: 'recebido' }).first()  as { id: number } | undefined;
+        const abordagemStage = await db('stages').where({ slug: 'abordagem' }).first() as { id: number } | undefined;
+
+        if (geralFunnel && geralStage) {
+            // Inserir stage 'geral' no funil TRIAGEM (única coluna visível)
+            await db('funnel_stages')
+                .insert({ funnel_id: geralFunnel.id, stage_id: geralStage.id, display_order: 1, is_auto: true, bot_stage_trigger: 'reception' })
+                .onConflict(['funnel_id', 'stage_id']).ignore()
+                .catch(() => {});
+
+            // Remover stage 'recebido' do geral (substituído por 'geral')
             if (recebidoStage) {
-                // Seed 'recebido' into TRIAGEM funnel
-                await db('funnel_stages')
-                    .insert({ funnel_id: geralFunnel.id, stage_id: recebidoStage.id, display_order: 1, is_auto: true, bot_stage_trigger: 'reception' })
-                    .onConflict(['funnel_id', 'stage_id']).ignore()
+                // Mover leads que estejam em 'recebido' dentro do geral → 'geral'
+                await db('leads')
+                    .where({ funnel_id: geralFunnel.id, stage_id: recebidoStage.id })
+                    .update({ stage_id: geralStage.id })
                     .catch(() => {});
-            }
-
-            if (abordagemStage) {
-                // Seed 'abordagem' into TRIAGEM funnel (para Sofia avancar reception→approach)
                 await db('funnel_stages')
-                    .insert({ funnel_id: geralFunnel.id, stage_id: abordagemStage.id, display_order: 2, is_auto: true, bot_stage_trigger: 'approach' })
-                    .onConflict(['funnel_id', 'stage_id']).ignore()
-                    .catch(() => {});
-            }
-
-            // Remove stages from TRIAGEM that are NOT recebido nem abordagem
-            const keepIds = [recebidoStage?.id, abordagemStage?.id].filter(Boolean) as number[];
-            if (keepIds.length > 0) {
-                await db('funnel_stages')
-                    .where({ funnel_id: geralFunnel.id })
-                    .whereNotIn('stage_id', keepIds)
+                    .where({ funnel_id: geralFunnel.id, stage_id: recebidoStage.id })
                     .del()
                     .catch(() => {});
             }
 
-            // Move leads from any stage other than recebido/abordagem in TRIAGEM → recebido
-            if (recebidoStage) {
+            // Remover 'abordagem' do geral (TRIAGEM só tem 1 coluna)
+            if (abordagemStage) {
                 await db('leads')
-                    .where({ funnel_id: geralFunnel.id })
-                    .whereNotIn('stage_id', keepIds)
-                    .update({ stage_id: recebidoStage.id })
+                    .where({ funnel_id: geralFunnel.id, stage_id: abordagemStage.id })
+                    .update({ stage_id: geralStage.id })
+                    .catch(() => {});
+                await db('funnel_stages')
+                    .where({ funnel_id: geralFunnel.id, stage_id: abordagemStage.id })
+                    .del()
                     .catch(() => {});
             }
 
-            console.log('[DB] ✅ TRIAGEM: etapas GERAL + ABORDAGEM garantidas.');
+            // Limpar qualquer outra coluna que tenha entrado no geral
+            await db('funnel_stages')
+                .where({ funnel_id: geralFunnel.id })
+                .whereNot({ stage_id: geralStage.id })
+                .del()
+                .catch(() => {});
+
+            console.log('[DB] ✅ TRIAGEM: única etapa GERAL (slug=geral). Recebido global intocado.');
         }
+
 
         // ── 9e. Negativado: inserir 'pre_analise' idempotentemente ──────────────
         // Roda SEMPRE (não só quando funnel_stages está vazio)

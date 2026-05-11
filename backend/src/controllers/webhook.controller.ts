@@ -276,10 +276,10 @@ const BOT_STAGE_TO_CRM_STAGE: Record<string, Record<string, string>> = {
         analysis:   'analise_espera',
     },
     geral: {
-        reception:  'recebido',
-        approach:   'abordagem',
-        doc_request:'documentacao',
-        analysis:   'analise_espera',
+        reception:  'geral',   // TRIAGEM tem uma única coluna slug='geral'
+        approach:   'geral',   // bot avança internamente mas o card fica na mesma coluna
+        doc_request:'geral',
+        analysis:   'geral',
     },
 };
 
