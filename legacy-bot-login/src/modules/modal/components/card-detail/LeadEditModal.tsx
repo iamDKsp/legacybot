@@ -47,6 +47,8 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
     state:          (lead.state          as string) ?? "",
     // Legal
     rg:             (lead.rg             as string) ?? "",
+    org_emissor:    (lead.org_emissor    as string) ?? "SSP",
+    uf_emissor:     (lead.uf_emissor     as string) ?? "SP",
     marital_status: (lead.marital_status as string) ?? "",
     nationality:    (lead.nationality    as string) ?? "brasileiro(a)",
     birthdate:      (lead.birthdate      as string) ?? "",
@@ -138,8 +140,28 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                     <Hash className="h-3 w-3" /> RG / Identidade
                   </label>
                   <input value={form.rg} onChange={e => set("rg", e.target.value)}
-                    placeholder="MG-12.345.678"
+                    placeholder="12.345.678"
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                {/* Org Emissor + UF Emissor — lado a lado */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Hash className="h-3 w-3" /> Org. Emissor
+                  </label>
+                  <input value={form.org_emissor} onChange={e => set("org_emissor", e.target.value)}
+                    placeholder="SSP"
+                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Hash className="h-3 w-3" /> UF Emissor
+                  </label>
+                  <StyledSelect
+                    value={form.uf_emissor}
+                    onChange={(v) => set("uf_emissor", v)}
+                    placeholder="UF..."
+                    options={ESTADOS.map(s => ({ value: s, label: s }))}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
@@ -165,7 +187,7 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                     <Calendar className="h-3 w-3" /> Data de Nascimento
                   </label>
                   <input type="date" value={form.birthdate} onChange={e => set("birthdate", e.target.value)}
-                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                    className="date-input w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
               </div>
             </div>

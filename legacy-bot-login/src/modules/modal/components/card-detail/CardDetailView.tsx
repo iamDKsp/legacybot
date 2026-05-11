@@ -476,7 +476,7 @@ interface FieldRowProps {
   label: string;
   value: string;
   fieldKey: string;
-  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "tel";
+  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "select-uf" | "tel";
   placeholder?: string;
   readOnly?: boolean;
   onSave: (key: string, value: string) => Promise<void>;
@@ -542,6 +542,14 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               options={ESTADO_CIVIL.map(s => ({ value: s.value, label: s.label }))}
               className="flex-1 min-w-0"
             />
+          ) : type === "select-uf" ? (
+            <StyledSelect
+              value={draft}
+              onChange={(v) => { setDraft(v); }}
+              placeholder="UF..."
+              options={ESTADOS.map(s => ({ value: s, label: s }))}
+              className="flex-1 min-w-0"
+            />
           ) : (
             <input
               ref={inputRef as React.RefObject<HTMLInputElement>}
@@ -551,7 +559,7 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               onChange={e => setDraft(e.target.value)}
               onClick={e => e.stopPropagation()}
               onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
-              className={inputClass}
+              className={cn(inputClass, type === "date" && "date-input text-card-foreground")}
             />
           )}
           <button onClick={(e) => { e.stopPropagation(); commit(); }} disabled={saving}
@@ -626,7 +634,9 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <FieldRow icon={<Phone className="w-3.5 h-3.5"/>}   label="Telefone"   fieldKey="phone"          value={lead.phone ?? ""}          type="tel"        onSave={handleSave} />
         <FieldRow icon={<Mail className="w-3.5 h-3.5"/>}    label="E-mail"     fieldKey="email"          value={(lead.email as string) ?? ""}  type="email" onSave={handleSave} />
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="CPF"        fieldKey="cpf"            value={(lead.cpf as string) ?? ""}    placeholder="000.000.000-00" onSave={handleSave} />
-        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="RG"         fieldKey="rg"             value={(lead.rg as string) ?? ""}     placeholder="MG-12.345.678" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="RG"         fieldKey="rg"             value={(lead.rg as string) ?? ""}     placeholder="12.345.678" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="Org. Emis." fieldKey="org_emissor"   value={(lead.org_emissor as string) ?? "SSP"} placeholder="SSP" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="UF Emis."   fieldKey="uf_emissor"   value={(lead.uf_emissor as string) ?? "SP"} type="select-uf" onSave={handleSave} />
         <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
         <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
         <FieldRow icon={<Calendar className="w-3.5 h-3.5"/>} label="Nascimento" fieldKey="birthdate"     value={(lead.birthdate as string) ?? ""} type="date" onSave={handleSave} />
