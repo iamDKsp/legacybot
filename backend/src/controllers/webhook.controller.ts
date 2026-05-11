@@ -251,6 +251,7 @@ const BOT_STAGE_TO_CRM_STAGE: Record<string, Record<string, string>> = {
     negativado: {
         reception:     'recebido',
         approach:      'abordagem',
+        pre_analise:   'pre_analise',  // NEW — equipe verifica perfil antes de pedir docs
         doc_request:   'documentacao',
         analysis:      'analise_espera',
     },
@@ -1410,11 +1411,24 @@ async function processAIBotResponse(
                 }
             }
 
-            // Negativado: approach → doc_request when Sofia asks for RG/CNH
-            // (This is handled by the generic rule above, but we ensure it doesn't skip to analysis)
+            // ── Negativado: approach → pre_analise quando Sofia confirma recebimento do CPF ──
+            // (NÃO avança para doc_request direto)
             if (currentBotStage === 'approach' && funnelSlug === 'negativado') {
-                // Prevent premature jump to analysis — Sofia must go through doc_request first
-                if (nextStage === 'analysis') nextStage = null;
+                if (replyLower.includes('vou registrar') || replyLower.includes('equipe fazer uma análise') ||
+                    replyLower.includes('análise do seu perfil') || replyLower.includes('aguarda um instante') ||
+                    replyLower.includes('passar para nossa equipe') || replyLower.includes('já passo para')) {
+                    nextStage = 'pre_analise';
+                }
+                // NUNCA pular para doc_request ou analysis direto da approach no negativado
+                if (nextStage === 'doc_request' || nextStage === 'analysis') nextStage = null;
+            }
+
+            // Negativado: pre_analise → doc_request APENAS quando assessor mover manualmente no CRM
+            // (Sofia não avança sozinha desta etapa)  
+            if (currentBotStage === 'pre_analise' && funnelSlug === 'negativado') {
+                // Qualquer pedido de documento (RG, CNH, comprovante) só é válido se assessor já moveu
+                // Por segurança: não detectamos avanço automático daqui
+                nextStage = null;
             }
 
             // Universal: if Sofia explicitly says case goes to analysis / assessor

@@ -168,12 +168,25 @@ export async function runAutoMigrations(): Promise<void> {
             )
         `);
 
-        // ── 9a. Seed: garantir que 'Analise e Espera' existe ─────────────────
+        // ── 9a. Seed: garantir stages essenciais existem ────────────────────────
         await db.raw(`
             INSERT INTO stages (name, slug, display_order)
             VALUES ('Analise e Espera', 'analise_espera', 6)
             ON CONFLICT (slug) DO NOTHING
         `);
+        // Pré-Análise: nova etapa exclusiva do funil Negativado
+        await db.raw(`
+            INSERT INTO stages (name, slug, display_order)
+            VALUES ('Pré-Análise', 'pre_analise', 3)
+            ON CONFLICT (slug) DO NOTHING
+        `);
+        // Garantir que existe a etapa 'abordagem' para o funil Geral (triagem)
+        await db.raw(`
+            INSERT INTO stages (name, slug, display_order)
+            VALUES ('Abordagem', 'abordagem', 2)
+            ON CONFLICT (slug) DO NOTHING
+        `);
+        console.log('[DB] ✅ Stages essenciais garantidos (analise_espera, pre_analise, abordagem)');
 
         // ── 9b. Rebuild funnel_stages se estiver vazio ou com dados obsoletos ─
         const procStage = await db('stages').where({ slug: 'procuracao' }).first() as { id: number } | undefined;
@@ -192,8 +205,9 @@ export async function runAutoMigrations(): Promise<void> {
 
             const funnelDefs: Record<string, Array<{ slug: string; ord: number; auto: boolean; trig: string | null }>> = {
                 geral: [
-                    // TRIAGEM: apenas uma etapa de triagem inicial
-                    { slug: 'recebido', ord: 1, auto: true, trig: 'reception' },
+                    // TRIAGEM: recebido (escuta) + abordagem (identificação de área)
+                    { slug: 'recebido',  ord: 1, auto: true,  trig: 'reception' },
+                    { slug: 'abordagem', ord: 2, auto: true,  trig: 'approach'  },
                 ],
                 trabalhista: [
                     { slug: 'recebido',       ord: 1, auto: true,  trig: 'reception'   },
@@ -206,10 +220,11 @@ export async function runAutoMigrations(): Promise<void> {
                 negativado: [
                     { slug: 'recebido',       ord: 1, auto: true,  trig: 'reception'   },
                     { slug: 'abordagem',      ord: 2, auto: true,  trig: 'approach'    },
-                    { slug: 'documentacao',   ord: 3, auto: true,  trig: 'doc_request' },
-                    { slug: 'assinatura',     ord: 4, auto: false, trig: null          },
-                    { slug: 'analise_espera', ord: 5, auto: false, trig: null          },
-                    { slug: 'finalizado',     ord: 6, auto: false, trig: null          },
+                    { slug: 'pre_analise',    ord: 3, auto: true,  trig: 'pre_analise' }, // NEW
+                    { slug: 'documentacao',   ord: 4, auto: true,  trig: 'doc_request' },
+                    { slug: 'assinatura',     ord: 5, auto: false, trig: null          },
+                    { slug: 'analise_espera', ord: 6, auto: false, trig: null          },
+                    { slug: 'finalizado',     ord: 7, auto: false, trig: null          },
                 ],
                 'golpe-cibernetico': [
                     { slug: 'recebido',       ord: 1, auto: true,  trig: 'reception'   },
@@ -275,7 +290,7 @@ export async function runAutoMigrations(): Promise<void> {
 
         }
 
-        // ── 9c. TRIAGEM: Garante apenas uma stage ('recebido') e remove as demais ──
+        // ── 9c. TRIAGEM: Garante etapas 'recebido' e 'abordagem' no funil geral ──
         const geralFunnel = await db('funnels').where({ slug: 'geral' }).first() as { id: number } | undefined;
         if (geralFunnel) {
             // Rename funnel display name to TRIAGEM
@@ -284,30 +299,72 @@ export async function runAutoMigrations(): Promise<void> {
             // Ensure stage 'recebido' displays as 'GERAL'
             await db('stages').where({ slug: 'recebido' }).update({ name: 'GERAL' });
 
-            const recebidoStage = await db('stages').where({ slug: 'recebido' }).first() as { id: number } | undefined;
+            const recebidoStage  = await db('stages').where({ slug: 'recebido' }).first()  as { id: number } | undefined;
+            const abordagemStage = await db('stages').where({ slug: 'abordagem' }).first() as { id: number } | undefined;
+
             if (recebidoStage) {
-                // Seed 'recebido' stage into TRIAGEM funnel if missing
+                // Seed 'recebido' into TRIAGEM funnel
                 await db('funnel_stages')
                     .insert({ funnel_id: geralFunnel.id, stage_id: recebidoStage.id, display_order: 1, is_auto: true, bot_stage_trigger: 'reception' })
                     .onConflict(['funnel_id', 'stage_id']).ignore()
                     .catch(() => {});
+            }
 
-                // Move leads from any other stage in TRIAGEM → 'recebido'
-                await db('leads')
-                    .where({ funnel_id: geralFunnel.id })
-                    .whereNot({ stage_id: recebidoStage.id })
-                    .update({ stage_id: recebidoStage.id })
+            if (abordagemStage) {
+                // Seed 'abordagem' into TRIAGEM funnel (para Sofia avancar reception→approach)
+                await db('funnel_stages')
+                    .insert({ funnel_id: geralFunnel.id, stage_id: abordagemStage.id, display_order: 2, is_auto: true, bot_stage_trigger: 'approach' })
+                    .onConflict(['funnel_id', 'stage_id']).ignore()
                     .catch(() => {});
+            }
 
-                // Remove all other funnel_stages from TRIAGEM except 'recebido'
+            // Remove stages from TRIAGEM that are NOT recebido nem abordagem
+            const keepIds = [recebidoStage?.id, abordagemStage?.id].filter(Boolean) as number[];
+            if (keepIds.length > 0) {
                 await db('funnel_stages')
                     .where({ funnel_id: geralFunnel.id })
-                    .whereNot({ stage_id: recebidoStage.id })
+                    .whereNotIn('stage_id', keepIds)
                     .del()
                     .catch(() => {});
-
-                console.log('[DB] ✅ TRIAGEM: uma etapa (GERAL). Leads migrados.');
             }
+
+            // Move leads from any stage other than recebido/abordagem in TRIAGEM → recebido
+            if (recebidoStage) {
+                await db('leads')
+                    .where({ funnel_id: geralFunnel.id })
+                    .whereNotIn('stage_id', keepIds)
+                    .update({ stage_id: recebidoStage.id })
+                    .catch(() => {});
+            }
+
+            console.log('[DB] ✅ TRIAGEM: etapas GERAL + ABORDAGEM garantidas.');
+        }
+
+        // ── 9e. Negativado: inserir 'pre_analise' idempotentemente ──────────────
+        // Roda SEMPRE (não só quando funnel_stages está vazio)
+        const negativadoFunnel = await db('funnels').where({ slug: 'negativado' }).first() as { id: number } | undefined;
+        const preAnaliseStage  = await db('stages').where({ slug: 'pre_analise' }).first() as { id: number } | undefined;
+        if (negativadoFunnel && preAnaliseStage) {
+            await db('funnel_stages')
+                .insert({
+                    funnel_id:         negativadoFunnel.id,
+                    stage_id:          preAnaliseStage.id,
+                    display_order:     3,
+                    is_auto:           true,
+                    bot_stage_trigger: 'pre_analise',
+                })
+                .onConflict(['funnel_id', 'stage_id']).ignore()
+                .catch(() => {});
+
+            // Reajusta display_order das etapas seguintes (documentacao=4, assinatura=5...)
+            const docStage = await db('stages').where({ slug: 'documentacao' }).first() as { id: number } | undefined;
+            if (docStage) {
+                await db('funnel_stages')
+                    .where({ funnel_id: negativadoFunnel.id, stage_id: docStage.id })
+                    .update({ display_order: 4 })
+                    .catch(() => {});
+            }
+            console.log('[DB] ✅ Negativado: etapa pré-análise inserida/garantida.');
         }
 
         // ── 9d. Rename all other funnels to CAPS ─────────────────────────────

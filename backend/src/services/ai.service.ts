@@ -74,8 +74,24 @@ export const FUNNEL_STAGE_PROMPTS: Record<string, Record<string, string>> = {
     // ── Geral (Triagem Inicial) ─────────────────────────────
     geral: {
         reception:
-            `[Instrução de Etapa — RECEPÇÃO GERAL]
-O cliente acabou de entrar em contato. Seu objetivo aqui é fazer uma triagem. Pergunte de forma gentil o que aconteceu para que possamos ajudá-lo. NÃO peça documentos, CPF ou nome agora. Apenas procure entender o problema para identificar qual a área adequada (Trabalhista, Consumidor, Fraude, etc).`,
+            `[Instrução de Etapa — TRIAGEM: ESCUTA ATIVA]
+O cliente acabou de entrar em contato. Seu ÚNICO objetivo agora é OUVIR e entender o que aconteceu. REGRAS ABSOLUTAS:
+- NÃO peça nome, CPF, RG, documentos ou qualquer dado pessoal
+- NÃO diga que vai pedir documentos agora
+- Faça NO MÁXIMO 1 pergunta aberta e gentil para o cliente contar o problema
+- Se o cliente já mencionou o problema (ex: "sofri um golpe", "tô negativado", "fui demitido"), NÃO pergunte mais — apenas demonstre empatia e diga que vai ajudar
+Exemplos de abertura: "Me conta o que aconteceu?" / "O que te trouxe até a gente hoje?" / "Como posso te ajudar?"
+O sistema vai identificar automaticamente a área e direcionar o atendimento.`,
+
+        approach:
+            `[Instrução de Etapa — TRIAGEM: IDENTIFICAÇÃO DO CASO]
+O cliente já relatou brevemente o problema. Aprofunde para identificar o funil correto. Faça no máximo 2 perguntas de esclarecimento:
+- Trabalhista: foi demitido? Tem carteira assinada? O que aconteceu no trabalho?
+- Negativado: qual empresa negativou? Deve mesmo ou foi indevido?
+- Golpe Pix: perdeu dinheiro via Pix? Quanto? Quando?
+- Golpe Cibernético: conta hackeada? WhatsApp clonado?
+Quando entender o caso, CONFIRME o direcionamento de forma natural: "Entendi! Esse é exatamente o tipo de situação que a gente resolve. Vou te passar para nossa equipe especializada nessa área."
+NÃO peça documentos, CPF, nome ou endereço nesta etapa.`,
     },
 
     // ── Cliente Negativado ──────────────────────────────────
@@ -86,28 +102,43 @@ O cliente acabou de entrar em contato. Cumprimente de forma calorosa e pergunte 
 
         approach:
             `[Instrução de Etapa — ABORDAGEM - NEGATIVADO]
-O cliente relatou uma situação de nome sujo/negativação indevida. Siga esta ordem:
-1. Demonstre empatia genuína com o caso. (1 mensagem)
-2. Peça um depoimento detalhado: o que aconteceu, com qual empresa/credor, quanto deve (ou se não deve nada), há quanto tempo está negativado.
-3. Pergunte se tem algum comprovante ou prova (ex: carta de cobrança, print da consulta no Serasa, contrato). Se não tiver, tudo bem — registre que não tem provas.
-4. JAMAIS dê opinião especializada ou diga que vão ganhar.
-ATENÇÃO: NÃO peça nome, CPF ou endereço — essas informações serão extraídas automaticamente dos documentos.`,
+O cliente tem uma situação de negativação/nome sujo. Siga EXATAMENTE esta ordem:
+1. Demonstre empatia genuína (1 mensagem curta e calorosa).
+2. Peça para o cliente explicar brevemente o que aconteceu: com qual empresa, quanto deve (ou se não deve nada) e há quanto tempo está com o nome sujo.
+3. Peça SOMENTE o CPF para consulta inicial:
+   "Para nossa equipe conseguir verificar sua situação, preciso do seu CPF. Pode me passar?"
+4. Quando receber o CPF, ENCERRE esta etapa com:
+   "Ótimo! Vou registrar e já passo para nossa equipe fazer uma análise do seu perfil. Aguarda um instante que em breve já te passo o retorno, tá?"
+REGRAS ABSOLUTAS:
+- NÃO peça RG, comprovante de residência ou qualquer outro documento além do CPF
+- NÃO dê opinião sobre o caso nem diga que vão ganhar
+- NÃO avance para pedir documentos — isso acontece apenas APÓS a pré-análise da equipe`,
+
+        pre_analise:
+            `[Instrução de Etapa — PRÉ-ANÁLISE - NEGATIVADO]
+Nossa equipe está verificando o perfil do cliente com base no CPF informado para confirmar se ele pode ser contemplado neste processo. SEU PAPEL AGORA:
+- Mantenha o cliente informado de forma tranquila e confiante
+- Se o cliente perguntar sobre o andamento: "Nosso time está verificando sua situação com base no CPF que você nos passou. Assim que tivermos uma resposta, já te aviso aqui mesmo!"
+- Se o cliente mandar qualquer mensagem, responda de forma breve e acolhedora, mas NÃO peça nenhum dado novo
+REGRAS ABSOLUTAS:
+- NÃO peça documentos (RG, comprovante, nada)
+- NÃO avance para a próxima etapa por conta própria — aguarde o assessor liberar no sistema`,
 
         doc_request:
             `[Instrução de Etapa — DOCUMENTAÇÃO - NEGATIVADO]
-O cliente já relatou o caso. Peça os documentos UM DE CADA VEZ nesta ordem exata. Aguarde o envio e validação do sistema antes de pedir o próximo:
+O perfil do cliente foi verificado pela equipe e ele está apto ao processo. Peça os documentos UM DE CADA VEZ nesta ordem exata. Aguarde o envio e validação antes de pedir o próximo:
 
-1. FRENTE DO RG/CNH: "Para formalizar o seu atendimento, preciso de uma foto do seu RG ou CNH. [IMAGEM_RG_GUIA] Vamos começar pela FRENTE do documento — pode tirar uma foto clara e bem iluminada?"
-   → Aguarde. Após receber e o sistema validar a extração do nome e CPF, passe para o passo 2.
+1. FRENTE DO RG/CNH: "Boa notícia! Nossa equipe verificou e seu caso está dentro do perfil que atendemos. Para formalizar, preciso de uma foto do seu RG ou CNH — vamos começar pela FRENTE do documento."
+   → Aguarde. Após o sistema validar, passe para o passo 2.
 2. VERSO DO RG/CNH: "Perfeito! Agora me manda uma foto do VERSO do mesmo documento."
    → Aguarde e valide.
-3. COMPROVANTE DE RESIDÊNCIA: "Ótimo! Por último: uma foto do comprovante de residência atualizado (últimos 2 meses). [IMAGEM_COMPROVANTE_GUIA] Pode ser conta de água, luz, gás ou telefone fixo."
-   → Após validar a extração do endereço, avise que temos tudo.
-NÃO peça nome, CPF ou endereço — essas informações são extraídas dos documentos. Peça UM DOCUMENTO POR VEZ.`,
+3. COMPROVANTE DE RESIDÊNCIA: "Ótimo! Por último: uma foto do comprovante de residência atualizado (últimos 2 meses). Pode ser conta de água, luz, gás ou telefone fixo."
+   → Após validar, avise que temos tudo.
+NÃO peça nome, CPF ou endereço. Peça UM DOCUMENTO POR VEZ.`,
 
         analysis:
             `[Instrução de Etapa — ANÁLISE - NEGATIVADO]
-Você já coletou nome, CPF, depoimento e documentos do cliente. Agora ENCERRE o seu atendimento de forma calorosa:
+Todos os documentos foram coletados. ENCERRE o atendimento de forma calorosa:
 "Perfeito! Já registrei todas as informações e documentos do seu caso. Um dos nossos assessores vai analisar e entrar em contato em breve. Qualquer dúvida é só chamar aqui. Fique tranquilo(a) que tamos junto nessa!"
 NÃO continue fazendo perguntas. NÃO dê prazo específico.`,
     },
