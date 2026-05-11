@@ -63,37 +63,37 @@ export const SystemUpdateNotifier = () => {
                 animate={{ opacity: 1, y: 0, x: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="fixed bottom-6 right-6 z-[9999] flex items-end gap-3 max-w-sm pointer-events-none"
+                className="fixed bottom-6 right-6 z-[9999] flex items-end gap-4 w-[420px] max-w-[calc(100vw-48px)] pointer-events-none"
             >
-                <div className="relative pointer-events-auto">
+                <div className="relative pointer-events-auto shrink-0">
                     <img 
                         src={sofiaImg} 
                         alt="Sofia" 
-                        className="w-20 h-20 object-cover rounded-full border-4 border-indigo-500/30 shadow-xl bg-gradient-to-tr from-indigo-600 to-purple-600 mb-[-10px] z-10 relative"
+                        className="w-20 h-20 object-cover rounded-full border-[3px] border-primary/40 shadow-xl bg-card mb-[-10px] z-10 relative"
                     />
                 </div>
                 
-                <div className="bg-white/90 backdrop-blur-md border border-indigo-100 p-4 rounded-2xl shadow-2xl pointer-events-auto relative dark:bg-slate-900/90 dark:border-slate-800">
+                <div className="bg-card/95 backdrop-blur-md border border-border p-5 rounded-2xl shadow-2xl pointer-events-auto relative w-full flex flex-col gap-3">
                     <button 
                         onClick={() => setDismissed(true)}
-                        className="absolute -top-2 -right-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-full p-1 transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-400"
+                        className="absolute -top-3 -right-3 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground rounded-full p-1.5 transition-colors shadow-sm border border-border"
                         aria-label="Fechar"
                     >
                         <X className="w-4 h-4" />
                     </button>
                     
-                    <h4 className="font-semibold text-indigo-900 dark:text-indigo-300 mb-1 flex items-center gap-2">
+                    <h4 className="font-semibold text-foreground flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
                         Sistema Atualizado
                     </h4>
                     
-                    <p className="text-sm text-slate-600 dark:text-slate-300 mb-4 leading-relaxed">
-                        Olá! O sistema foi atualizado no servidor. Para não usar uma versão antiga e evitar erros, por favor, recarregue a página. Você pode clicar no botão abaixo ou apertar <kbd className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded px-1 text-xs">F5</kbd>.
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                        Olá! O sistema foi atualizado no servidor. Para não usar uma versão antiga e evitar erros, por favor, recarregue a página. Você pode clicar no botão abaixo ou apertar <kbd className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs text-foreground font-mono">F5</kbd>.
                     </p>
                     
                     <Button 
                         onClick={handleReload}
-                        className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-md group"
+                        className="w-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-md group mt-1"
                     >
                         <RefreshCw className="w-4 h-4 mr-2 group-hover:rotate-180 transition-transform duration-500" />
                         Recarregar Agora
