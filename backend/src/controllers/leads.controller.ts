@@ -932,13 +932,16 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (extractedData.name        && isGeneric)             updates.name          = extractedData.name;
         if (extractedData.cpf         && !lead.cpf)             updates.cpf           = extractedData.cpf;
         if (extractedData.rg          && !lead.rg)              updates.rg            = extractedData.rg;
-        if (extractedData.birth_date  && !lead.birth_date)      updates.birth_date    = extractedData.birth_date;
+        // DB column is "birthdate" (no underscore) — map birth_date from AI to correct column
+        if (extractedData.birth_date  && !lead.birthdate)       updates.birthdate     = extractedData.birth_date;
         if (extractedData.gender      && !lead.gender)          updates.gender        = extractedData.gender;
         if (extractedData.nationality && !lead.nationality)     updates.nationality   = extractedData.nationality;
+        // mother / father — added via migrate_personal_fields.sql
         if (extractedData.mother      && !lead.mother)          updates.mother        = extractedData.mother;
         if (extractedData.father      && !lead.father)          updates.father        = extractedData.father;
         if (extractedData.street      && !lead.street)          updates.street        = extractedData.street;
-        if (extractedData.number      && !lead.address_number)  updates.address_number = extractedData.number;
+        // DB column is "number" (granular address field)
+        if (extractedData.number      && !lead.number)          updates.number        = extractedData.number;
         if (extractedData.neighborhood && !lead.neighborhood)   updates.neighborhood  = extractedData.neighborhood;
         if (extractedData.city        && !lead.city)            updates.city          = extractedData.city;
         if (extractedData.state       && !lead.state)           updates.state         = extractedData.state;

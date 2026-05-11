@@ -444,6 +444,10 @@ export async function runAutoMigrations(): Promise<void> {
                 ADD COLUMN IF NOT EXISTS occupation     VARCHAR(255) DEFAULT NULL
         `).catch(() => {});
 
+        // ── LEAD-FILIATION. Dados de filiação extraídos do RG ────────────────
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS mother VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS father VARCHAR(255) DEFAULT NULL`).catch(() => {});
+
         // ── Seed Lawyer: João Paulo Gabriel ───────────────────────
         const jpExists = await db('phc_lawyers').where({ oab: 'OAB/SP nº 243.936' }).first();
         if (!jpExists) {
