@@ -51,6 +51,8 @@ const updateLeadSchema = createLeadSchema.partial().extend({
     city:           z.string().optional(),
     state:          z.string().max(2).optional(),
     rg:             z.string().optional(),
+    org_emissor:    z.string().optional(),
+    uf_emissor:     z.string().max(2).optional(),
     marital_status: z.enum(['solteiro','casado','divorciado','viuvo','outro']).optional(),
     nationality:    z.string().optional(),
     birthdate:      z.string().optional(), // ISO date string "YYYY-MM-DD"

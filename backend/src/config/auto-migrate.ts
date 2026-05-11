@@ -445,8 +445,11 @@ export async function runAutoMigrations(): Promise<void> {
         `).catch(() => {});
 
         // ── LEAD-FILIATION. Dados de filiação extraídos do RG ────────────────
-        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS mother VARCHAR(255) DEFAULT NULL`).catch(() => {});
-        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS father VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS mother      VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS father      VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        // ── LEAD-RG-ISSUER. Órgão emissor do RG ──────────────────────────────
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS org_emissor VARCHAR(20)  DEFAULT 'SSP'`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS uf_emissor  CHAR(2)      DEFAULT 'SP'`).catch(() => {});
 
         // ── Seed Lawyer: João Paulo Gabriel ───────────────────────
         const jpExists = await db('phc_lawyers').where({ oab: 'OAB/SP nº 243.936' }).first();
