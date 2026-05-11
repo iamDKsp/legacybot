@@ -102,12 +102,15 @@ if (config.nodeEnv !== 'test') {
 // ============================================================
 // Health Check
 // ============================================================
+const START_TIME = Date.now();
+
 app.get('/health', (_req, res) => {
     res.json({
         status: 'ok',
         service: 'Legacy CRM API',
         version: '1.0.0',
         timestamp: new Date().toISOString(),
+        startTime: START_TIME,
         environment: config.nodeEnv,
     });
 });

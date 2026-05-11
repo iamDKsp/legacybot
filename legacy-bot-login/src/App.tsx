@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
+import { SystemUpdateNotifier } from "@/components/SystemUpdateNotifier";
 import Index from "./pages/Index";
 import CRM from "./pages/CRM";
 import ClientHub from "./pages/ClientHub";
@@ -50,6 +51,7 @@ const App = () => (
         <Sonner />
         <BrowserRouter>
           <NotificationsBootstrap />
+          <SystemUpdateNotifier />
           <Routes>
             <Route path="/" element={<Index />} />
             <Route
