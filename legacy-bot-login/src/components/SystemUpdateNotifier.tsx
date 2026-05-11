@@ -20,7 +20,9 @@ export const SystemUpdateNotifier = () => {
 
         const checkHealth = async () => {
             try {
-                const res = await fetch(HEALTH_URL);
+                // Previne cache do navegador para garantir que recebemos o startTime real
+                const urlWithCacheBuster = `${HEALTH_URL}?t=${Date.now()}`;
+                const res = await fetch(urlWithCacheBuster, { cache: 'no-store' });
                 if (!res.ok) return;
                 const data = await res.json();
                 
