@@ -233,7 +233,24 @@ function isAdLeadMessage(msg: string): boolean {
 }
 
 // ============================================================
-// STOP & RESTART: Per-lead AbortController tracking
+// BUG FIX: Mutex para processamento de imagens por lead
+// Previne respostas duplicadas quando cliente envia galeria
+// (caso Pastor Nielson — duas mensagens contraditórias)
+// ============================================================
+const _imageProcessingLock = new Set<number>(); // leadId
+
+async function withImageLock<T>(leadId: number, fn: () => Promise<T>): Promise<T | undefined> {
+    if (_imageProcessingLock.has(leadId)) {
+        console.log(`[ImageLock] 🔒 Image already being processed for lead ${leadId} — skipping duplicate`);
+        return undefined;
+    }
+    _imageProcessingLock.add(leadId);
+    try {
+        return await fn();
+    } finally {
+        _imageProcessingLock.delete(leadId);
+    }
+}
 // If Sofia is already processing (thinking/sending) for a lead
 // and a new message arrives, we abort the current processing
 // so she can restart with the full updated context.
@@ -1022,13 +1039,16 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                     console.log(`[Buffer] 🖼️ Image received — flushing pending text for ${phone} before document pipeline`);
                     await flushBuffer(phone);
                 }
-                await processDocumentImage(
-                    lead,
-                    conversation.id,
-                    imageBase64,
-                    imageMimeType,
-                    msgId,
-                    documentId
+                // BUG FIX: Mutex para prevenir duplicatas de galeria (Pastor Nielson)
+                await withImageLock(lead.id as number, () =>
+                    processDocumentImage(
+                        lead,
+                        conversation.id,
+                        imageBase64,
+                        imageMimeType,
+                        msgId,
+                        documentId
+                    )
                 );
                 return;
             }
@@ -1486,7 +1506,8 @@ async function processAIBotResponse(
             historyWithoutLast,
             userMessage,
             fullContext,
-            memories
+            memories,
+            String(lead.bot_stage || 'approach') // #7: temperatura por fase
         );
 
         if (!botReply) return;

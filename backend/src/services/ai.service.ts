@@ -88,7 +88,17 @@ FAQ AUTORIZADO — responda de forma direta e confiante:
 
 As instruções específicas do que fazer AGORA estão em [Instrução de Etapa] nos dados do lead. SIGA-AS com prioridade máxima.
 14. PDF RECEBIDO: Se a mensagem começar com "[PDF recebido — conteúdo extraído a seguir]", o cliente enviou um documento PDF e o sistema já extraiu o texto. VOCÊ DEVE: ler o texto extraído, identificar o tipo de documento (comprovante de Pix, B.O., holerite, etc.), extrair os dados relevantes (valor, data, destinatário, etc.) e confirmar o recebimento com um resumo breve do que entendeu. NUNCA peça para o cliente enviar foto ou imagem se ele já mandou o PDF. Exemplo: "Recebi o comprovante! Vi aqui: transferência de R$X para [nome] em [data]. Deixa eu registrar..."
-Se a mensagem for "[PDF recebido — não foi possível extrair texto. Arquivo pode estar protegido ou ser uma imagem.]": informe o cliente de forma humanizada que o PDF não abriu, e peça que tente salvar novamente pelo app do banco ou compartilhe diretamente (não por print).`;
+Se a mensagem for "[PDF recebido — não foi possível extrair texto. Arquivo pode estar protegido ou ser uma imagem.]": informe o cliente de forma humanizada que o PDF não abriu, e peça que tente salvar novamente pelo app do banco ou compartilhe diretamente (não por print).
+
+ROTA DE FUGA — TRAUMA SEVERO: Se o cliente mencionar suicídio, "não aguento mais", desespero absoluto, choro excessivo, ameaças a si mesmo — INTERROMPA COMPLETAMENTE o fluxo de coleta. Responda APENAS com acolhimento humano: ouça, valide, transmita que não está sozinho(a). NUNCA continue pedindo documentos nesse momento. Exemplo: "Para tudo. Antes de qualquer coisa: você está bem? Quero entender como você está se sentindo agora. A gente resolve o resto depois, o que importa é você." Se a situação for grave, oriente: "Se precisar conversar com alguém agora, o CVV atende 24h pelo 188 ou em cvv.org.br."
+
+FRAGMENTAÇÃO EMOCIONAL: Em momentos de transição (saindo de um desabafo para uma ação), use uma linha em branco entre as partes da mensagem para criar uma pausa natural. Exemplo:
+"Cara, R$ 1.416,00 é muito dinheiro pra ir embora assim. Sinto muito de verdade.
+
+Quando você estiver pronto, me conta: tem o comprovante dessa transferência por aí?"
+Isso cria ritmo humano de conversa, não de robô de atendimento.
+
+REGRAS DE PLATAFORMA — WHATSAPP: Use *asterisco* para negrito em termos importantes. NUNCA use HTML (<b>, <strong>). Links em linha separada. NUNCA use cabeçalhos Markdown (###). Mensagens longas devem ter parágrafo em branco separando as partes.`;
 
 
 
@@ -534,6 +544,71 @@ export async function buildLeadContext(leadId: number): Promise<string> {
         }
         if (chronoCtx) parts.push(chronoCtx);
 
+        // ── #16: Temperatura Emocional da conversa ──
+        // Analisa as últimas 4 mensagens do cliente para detectar se a tensão sobe ou cai
+        try {
+            const recentMsgs = await db('messages')
+                .join('conversations', 'messages.conversation_id', 'conversations.id')
+                .where('conversations.lead_id', leadId)
+                .where('messages.direction', 'inbound')
+                .orderBy('messages.sent_at', 'desc')
+                .limit(4)
+                .pluck('messages.content') as string[];
+
+            const FRUSTRATION_WORDS = ['não aguento', 'já mandei', 'de novo', 'cansei', 'ridículo', 'absurdo', 'péssimo', 'horrível', 'mentira', 'enganar', 'golpe de vocês', 'não resolve', 'não adianta'];
+            const POSITIVE_WORDS = ['obrigado', 'obrigada', 'entendi', 'combinado', 'beleza', 'ótimo', 'perfeito', 'ok', 'tá bom', 'legal', 'boa'];
+            const DESPAIR_WORDS = ['não aguento mais', 'desistir', 'sem saída', 'não consigo', 'perdido', 'desesperado', 'chorar', 'choro', 'muito difícil'];
+
+            const allText = recentMsgs.join(' ').toLowerCase();
+            const frustrationCount = FRUSTRATION_WORDS.filter(w => allText.includes(w)).length;
+            const positiveCount = POSITIVE_WORDS.filter(w => allText.includes(w)).length;
+            const despairCount = DESPAIR_WORDS.filter(w => allText.includes(w)).length;
+
+            if (despairCount > 0) {
+                parts.push('[TEMPERATURA EMOCIONAL: DESESPERO] — O cliente deu sinais de esgotamento emocional nas últimas mensagens. Priorize acolhimento absoluto. Não avance o fluxo enquanto não validar o estado emocional.');
+            } else if (frustrationCount >= 2) {
+                parts.push('[TEMPERATURA EMOCIONAL: FRUSTRAÇÃO CRESCENTE] — O cliente demonstrou frustração nas últimas mensagens. Reconheça isso explicitamente antes de qualquer ação: "Entendo sua frustração, e faz todo sentido sentir isso...". Reduza as exigências ao mínimo necessário.');
+            } else if (positiveCount >= 2 && frustrationCount === 0) {
+                parts.push('[TEMPERATURA EMOCIONAL: POSITIVA] — O cliente está cooperativo e tranquilo. Mantenha o tom leve e eficiente.');
+            }
+        } catch {
+            // never block bot
+        }
+
+        // ── #11: Client Persona dinâmica ──
+        // Classifica o cliente com base no padrão de mensagens para adaptar o vocabulário
+        try {
+            const allMsgs = await db('messages')
+                .join('conversations', 'messages.conversation_id', 'conversations.id')
+                .where('conversations.lead_id', leadId)
+                .where('messages.direction', 'inbound')
+                .orderBy('messages.sent_at', 'asc')
+                .limit(6)
+                .pluck('messages.content') as string[];
+
+            const totalText = allMsgs.join(' ');
+            const avgLen = totalText.length / Math.max(allMsgs.length, 1);
+            const hasLongMessages = avgLen > 80;
+            const usesInformal = /vc|tb|tmb|kk|haha|rsrs|né|tá|to |ta /i.test(totalText);
+            const isDetailOriented = /porque|pois|então|portanto|sendo que|visto que/i.test(totalText);
+            const usesFormality = /senhor|senhora|prezado|prezada|atenciosamente/i.test(totalText);
+
+            let persona = '';
+            if (usesFormality) {
+                persona = '[PERFIL DO CLIENTE: FORMAL] — Prefere linguagem mais respeitosa. Use "você" (não "vc"), evite gírias, seja educada e profissional. Ainda seja calorosa, mas sem informalidade excessiva.';
+            } else if (!hasLongMessages && usesInformal) {
+                persona = '[PERFIL DO CLIENTE: JOVEM/DIRETO] — Mensagens curtas e informais. Seja direta, use linguagem jovem, não enrole. Respostas curtas são melhores que longas.';
+            } else if (hasLongMessages && isDetailOriented) {
+                persona = '[PERFIL DO CLIENTE: DETALHISTA] — Escreve muito e em detalhes. Valorize os detalhes que ele compartilhou no espelhamento. Pode usar respostas um pouco mais elaboradas.';
+            } else if (hasLongMessages && !isDetailOriented) {
+                persona = '[PERFIL DO CLIENTE: ANSIOSO/EMOCIONAL] — Escreve muito mas de forma emocional. Priorize validação emocional antes de qualquer ação. Seja paciente e calorosa.';
+            }
+
+            if (persona) parts.push(persona);
+        } catch {
+            // never block bot
+        }
+
         // Inject per-funnel per-stage instruction
         const funnelPrompts = FUNNEL_STAGE_PROMPTS[funnelSlug];
         const stageInstruction =
@@ -619,13 +694,77 @@ export async function recordSuccessPattern(
 }
 
 // ============================================================
+// #7: Temperatura variável por fase do funil
+// Mais alta na escuta/abordagem, mais baixa na coleta de docs
+// ============================================================
+function getTemperatureForStage(botStage: string): number {
+    switch (botStage) {
+        case 'reception':      return 0.90; // Mais criativa — é a primeira impressão
+        case 'approach':       return 0.88; // Ainda muito humana — escuta ativa
+        case 'info_collection': return 0.80; // Equilibrada — coletando fatos
+        case 'doc_request':    return 0.70; // Mais direta — burocrática mas acolhedora
+        case 'analysis':       return 0.65; // Encerrando — clara e calorosa
+        default:               return 0.82;
+    }
+}
+
+// ============================================================
+// #20: Self-Audit — Gemini Flash revisa o tom antes de enviar
+// Só dispara se a resposta tiver sinal de frieza ou robotismo
+// ============================================================
+const AUDIT_COLD_SIGNALS = [
+    'por favor, envie', 'enviar o documento', 'é obrigatório',
+    'você deve enviar', 'preciso que você envie', 'não posso prosseguir',
+    'para darmos continuidade', 'impossível continuar', 'necessário',
+];
+
+async function selfAuditReply(draft: string, context: string): Promise<string> {
+    try {
+        const hasColdSignal = AUDIT_COLD_SIGNALS.some(s => draft.toLowerCase().includes(s));
+        if (!hasColdSignal) return draft; // Sem sinal frio: não audita, economiza token
+
+        const auditModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const auditPrompt = `Você é um revisor de qualidade de atendimento via WhatsApp para um escritório jurídico.
+Analise a RESPOSTA abaixo que foi gerada para um cliente. Verifique se ela:
+1. Soa robotizada, formal demais ou fria para uma conversa de WhatsApp
+2. Pede documentos sem acolhimento adequado
+3. Usa linguagem técnica/jurídica desnecessária
+
+Se a resposta estiver adequada (calorosa e humana), retorne EXATAMENTE o texto original sem mudanças.
+Se precisar de ajuste, reescreva ela de forma mais humana mantendo a mesma informação.
+
+CONTEXTO DO ATENDIMENTO: ${context.slice(0, 200)}
+
+RESPOSTA A REVISAR:
+${draft}
+
+RETORNE APENAS O TEXTO FINAL (original ou revisado), sem explicações:`;
+
+        const auditResult = await Promise.race([
+            auditModel.generateContent(auditPrompt),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error('audit timeout')), 8000)),
+        ]);
+        const audited = auditResult.response.text().trim();
+        if (audited && audited.length > 10) {
+            console.log(`[AI] 🔍 Self-audit applied (${draft.length}→${audited.length} chars)`);
+            return audited;
+        }
+    } catch {
+        // Self-audit failure is non-critical — return original draft
+        console.warn('[AI] Self-audit skipped (timeout or error)');
+    }
+    return draft;
+}
+
+// ============================================================
 // Generate Bot Reply — Token-Optimized
 // ============================================================
 export async function generateBotReply(
     conversationHistory: Array<{ role: 'user' | 'model'; parts: string }>,
     userMessage: string,
     leadContext = '',
-    memories = ''
+    memories = '',
+    botStage = 'approach'  // #7: used to set temperature per stage
 ): Promise<string> {
     if (!config.googleAi.apiKey) {
         console.warn('[AI] No API key configured — suppressing reply to client');
@@ -641,6 +780,9 @@ export async function generateBotReply(
             .filter(Boolean)
             .join('');
 
+        // #7: Temperature varies by funnel stage
+        const stageTemperature = getTemperatureForStage(botStage);
+
         const model = genAI.getGenerativeModel({
             model: config.googleAi.model,
             systemInstruction: systemWithContext,
@@ -652,8 +794,8 @@ export async function generateBotReply(
                 parts: [{ text: msg.parts }],
             })),
             generationConfig: {
-                maxOutputTokens: 350,   // Aumentado: permite respostas empáticas mais completas
-                temperature: 0.82,      // Ligeiramente mais alto: mais variedade e humanidade
+                maxOutputTokens: 350,
+                temperature: stageTemperature,
                 topK: 40,
                 topP: 0.92,
             },
@@ -669,8 +811,12 @@ export async function generateBotReply(
             timeoutPromise,
         ]);
 
-        const text = result.response.text().trim();
-        console.log(`[AI] ✅ Bot reply generated (${text.length} chars)`);
+        const rawText = result.response.text().trim();
+
+        // #20: Self-audit — flash model reviews tone before sending
+        const text = await selfAuditReply(rawText, leadContext.slice(0, 300));
+
+        console.log(`[AI] ✅ Bot reply generated (${text.length} chars, stage=${botStage}, temp=${stageTemperature})`);
         return text;
     } catch (err) {
         const error = err as Error & Record<string, unknown>;
