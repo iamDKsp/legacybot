@@ -953,16 +953,22 @@ export async function extractDocumentData(req: Request, res: Response) {
                     const isRG = docName.includes('RG');
                     const isComprovante = docName.includes('COMPROVANTE') || docName.includes('RESID');
 
-                    // Bypass cache if RG lacks org_emissor/uf_emissor (added later)
-                    const missingRgFields = isRG && (!cached.org_emissor && !cached.uf_emissor);
-                    // Bypass cache if Comprovante lacks granular address fields (common in old caches)
-                    const missingAddressFields = isComprovante && (!cached.street && !cached.zip_code && !cached.neighborhood);
-
-                    if (!missingRgFields && !missingAddressFields) {
+                    // Se já foi analisado fresco, aceita o cache sem bypass (evita loop infinito)
+                    if (parsed.analyzed_fresh) {
                         extractedData = cached;
-                        console.log(`[Extract] Using cached extractedData for doc ${docId}`);
+                        console.log(`[Extract] Using cache (already fresh-analyzed) for doc ${docId}`);
                     } else {
-                        console.log(`[Extract] Cache bypass — missing fields for doc ${docId} (isRG:${isRG} isComprovante:${isComprovante}) — re-analyzing`);
+                        // Bypass cache se RG falta org_emissor/uf_emissor (cache antigo)
+                        const missingRgFields = isRG && (!cached.org_emissor && !cached.uf_emissor);
+                        // Bypass cache se Comprovante falta campos granulares
+                        const missingAddressFields = isComprovante && (!cached.street && !cached.zip_code && !cached.neighborhood);
+
+                        if (!missingRgFields && !missingAddressFields) {
+                            extractedData = cached;
+                            console.log(`[Extract] Using cached extractedData for doc ${docId}`);
+                        } else {
+                            console.log(`[Extract] Cache bypass — missing fields for doc ${docId} (isRG:${isRG} isComprovante:${isComprovante}) — re-analyzing`);
+                        }
                     }
                 }
             } catch { /* notes is plain text — fall through to re-analysis */ }
@@ -976,13 +982,16 @@ export async function extractDocumentData(req: Request, res: Response) {
                 : String(doc.file_data);
             const mimeType   = (doc.file_type as string) || 'image/jpeg';
             const docLabel   = (doc.name || doc.doc_type || 'documento') as string;
-            const context    = `Documento do tipo "${docLabel}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
+            const isRgDoc    = docLabel.toUpperCase().includes('RG') || docLabel.toUpperCase().includes('IDENTIDADE');
+            const context    = isRgDoc
+                ? `Documento: "${docLabel}". EXTRAIA COM PRIORIDADE: org_emissor (abreviatura do órgão emissor: SSP, DETRAN, PC, IFP — geralmente impresso no rodapé ou canto do RG) e uf_emissor (UF do estado emissor em 2 letras — NÃO confundir com naturalidade). RGs emitidos até 2010 frequentemente exibem esses dados em fonte menor no cabeçalho ou rodapé. Extraia todos os outros campos visíveis.`
+                : `Documento do tipo "${docLabel}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
             const analysis   = await analyzeImage(fileBase64, mimeType, context);
             console.log(`[Extract] Gemini extractedData for doc ${docId}:`, JSON.stringify(analysis.extractedData));
             if (analysis.extractedData && Object.keys(analysis.extractedData).length > 0) {
                 extractedData = analysis.extractedData as Record<string, string>;
-                // Cache for next time
-                const newNotes = JSON.stringify({ extractedText: analysis.extractedText, extractedData });
+                // Salva com flag analyzed_fresh=true para evitar loop infinito de re-análise
+                const newNotes = JSON.stringify({ extractedText: analysis.extractedText, extractedData, analyzed_fresh: true });
                 await db('documents').where({ id: docId }).update({ notes: newNotes });
             }
         }
@@ -1023,10 +1032,14 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (extractedData.zip_code)    updates.zip_code      = extractedData.zip_code;
 
         // CPF: formatar 11 dígitos → 000.000.000-00
+        // Se tiver número errado de dígitos, descarta (evita varchar(14) overflow)
         if (updates.cpf) {
             const digits = updates.cpf.replace(/\D/g, '');
             if (digits.length === 11) {
                 updates.cpf = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
+            } else {
+                console.warn(`[Extract] CPF inválido descartado (${digits.length} dígitos): ${updates.cpf}`);
+                delete updates.cpf; // não salva CPF com dígito errado
             }
         }
 
