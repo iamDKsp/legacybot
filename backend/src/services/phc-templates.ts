@@ -28,8 +28,30 @@ export function advQual(adv:{name:string;oab:string;city?:string|null;state?:str
   return `${adv.name}, advogado inscrito na ${adv.oab}, com escritório profissional localizado à ${local||'endereço não informado'}, na cidade de ${cidade||'cidade não informada'}${cep}`;
 }
 
+// Normaliza o RG para o formato 'nº XXXXX SSP/SP' sem 'ORG EMISSOR:' nem 'UF:'
+// Aceita formatos: '42.362.711-1 SSP/SP', '7275710-6', 'SSP UF: SP 1234567'
+function formatRg(rg: string): string {
+    // Remove labels que a IA coloca
+    let clean = rg
+        .replace(/\bORG\.?\s*EMISSOR\s*:?\s*/gi, '')
+        .replace(/\bUF\s*:?\s*/gi, '')
+        .trim();
+
+    // Tenta extrair numéro e órgão no formato 'NUMERO ORGAO/UF'
+    // Ex: '42.362.711-1 SSP/SP' ou '7275710-6 SSP SP' ou '7275710-6\nSSP SP'
+    const match = clean.match(/^([\d.\-]+)\s+([A-Z]{2,4})\s*[/\s]?\s*([A-Z]{2})?/i);
+    if (match) {
+        const num = match[1].trim();
+        const org = match[2].trim().toUpperCase();
+        const uf  = match[3] ? match[3].trim().toUpperCase() : '';
+        return uf ? `${num} ${org}/${uf}` : `${num} ${org}`;
+    }
+    return clean;
+}
+
 export function clienteQual(g:GenderCtx, name:string, rg?:string|null, cpf?:string|null, addr?:string|null, city?:string|null, state?:string|null, cep?:string|null):string {
-  const rgStr  = rg  ? `inscrit${g.o_a} no RG nº ${rg}` : '';
+  const rgFormatted = rg ? formatRg(rg) : null;
+  const rgStr  = rgFormatted ? `inscrit${g.o_a} no RG nº ${rgFormatted}` : '';
   const cpfStr = cpf ? `CPF nº ${cpf}` : '';
   const id     = [rgStr, cpfStr].filter(Boolean).join(' e ');
   const end    = [addr, city && state ? `${city}/${state}` : city||state].filter(Boolean).join(', ');
@@ -59,7 +81,7 @@ export function buildContrato(d:ContratoData): string[] {
     `INSTRUMENTO PARTICULAR DE PRESTAÇÃO DE SERVIÇOS ADVOCATÍCIOS "CONTRATO DE RISCO"\nque fazem entre si:`,
     `${d.advQualificacao}, doravante unicamente denominado de CONTRATADO e de outro lado, ${d.clienteQualificacao}, doravante denominad${o} CONTRATANTE; os quais pactuam o presente contrato conforme as cláusulas abaixo:`,
     `1 - DO OBJETO`,
-    `1.1. O presente instrumento tem por objeto propor ${d.acao}, com atuação até eventual recurso perante o Tribunal de Justiça.`,
+    `1.1. O presente instrumento tem por objeto propor [[BOLD]]${d.acao}[[/BOLD]], com atuação até eventual recurso perante o Tribunal de Justiça.`,
     `2 - DOS HONORÁRIOS E DO VENCIMENTO`,
     `2.1. ${C} se obriga a pagar como honorários contratados em relação às ações descritas na cláusula 1.2 a quantia de 50% (cinquenta por cento), sobre o valor total da condenação em fase de liquidação, bem como, sobre o valor de eventual multa cominatória. Ainda que exista acordo entre as partes, a porcentagem continua inalterada.`,
     `2.2. Ficará por conta ${do_} CONTRATANTE as despesas relativas às custas iniciais, preparo, taxa de procuração, honorários de sucumbência e demais taxas oriundas da referida ação;`,

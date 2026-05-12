@@ -93,8 +93,59 @@ function collectBuffer(doc: PDFKit.PDFDocument): Promise<Buffer> {
 
 // --- Shared layout helpers ---------------------------------------------------
 
+/**
+ * Renderiza texto com marcadores [[BOLD]]...[[/BOLD]] alternando fonte.
+ * O texto fora das tags usa MyFont, dentro usa MyFont-Bold.
+ */
+function renderWithBold(
+    doc: PDFKit.PDFDocument,
+    text: string,
+    options: { fontSize: number; lineGap: number; align?: string }
+) {
+    const parts = text.split(/\[\[BOLD\]\]|\[\[\/BOLD\]\]/g);
+    let isBold = false;
+
+    // Calcula a largura disponível
+    const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    let lineBuffer: { text: string; bold: boolean }[] = [];
+
+    for (const part of parts) {
+        if (part) lineBuffer.push({ text: part, bold: isBold });
+        isBold = !isBold;
+    }
+
+    // Renderiza como segmentos inline na mesma linha
+    // PDFKit não tem inline mixing nativo, então separamos em spans por linha
+    let x = doc.x;
+    const y = doc.y;
+    let currentX = x;
+
+    for (let i = 0; i < lineBuffer.length; i++) {
+        const seg = lineBuffer[i];
+        const font = seg.bold ? 'MyFont-Bold' : 'MyFont';
+        const isLast = i === lineBuffer.length - 1;
+
+        doc.font(font).fontSize(options.fontSize);
+        const segWidth = doc.widthOfString(seg.text);
+        const remainingWidth = pageW - (currentX - x);
+
+        if (segWidth <= remainingWidth || isLast) {
+            doc.text(seg.text, currentX, doc.y, {
+                continued: !isLast,
+                lineGap: options.lineGap,
+                width: pageW,
+            });
+            currentX += segWidth;
+        } else {
+            // Não cabe na linha atual: deixa o PDFKit quebrar
+            doc.text(seg.text, { continued: !isLast, lineGap: options.lineGap, align: (options.align as 'left' | 'justify' | 'center' | 'right') || 'left' });
+        }
+    }
+    if (doc.y === y) doc.moveDown(0.3); // garante que avançou
+}
+
 function sig(doc: PDFKit.PDFDocument, label: string, name: string, extra?: string) {
-  doc.moveDown(1.5);
+  doc.moveDown(3); // espaço genéroso antes da assinatura (era 1.5)
   const x0 = 80, x1 = doc.page.width - 80;
   doc.save().moveTo(x0, doc.y).lineTo(x1, doc.y).lineWidth(0.45).strokeColor('#555').stroke().restore();
   doc.moveDown(0.4).font('MyFont').fontSize(9).fillColor('#666').text(label, { align: 'center' });
@@ -162,14 +213,18 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
     doc.moveDown(MD);
   };
 
-  sec(p[2]);  cl(p[3]);
+  sec(p[2]);  
+  // cláusula 1.1 com o nome da ação em negrito
+  renderWithBold(doc, p[3], { fontSize: FS, lineGap: LG, align: 'left' });
+  doc.moveDown(MD);
   sec(p[4]);  for (let i = 5; i <= 13; i++) cl(p[i]);
   sec(p[14]); for (let i = 15; i <= 17; i++) cl(p[i]);
   sec(p[18]); cl(p[19]);
 
   if (notes) { sec('OBSERVAÇÕES'); cl(notes); }
 
-  doc.moveDown(0.4).font('MyFont').fontSize(FS).fillColor('#111').text(p[20], { align: 'left' });
+  // local e data centralizado
+  doc.moveDown(0.4).font('MyFont').fontSize(FS).fillColor('#111').text(p[20], { align: 'center' });
 
   sig(doc, 'Contratado', lawyer.name, `OAB ${lawyer.oab}`);
   sig(doc, `Contratante${lead.cpf ? ' — CPF: ' + lead.cpf : ''}`, lead.name.toUpperCase());
@@ -209,7 +264,8 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
     doc.moveDown(0.6);
   }
 
-  doc.font('MyFont').fontSize(10).fillColor('#111').text(p[2], { align: 'left' });
+  // local e data centralizado
+  doc.font('MyFont').fontSize(10).fillColor('#111').text(p[2], { align: 'center' });
 
   sig(doc, 'Outorgante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
   addFooter(doc);
@@ -245,7 +301,8 @@ async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
     doc.moveDown(1.5);
   }
 
-  doc.font('MyFont').fontSize(12).fillColor('#111').text(p[2], { align: 'left' });
+  // local e data centralizado
+  doc.font('MyFont').fontSize(12).fillColor('#111').text(p[2], { align: 'center' });
   doc.moveDown(0.5);
   sig(doc, 'Declarante', lead.name.toUpperCase(), lead.cpf ? 'CPF: ' + lead.cpf : undefined);
   addFooter(doc);
