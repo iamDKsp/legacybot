@@ -32,11 +32,18 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
     ? Math.round((checklist.receivedCount / checklist.totalCount) * 100)
     : 0;
 
-  // Etapas onde a coleta de documentos ainda NÃO foi iniciada
+  // Etapas onde docs ainda não são solicitados — esconde checklist normal
   const PRE_DOC_STAGES = new Set(['recebido', 'geral', 'abordagem', 'pre_analise', 'coleta_info']);
-  const stageSlug = (lead as Record<string, unknown>).stage_slug as string | undefined;
-  // Só mostra checklist de docs se o lead já está na etapa de documentação ou além
+  const stageSlug  = (lead as Record<string, unknown>).stage_slug  as string | undefined;
+  const funnelSlug = (lead as Record<string, unknown>).funnel_slug as string | undefined;
+  const botStage   = (lead as Record<string, unknown>).bot_stage   as string | undefined;
+
   const showChecklist = hasChecklist && !PRE_DOC_STAGES.has(stageSlug ?? '');
+
+  // Lead em TRIAGEM: mostrar "Tipo de causa" em vez de checklist
+  const isTriagem = funnelSlug === 'geral';
+  // Identificado quando Sofia avançou para approach ou além (não é mais 'reception')
+  const causeIdentified = isTriagem && !!botStage && botStage !== 'reception';
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -62,15 +69,14 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
       onClick={() => navigate("/client-hub", { state: { lead } })}
       className="glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group relative"
     >
-      {/* Action buttons — appear on card hover */}
+      {/* Action buttons */}
       <button
         id={`delete-lead-${lead.id}`}
         onClick={handleDeleteClick}
         title="Excluir lead"
         className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center
                    opacity-0 group-hover:opacity-100 transition-opacity duration-150
-                   bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300
-                   z-10"
+                   bg-red-500/10 hover:bg-red-500/25 text-red-400 hover:text-red-300 z-10"
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>
@@ -80,8 +86,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         title="Copiar nome e telefone"
         className="absolute top-2 right-9 w-6 h-6 rounded-md flex items-center justify-center
                    opacity-0 group-hover:opacity-100 transition-opacity duration-150
-                   bg-secondary hover:bg-secondary/70 text-muted-foreground hover:text-foreground
-                   z-10"
+                   bg-secondary hover:bg-secondary/70 text-muted-foreground hover:text-foreground z-10"
       >
         {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
       </button>
@@ -110,8 +115,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
                 onClick={handleConfirmDelete}
                 disabled={deleteLead.isPending}
                 className="px-3 py-1 text-[11px] font-semibold rounded-md
-                           bg-red-500 hover:bg-red-600 text-white transition-colors
-                           disabled:opacity-50"
+                           bg-red-500 hover:bg-red-600 text-white transition-colors disabled:opacity-50"
               >
                 {deleteLead.isPending ? 'Excluindo...' : 'Sim, excluir'}
               </button>
@@ -128,7 +132,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         )}
       </AnimatePresence>
 
-      {/* Header: avatar + name + WhatsApp icon */}
+      {/* Header */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
@@ -147,34 +151,46 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         )}
       </div>
 
-      {/* Document Checklist Mini-View — só em etapas de documentação+ */}
-      {showChecklist && (
+      {/* ── TRIAGEM: item único "Tipo de causa" ── */}
+      {isTriagem && (
+        <div className="mt-2 pt-2 border-t border-border/40">
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide block mb-1.5">
+            Triagem
+          </span>
+          <div className="flex items-center gap-1.5">
+            {causeIdentified ? (
+              <CheckCircle2 className="w-3 h-3 text-green-400 flex-shrink-0" />
+            ) : (
+              <Clock className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
+            )}
+            <span className={`text-[10px] leading-tight ${
+              causeIdentified ? 'text-green-400/80 line-through' : 'text-muted-foreground'
+            }`}>
+              Tipo de causa
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Outros funis: checklist de docs (só a partir de doc_request) ── */}
+      {!isTriagem && showChecklist && (
         <div className="mt-2 pt-2 border-t border-border/40">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
               Documentos
             </span>
-            <span
-              className={`text-[10px] font-semibold ${
-                checklist.complete ? "text-green-400" : "text-amber-400"
-              }`}
-            >
+            <span className={`text-[10px] font-semibold ${checklist.complete ? "text-green-400" : "text-amber-400"}`}>
               {checklist.receivedCount}/{checklist.totalCount}
             </span>
           </div>
           <div className="w-full h-1 rounded-full bg-border/60 overflow-hidden mb-2">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
-                checklist.complete
-                  ? "bg-green-500"
-                  : progress > 50
-                  ? "bg-amber-400"
-                  : "bg-red-400/70"
+                checklist.complete ? "bg-green-500" : progress > 50 ? "bg-amber-400" : "bg-red-400/70"
               }`}
               style={{ width: `${progress}%` }}
             />
           </div>
-
           <div className="flex flex-col gap-0.5">
             {checklist.flowItems?.map((item: any) => (
               <div key={item.name} className="flex items-center gap-1.5">
@@ -183,13 +199,9 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
                 ) : (
                   <Clock className="w-3 h-3 text-amber-400/70 flex-shrink-0" />
                 )}
-                <span
-                  className={`text-[10px] leading-tight ${
-                    item.received
-                      ? "text-green-400/80 line-through"
-                      : "text-muted-foreground"
-                  }`}
-                >
+                <span className={`text-[10px] leading-tight ${
+                  item.received ? "text-green-400/80 line-through" : "text-muted-foreground"
+                }`}>
                   {item.name}
                 </span>
               </div>
@@ -198,12 +210,12 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         </div>
       )}
 
-      {/* Footer: date + badge completo */}
+      {/* Footer */}
       <div className="flex items-center justify-between mt-2">
         <span className="text-[10px] text-muted-foreground">
           {lead.created_at ? new Date(lead.created_at).toLocaleDateString('pt-BR') : ''}
         </span>
-        {showChecklist && checklist?.complete && (
+        {!isTriagem && showChecklist && checklist?.complete && (
           <span className="text-[10px] font-semibold text-green-400 bg-green-400/10 rounded px-1.5 py-0.5">
             ✓ Completo
           </span>
