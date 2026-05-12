@@ -943,21 +943,26 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (!doc)  return res.status(404).json({ success: false, error: 'Documento não encontrado' });
 
         // ── Try to read cached extractedData from notes JSON ──
-        // Cache is BYPASSED if it lacks org_emissor (new field) for RG documents,
-        // so a fresh re-analysis picks up all new fields.
         let extractedData: Record<string, string> | null = null;
         if (doc.notes) {
             try {
                 const parsed = JSON.parse(doc.notes);
                 if (parsed.extractedData && Object.keys(parsed.extractedData).length > 0) {
                     const cached = parsed.extractedData as Record<string, string>;
-                    const isRG = (doc.doc_type || doc.name || '').toString().toUpperCase().includes('RG');
-                    const missingNewFields = isRG && !cached.org_emissor && !cached.uf_emissor;
-                    if (!missingNewFields) {
+                    const docName = (doc.doc_type || doc.name || '').toString().toUpperCase();
+                    const isRG = docName.includes('RG');
+                    const isComprovante = docName.includes('COMPROVANTE') || docName.includes('RESID');
+
+                    // Bypass cache if RG lacks org_emissor/uf_emissor (added later)
+                    const missingRgFields = isRG && (!cached.org_emissor && !cached.uf_emissor);
+                    // Bypass cache if Comprovante lacks granular address fields (common in old caches)
+                    const missingAddressFields = isComprovante && (!cached.street && !cached.zip_code && !cached.neighborhood);
+
+                    if (!missingRgFields && !missingAddressFields) {
                         extractedData = cached;
                         console.log(`[Extract] Using cached extractedData for doc ${docId}`);
                     } else {
-                        console.log(`[Extract] Cache miss (org_emissor absent on RG) — re-analyzing doc ${docId}`);
+                        console.log(`[Extract] Cache bypass — missing fields for doc ${docId} (isRG:${isRG} isComprovante:${isComprovante}) — re-analyzing`);
                     }
                 }
             } catch { /* notes is plain text — fall through to re-analysis */ }
@@ -970,8 +975,10 @@ export async function extractDocumentData(req: Request, res: Response) {
                 ? doc.file_data.toString('base64')
                 : String(doc.file_data);
             const mimeType   = (doc.file_type as string) || 'image/jpeg';
-            const context    = `Documento do tipo "${doc.name}". Extraia todos os dados pessoais visíveis.`;
+            const docLabel   = (doc.name || doc.doc_type || 'documento') as string;
+            const context    = `Documento do tipo "${docLabel}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
             const analysis   = await analyzeImage(fileBase64, mimeType, context);
+            console.log(`[Extract] Gemini extractedData for doc ${docId}:`, JSON.stringify(analysis.extractedData));
             if (analysis.extractedData && Object.keys(analysis.extractedData).length > 0) {
                 extractedData = analysis.extractedData as Record<string, string>;
                 // Cache for next time

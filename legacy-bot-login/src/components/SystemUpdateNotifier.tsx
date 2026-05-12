@@ -69,7 +69,7 @@ export const SystemUpdateNotifier = () => {
                     <img 
                         src={sofiaImg} 
                         alt="Sofia" 
-                        className="w-20 h-20 object-cover rounded-full border-[3px] border-primary/40 shadow-xl bg-card mb-[-10px] z-10 relative"
+                        className="w-20 h-20 object-contain mb-[-10px] z-10 relative drop-shadow-2xl"
                     />
                 </div>
                 
