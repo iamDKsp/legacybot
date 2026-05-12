@@ -4,7 +4,7 @@ import {
   ArrowLeft, CheckCircle, XCircle, MessageSquare, Bot, BotOff,
   FileText, ClipboardList, User, Phone, Mail, Calendar,
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
-  MessageCircle, Pencil, Check, X as XIcon,
+  MessageCircle, Pencil, Check, X as XIcon, Trash2,
   MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation, Sparkles
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 import { Lead } from "@/modules/crm/types/crm";
 import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, useUpdateLeadStatus, useToggleBotStatus, useLeadChecklist, useUploadLeadDocument } from "@/hooks/useLeads";
 import { leadsApi } from "@/services/api";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { CheckSquare } from "lucide-react";
 import { StyledSelect } from "@/components/ui/StyledSelect";
 import { formatPhoneDisplay } from "@/utils/formatters";
@@ -703,6 +703,20 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
   const [docType, setDocType] = useState('RG');
   const [showUpload, setShowUpload] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const deleteDocMutation = useMutation({
+    mutationFn: async ({ docId }: { docId: number }) => {
+      const token = localStorage.getItem('legacy_token') || localStorage.getItem('token') || '';
+      const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+      const res = await fetch(`${baseUrl}/leads/${leadId}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Falha ao excluir');
+    },
+    onSuccess: () => { refetchDocs(); setConfirmDeleteId(null); },
+  });
 
 
   const statusStyles: Record<string, string> = {
@@ -858,6 +872,25 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                     )}
                     {status === 'aprovado' && (
                       <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
+                    )}
+                    {/* Botão excluir com confirmação de 2 cliques */}
+                    {confirmDeleteId === Number(doc.id) ? (
+                      <button
+                        onClick={() => deleteDocMutation.mutate({ docId: Number(doc.id) })}
+                        disabled={deleteDocMutation.isPending}
+                        title="Confirmar exclusão"
+                        className="p-1 rounded bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold hover:bg-red-500/30 transition-all animate-pulse"
+                      >
+                        {deleteDocMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '⚠ Excluir?'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(Number(doc.id))}
+                        title="Excluir documento"
+                        className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
                 </div>

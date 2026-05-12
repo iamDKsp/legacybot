@@ -63,13 +63,13 @@ export const SystemUpdateNotifier = () => {
                 animate={{ opacity: 1, y: 0, x: 0 }}
                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
                 transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                className="fixed bottom-6 right-6 z-[9999] flex items-end gap-4 w-[420px] max-w-[calc(100vw-48px)] pointer-events-none"
+                className="fixed bottom-6 right-6 z-[9999] flex items-end gap-3 w-[560px] max-w-[calc(100vw-48px)] pointer-events-none"
             >
                 <div className="relative pointer-events-auto shrink-0">
                     <img 
                         src={sofiaImg} 
                         alt="Sofia" 
-                        className="w-20 h-20 object-contain mb-[-10px] z-10 relative drop-shadow-2xl"
+                        className="w-28 h-28 object-contain mb-[-14px] z-10 relative drop-shadow-2xl"
                     />
                 </div>
                 
