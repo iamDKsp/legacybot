@@ -32,6 +32,12 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
     ? Math.round((checklist.receivedCount / checklist.totalCount) * 100)
     : 0;
 
+  // Etapas onde a coleta de documentos ainda NÃO foi iniciada
+  const PRE_DOC_STAGES = new Set(['recebido', 'geral', 'abordagem', 'pre_analise', 'coleta_info']);
+  const stageSlug = (lead as Record<string, unknown>).stage_slug as string | undefined;
+  // Só mostra checklist de docs se o lead já está na etapa de documentação ou além
+  const showChecklist = hasChecklist && !PRE_DOC_STAGES.has(stageSlug ?? '');
+
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     setConfirmDelete(true);
@@ -141,8 +147,8 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         )}
       </div>
 
-      {/* Document Checklist Mini-View */}
-      {hasChecklist && (
+      {/* Document Checklist Mini-View — só em etapas de documentação+ */}
+      {showChecklist && (
         <div className="mt-2 pt-2 border-t border-border/40">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
@@ -197,7 +203,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
         <span className="text-[10px] text-muted-foreground">
           {lead.created_at ? new Date(lead.created_at).toLocaleDateString('pt-BR') : ''}
         </span>
-        {checklist?.complete && (
+        {showChecklist && checklist?.complete && (
           <span className="text-[10px] font-semibold text-green-400 bg-green-400/10 rounded px-1.5 py-0.5">
             ✓ Completo
           </span>
