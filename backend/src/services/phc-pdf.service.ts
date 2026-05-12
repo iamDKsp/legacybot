@@ -105,47 +105,32 @@ function renderWithBold(
     const parts = text.split(/\[\[BOLD\]\]|\[\[\/BOLD\]\]/g);
     let isBold = false;
 
-    // Calcula a largura disponível
     const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
-    let lineBuffer: { text: string; bold: boolean }[] = [];
 
+    const lineBuffer: { text: string; bold: boolean }[] = [];
     for (const part of parts) {
         if (part) lineBuffer.push({ text: part, bold: isBold });
         isBold = !isBold;
     }
 
-    // Renderiza como segmentos inline na mesma linha
-    // PDFKit não tem inline mixing nativo, então separamos em spans por linha
-    let x = doc.x;
-    const y = doc.y;
-    let currentX = x;
-
+    // Renderiza segmentos em sequência com continued=true para evitar overflow
     for (let i = 0; i < lineBuffer.length; i++) {
         const seg = lineBuffer[i];
         const font = seg.bold ? 'MyFont-Bold' : 'MyFont';
         const isLast = i === lineBuffer.length - 1;
 
         doc.font(font).fontSize(options.fontSize);
-        const segWidth = doc.widthOfString(seg.text);
-        const remainingWidth = pageW - (currentX - x);
-
-        if (segWidth <= remainingWidth || isLast) {
-            doc.text(seg.text, currentX, doc.y, {
-                continued: !isLast,
-                lineGap: options.lineGap,
-                width: pageW,
-            });
-            currentX += segWidth;
-        } else {
-            // Não cabe na linha atual: deixa o PDFKit quebrar
-            doc.text(seg.text, { continued: !isLast, lineGap: options.lineGap, align: (options.align as 'left' | 'justify' | 'center' | 'right') || 'left' });
-        }
+        doc.text(seg.text, {
+            continued: !isLast,
+            lineGap: options.lineGap,
+            width: pageW,
+            align: (options.align as 'left' | 'justify' | 'center' | 'right') || 'justify',
+        });
     }
-    if (doc.y === y) doc.moveDown(0.3); // garante que avançou
 }
 
 function sig(doc: PDFKit.PDFDocument, label: string, name: string, extra?: string) {
-  doc.moveDown(3); // espaço genéroso antes da assinatura (era 1.5)
+  doc.moveDown(5); // espaço generoso antes da assinatura
   const x0 = 80, x1 = doc.page.width - 80;
   doc.save().moveTo(x0, doc.y).lineTo(x1, doc.y).lineWidth(0.45).strokeColor('#555').stroke().restore();
   doc.moveDown(0.4).font('MyFont').fontSize(9).fillColor('#666').text(label, { align: 'center' });
@@ -172,10 +157,10 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
   const acao = getAcaoContrato(slug);
   const foro = cityState(lawyer.city, lawyer.state);
 
-  // Contrato: fonte 10.5pt, lineGap 3.5 — preenche bem 2 paginas
+  // Contrato: fonte 10.5pt, lineGap 5 — boa legibilidade com respiro
   const FS = 10.5;
-  const LG = 3.5;
-  const MD = 0.55;
+  const LG = 5;
+  const MD = 0.9;
 
   const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escritório profissional localizado à ${lawyerFullAddr(lawyer)}`;
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
