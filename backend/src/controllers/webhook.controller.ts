@@ -1129,11 +1129,14 @@ async function processDocumentImage(
                     payload: JSON.stringify({ imageMimeType, action: 'analyzeImage' }),
                 }).catch(e => console.error('Failed to log AI error:', e));
             } else {
-                // BUG 3 FIX: Traduzir linguagem técnica para texto humanizado
+                // Usa o reading_issues do Gemini se disponível, senão infere do texto
                 const rawIssue = analysis.issues || '';
                 let humanizedIssue: string;
 
-                if (rawIssue.includes('borrad') || rawIssue.includes('desfocad') || rawIssue.includes('tremid')) {
+                if (analysis.reading_issues) {
+                    // Gemini explicou diretamente o que impediu a leitura
+                    humanizedIssue = analysis.reading_issues;
+                } else if (rawIssue.includes('borrad') || rawIssue.includes('desfocad') || rawIssue.includes('tremid')) {
                     humanizedIssue = 'a foto ficou um pouco tremida';
                 } else if (rawIssue.includes('rosto') || rawIssue.includes('pessoa') || rawIssue.includes('não é um documento') || rawIssue.includes('nao é um documento')) {
                     humanizedIssue = 'não consegui identificar um documento nessa foto';
@@ -1303,11 +1306,18 @@ async function processDocumentImage(
                     else if (missingName) missingDesc = 'não consegui ler o nome claramente';
                     else missingDesc = 'não consegui ler o número do documento (RG/CPF)';
 
+                    // Usa a explicação do Gemini se ele mesmo descreveu o problema visual
+                    const aiExplain = analysis.reading_issues;
+
                     let retryMsg: string;
                     if (attempt === 0) {
-                        retryMsg = `A foto chegou aqui, mas ${missingDesc}. É possível que a parte com esse dado esteja um pouco sombreada ou fora do enquadramento. Consegue tirar uma nova foto garantindo que o documento esteja bem iluminado e completamente dentro da foto? 🙏`;
+                        retryMsg = aiExplain
+                            ? `A foto chegou, mas ${aiExplain}. Consegue tirar uma nova foto com o documento bem iluminado e completamente enquadrado? 🙏`
+                            : `A foto chegou aqui, mas ${missingDesc}. É possível que a parte com esse dado esteja um pouco sombreada ou fora do enquadramento. Consegue tirar uma nova foto garantindo que o documento esteja bem iluminado e completamente dentro da foto? 🙏`;
                     } else {
-                        retryMsg = `Tentei novamente mas ainda ${missingDesc}. Pode acontecer por sombra no documento, plástico cobrindo o campo ou iluminação fraca. Dica: coloca o documento numa superfície plana e usa a luz natural (próximo a uma janela) para tirar a foto de cima pra baixo. Pode tentar assim? 🙏`;
+                        retryMsg = aiExplain
+                            ? `Tentei novamente, mas ${aiExplain}. Dica: coloca o documento numa superfície plana e usa a luz natural (próximo a uma janela) para tirar a foto de cima pra baixo — costuma resolver! 🙏`
+                            : `Tentei novamente mas ainda ${missingDesc}. Pode acontecer por sombra no documento, plástico cobrindo o campo ou iluminação fraca. Dica: coloca o documento numa superfície plana e usa a luz natural (próximo a uma janela) para tirar a foto de cima pra baixo. Pode tentar assim? 🙏`;
                     }
 
                     // Salva o doc mesmo assim (para o CRM ver a tentativa)

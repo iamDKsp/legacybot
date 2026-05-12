@@ -887,6 +887,8 @@ export interface ImageAnalysisResult {
         state?: string;        // UF ex: SP
         zip_code?: string;
     };
+    /** Explicação do Gemini sobre por que campos específicos não foram lidos */
+    reading_issues?: string;
 }
 
 export async function analyzeImage(
@@ -951,7 +953,8 @@ Analise a imagem e responda APENAS em JSON puro (sem markdown, sem \`\`\`, sem t
     "pix_value": "Valor do Pix em reais ex: 1500.00 (null se não comprovante Pix)",
     "pix_recipient": "Nome do destinatário do Pix (null se não comprovante Pix)",
     "pix_date": "Data da transferência Pix DD/MM/AAAA (null se não comprovante Pix)"
-  }
+  },
+  "reading_issues": "Se algum campo importante ficou ilegível, explique EM 1 FRASE CURTA e INFORMAL (como se fosse uma pessoa falando) o motivo visual: ex: 'o campo do CPF está coberto pelo plástico', 'o nome ficou desfocado', 'sombra cobre a área do número'. Se todos os campos foram lidos, escreva null."
 }
 
 IMPORTANTE extractedData:
@@ -1020,6 +1023,9 @@ REGRAS PARA docType:
                     extractedText: parsed.extractedText ?? '',
                     issues: parsed.issues ?? '',
                     extractedData: Object.keys(cleanData).length > 0 ? cleanData : undefined,
+                    reading_issues: (parsed.reading_issues && String(parsed.reading_issues).toLowerCase() !== 'null')
+                        ? String(parsed.reading_issues).trim()
+                        : undefined,
                 };
                 console.log(`[AI] 🖼️ Image analysis FINAL: isLegible=${analysisResult.isLegible} | docType=${analysisResult.docType} | extractedData=${JSON.stringify(cleanData)}`);
                 return analysisResult;
