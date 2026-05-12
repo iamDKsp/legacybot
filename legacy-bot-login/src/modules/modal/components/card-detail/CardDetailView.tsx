@@ -70,6 +70,7 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
 function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: number; onSuccess: () => void }) {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const queryClient = useQueryClient();
 
   const showToast = (msg: string, ok: boolean) => {
     setToast({ msg, ok });
@@ -92,6 +93,9 @@ function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: nu
       if (res.ok && data.success) {
         const filled = Object.keys(data.updated || {}).length;
         showToast(filled > 0 ? `✅ ${filled} campo${filled > 1 ? 's' : ''} preenchido${filled > 1 ? 's' : ''}` : 'ℹ️ Todos os campos já estavam preenchidos', true);
+        // Invalida o cache do lead no Kanban/card para forçar refetch do nome atualizado
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
         onSuccess();
       } else {
         showToast(`❌ ${data.error || 'Erro ao extrair'}`, false);
@@ -365,8 +369,8 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
                   {/* ── Image message ── */}
                   {isImage && imageUrl ? (
                     <div className="relative group cursor-pointer" onClick={() => setLightboxUrl(imageUrl)}>
-                      <img
-                        src={imageUrl}
+                      <img 
+                        src={`${imageUrl}&t=${Date.now()}`}
                         alt="mídia"
                         className="max-w-[200px] max-h-[180px] rounded-lg object-contain hover:opacity-90 transition-opacity"
                       />
