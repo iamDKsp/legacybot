@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, User, MapPin, FileText, Save, Loader2,
-  Hash, Globe, Calendar, Heart
+  Hash, Globe, Heart
 } from "lucide-react";
 import { leadsApi, Lead } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,7 +51,6 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
     uf_emissor:     (lead.uf_emissor     as string) ?? "SP",
     marital_status: (lead.marital_status as string) ?? "",
     nationality:    (lead.nationality    as string) ?? "brasileiro(a)",
-    birthdate:      (lead.birthdate      as string) ?? "",
   });
 
   const set = (k: keyof typeof form, v: string) =>
@@ -181,13 +180,6 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                   <input value={form.nationality} onChange={e => set("nationality", e.target.value)}
                     placeholder="brasileiro(a)"
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Calendar className="h-3 w-3" /> Data de Nascimento
-                  </label>
-                  <input type="date" value={form.birthdate} onChange={e => set("birthdate", e.target.value)}
-                    className="date-input w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm text-card-foreground focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
               </div>
             </div>

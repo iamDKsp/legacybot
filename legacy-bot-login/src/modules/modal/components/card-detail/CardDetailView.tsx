@@ -639,7 +639,6 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="UF Emis."   fieldKey="uf_emissor"   value={(lead.uf_emissor as string) ?? "SP"} type="select-uf" onSave={handleSave} />
         <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
         <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
-        <FieldRow icon={<Calendar className="w-3.5 h-3.5"/>} label="Nascimento" fieldKey="birthdate"     value={(lead.birthdate as string) ?? ""} type="date" onSave={handleSave} />
       </div>
 
       {/* Section: Endereço */}
