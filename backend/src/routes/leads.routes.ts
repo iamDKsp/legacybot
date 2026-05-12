@@ -12,6 +12,7 @@ import {
     createLeadNote,
     getLeadDocuments,
     createLeadDocument,
+    deleteLeadDocument,
     downloadDocument,
     getFunnels,
     getStages,
@@ -53,6 +54,7 @@ router.get('/:id/documents', getLeadDocuments);
 router.post('/:id/documents', createLeadDocument);
 router.post('/:id/documents/upload', uploadAndExtractDocument);
 router.get('/:id/documents/:docId/download', downloadDocument);
+router.delete('/:id/documents/:docId', deleteLeadDocument);
 router.post('/:id/documents/:docId/extract', extractDocumentData);
 
 // Lead checklist (document collection progress)

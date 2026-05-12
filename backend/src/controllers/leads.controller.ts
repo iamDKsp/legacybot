@@ -565,6 +565,56 @@ export async function createLeadDocument(req: Request, res: Response): Promise<v
     }
 }
 
+// ============================================================
+// DELETE /api/leads/:id/documents/:docId
+// Remove um documento do lead (para atualização cadastral)
+// ============================================================
+export async function deleteLeadDocument(req: Request, res: Response): Promise<void> {
+    const leadId = Number(req.params.id);
+    const docId  = Number(req.params.docId);
+
+    if (isNaN(leadId) || isNaN(docId)) {
+        res.status(400).json({ success: false, error: 'IDs inválidos' });
+        return;
+    }
+
+    try {
+        const doc = await db('documents').where({ id: docId, lead_id: leadId }).first() as Record<string, unknown> | undefined;
+        if (!doc) {
+            res.status(404).json({ success: false, error: 'Documento não encontrado' });
+            return;
+        }
+
+        // Remove arquivo do disco se existir
+        const filePath = doc.file_path as string | null;
+        if (filePath) {
+            try {
+                const fsMod = await import('fs');
+                if (fsMod.existsSync(filePath)) fsMod.unlinkSync(filePath);
+            } catch (fsErr) {
+                console.warn('[DeleteDoc] Could not remove file from disk:', (fsErr as Error).message);
+            }
+        }
+
+        await db('documents').where({ id: docId }).delete();
+
+        await logActivity({
+            user_id:     req.user?.userId,
+            lead_id:     leadId,
+            action:      'document_deleted',
+            entity_type: 'document',
+            entity_id:   docId,
+            old_value:   { name: doc.name, doc_type: doc.doc_type, status: doc.status },
+        });
+
+        console.log(`[Doc] 🗑️  Documento ${docId} (${doc.name}) excluído do lead ${leadId} por user ${req.user?.userId}`);
+        res.json({ success: true, message: `Documento "${doc.name}" excluído com sucesso` });
+    } catch (err) {
+        console.error('Delete document error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao excluir documento' });
+    }
+}
+
 // Download a document file by doc ID (/:leadId/documents/:docId/download)
 // Supports Auth via Bearer header OR ?token= query param (for <a href> / <img src> links)
 export async function downloadDocument(req: Request, res: Response): Promise<void> {

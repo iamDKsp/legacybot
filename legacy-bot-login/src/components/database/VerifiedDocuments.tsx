@@ -12,9 +12,11 @@ import {
   ShieldCheck,
   Image,
   Loader2,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { databaseApi, VerifiedDoc } from "@/services/api";
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -74,11 +76,14 @@ function DocumentCard({
   doc,
   index,
   onView,
+  onDelete,
 }: {
   doc: VerifiedDoc;
   index: number;
   onView: (doc: VerifiedDoc) => void;
+  onDelete: (doc: VerifiedDoc) => void;
 }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const fileExt = getFileExt(doc.file_type);
   const funnelColor = doc.funnel_color || "#6366f1";
   const hasPreview = isImageType(doc.file_type) && !!doc.file_url;
@@ -188,6 +193,25 @@ function DocumentCard({
             <Download className="w-4 h-4" />
             Baixar
           </button>
+          {/* Botão excluir com confirmação de 2 cliques */}
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              title="Excluir documento"
+              className="flex items-center justify-center w-10 py-2.5 rounded-lg bg-surface hover:bg-red-500/10 border border-border hover:border-red-500/30 text-muted-foreground hover:text-red-400 transition-all duration-200"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              onClick={() => { onDelete(doc); setConfirmDelete(false); }}
+              title="Confirmar exclusão"
+              className="flex items-center justify-center gap-1 px-2 py-2.5 rounded-lg bg-red-500/20 border border-red-500/40 text-red-400 text-xs font-bold hover:bg-red-500/30 transition-all duration-200 animate-pulse"
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Excluir?
+            </button>
+          )}
         </div>
       </div>
     </motion.div>
@@ -342,6 +366,32 @@ export function VerifiedDocuments() {
   const [funnelDropdownOpen, setFunnelDropdownOpen] = useState(false);
   const [viewingDoc, setViewingDoc] = useState<VerifiedDoc | null>(null);
   const [activeTab, setActiveTab] = useState<string>("todos");
+  const queryClient = useQueryClient();
+
+  // Mutation para excluir documento
+  const deleteMutation = useMutation({
+    mutationFn: async (doc: VerifiedDoc) => {
+      const leadId = doc.lead_id ?? (doc as Record<string, unknown>).lead_id;
+      if (!leadId || !doc.id) throw new Error('IDs ausentes');
+      const token = localStorage.getItem('legacy_token') || localStorage.getItem('token') || '';
+      const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+      const res = await fetch(`${baseUrl}/leads/${leadId}/documents/${doc.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as Record<string, string>).error || 'Erro ao excluir');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['verified-docs'] });
+    },
+    onError: (err) => {
+      alert('Erro ao excluir documento: ' + (err as Error).message);
+    },
+  });
 
   // Fetch from real API
   const { data: docs = [], isLoading } = useQuery({
@@ -503,6 +553,7 @@ export function VerifiedDocuments() {
               doc={doc}
               index={i}
               onView={setViewingDoc}
+              onDelete={(d) => deleteMutation.mutate(d)}
             />
           ))}
         </div>
