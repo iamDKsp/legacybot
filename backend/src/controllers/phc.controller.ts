@@ -250,7 +250,7 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
                 'l.nationality as lead_nationality', 'l.birthdate as lead_birthdate',
                 'l.occupation as lead_occupation', 'l.gender as lead_gender',
                 // CEP do lead — dois nomes possíveis dependendo da migração
-                db.raw(`COALESCE(l.address_zip_code, l.zip_code, l.cep) as lead_cep`),
+                db.raw(`COALESCE(l.zip_code, l.cep) as lead_cep`),
                 // Funnel
                 'f.name as funnel_name', 'f.slug as funnel_slug',
                 // Lawyer data
