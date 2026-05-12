@@ -518,8 +518,14 @@ export async function runAutoMigrations(): Promise<void> {
         await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS mother      VARCHAR(255) DEFAULT NULL`).catch(() => {});
         await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS father      VARCHAR(255) DEFAULT NULL`).catch(() => {});
         // ── LEAD-RG-ISSUER. Órgão emissor do RG ──────────────────────────────
-        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS org_emissor VARCHAR(20)  DEFAULT 'SSP'`).catch(() => {});
-        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS uf_emissor  CHAR(2)      DEFAULT 'SP'`).catch(() => {});
+        // DEFAULT NULL para não poluir leads sem documento
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS org_emissor VARCHAR(20)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS uf_emissor  CHAR(2)      DEFAULT NULL`).catch(() => {});
+        // ── LEAD-ADDRESS-GRANULAR. Campos de endereço detalhados (via migrate_address_fields.sql) ──
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS street       VARCHAR(255) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS number       VARCHAR(20)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS neighborhood VARCHAR(100) DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE leads ADD COLUMN IF NOT EXISTS zip_code     VARCHAR(10)  DEFAULT NULL`).catch(() => {});
 
         // ── Seed Lawyer: João Paulo Gabriel ───────────────────────
         const jpExists = await db('phc_lawyers').where({ oab: 'OAB/SP nº 243.936' }).first();

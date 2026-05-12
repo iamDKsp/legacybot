@@ -1066,18 +1066,31 @@ async function processDocumentImage(
                     ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
                     : raw;
             }
-            if (data.gender && !currentLead.gender) updates.gender = data.gender;
-            if (data.nationality && !currentLead.nationality) updates.nationality = data.nationality;
-            if (data.mother && !currentLead.mother) updates.mother = data.mother;
-            if (data.father && !currentLead.father) updates.father = data.father;
-            // Address fields
-            if (data.street && !currentLead.street) updates.street = data.street;
-            if (data.number && !currentLead.address_number) updates.address_number = data.number;
+            if (data.gender      && !currentLead.gender)       updates.gender       = data.gender;
+            if (data.nationality && !currentLead.nationality)  updates.nationality  = data.nationality;
+            if (data.mother      && !currentLead.mother)       updates.mother       = data.mother;
+            if (data.father      && !currentLead.father)       updates.father       = data.father;
+            if (data.org_emissor && !currentLead.org_emissor)  updates.org_emissor  = data.org_emissor;
+            if (data.uf_emissor  && !currentLead.uf_emissor)   updates.uf_emissor   = data.uf_emissor;
+            // Address fields — coluna é 'number' (não 'address_number')
+            if (data.street       && !currentLead.street)       updates.street       = data.street;
+            if (data.number       && !currentLead.number)       updates.number       = data.number;
             if (data.neighborhood && !currentLead.neighborhood) updates.neighborhood = data.neighborhood;
-            if (data.city && !currentLead.city) updates.city = data.city;
-            if (data.state && !currentLead.state) updates.state = data.state;
-            if (data.zip_code && !currentLead.zip_code) updates.zip_code = data.zip_code;
+            if (data.city         && !currentLead.city)         updates.city         = data.city;
+            if (data.state        && !currentLead.state)        updates.state        = data.state;
+            if (data.zip_code     && !currentLead.zip_code)     updates.zip_code     = data.zip_code;
+            // CPF: formatar 11 dígitos → 000.000.000-00
+            if (updates.cpf) {
+                const digits = updates.cpf.replace(/\D/g, '');
+                if (digits.length === 11)
+                    updates.cpf = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
+            }
+            // Limpar o campo legado "address" quando campos granulares chegam (remove banner "Extraído pelo bot")
+            if (data.street || data.number || data.neighborhood || data.city) {
+                updates.address = '';
+            }
             return updates;
+
         };
 
         // ── RG/CNH handling ──

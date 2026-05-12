@@ -965,6 +965,20 @@ export async function extractDocumentData(req: Request, res: Response) {
         if (extractedData.state)       updates.state         = extractedData.state;
         if (extractedData.zip_code)    updates.zip_code      = extractedData.zip_code;
 
+        // CPF: formatar 11 dígitos → 000.000.000-00
+        if (updates.cpf) {
+            const digits = updates.cpf.replace(/\D/g, '');
+            if (digits.length === 11) {
+                updates.cpf = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
+            }
+        }
+
+        // Limpar o campo legado "address" (texto bruto do bot) quando campos granulares são preenchidos
+        // Isso remove o banner amarelo "Extraído pelo bot" do front-end
+        const hasAddressFields = extractedData.street || extractedData.number || extractedData.neighborhood || extractedData.city;
+        if (hasAddressFields) {
+            updates.address = '';  // limpa o texto bruto para não confundir o assessor
+        }
 
         if (Object.keys(updates).length > 0) {
             // ── Split updates: safe core fields vs extended fields that might not exist yet ──
