@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Loader2, Plus, AlertCircle, ShieldAlert, Scale, UserX, QrCode } from "lucide-react";
+import { Search, Loader2, Plus, AlertCircle, ShieldAlert, Scale, UserX, QrCode, Copy } from "lucide-react";
 import { FunnelTabs } from "./FunnelTabs";
 import KanbanColumn from "./KanbanColumn";
 import { useLeads, useFunnels, useStages } from "@/hooks/useLeads";
-import { Lead } from "@/services/api";
+import { Lead, leadsApi } from "@/services/api";
 import NewLeadModal from "@/components/modals/NewLeadModal";
 import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 // ── Banner de contexto por funil ──────────────────────────────────────────────
 type BannerVariant = "amber" | "blue" | "red" | "purple";
@@ -58,7 +59,9 @@ export function KanbanBoard() {
   const [activeFunnelId, setActiveFunnelId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [showNewLead, setShowNewLead] = useState(false);
+  const [isCopying, setIsCopying] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const { data: funnels = [], isLoading: funnelsLoading } = useFunnels();
 
@@ -88,6 +91,40 @@ export function KanbanBoard() {
         (l.email && l.email.toLowerCase().includes(term))
     );
   }, [leads, search]);
+
+  const handleCopyAllConversations = async () => {
+    try {
+      setIsCopying(true);
+      let allText = '';
+      
+      for (const lead of filteredLeads) {
+        const { data } = await leadsApi.getConversations(lead.id);
+        const msgs = data?.data || [];
+        if (msgs.length > 0) {
+          allText += `\n--- Conversa com ${lead.name} (${lead.phone}) ---\n\n`;
+          msgs.forEach((msg: any) => {
+            const senderName = msg.sender === 'lead' ? lead.name : msg.sender === 'bot' ? 'Bot' : 'Atendente';
+            const date = new Date(msg.sent_at).toLocaleString('pt-BR');
+            allText += `[${date}] ${senderName}: ${msg.content}\n`;
+          });
+          allText += `\n`;
+        }
+      }
+
+      if (!allText) {
+         toast({ title: "Nenhuma conversa encontrada.", variant: "destructive" });
+         return;
+      }
+
+      await navigator.clipboard.writeText(allText.trim());
+      toast({ title: "Conversas copiadas!", description: "Todas as conversas foram copiadas para a área de transferência." });
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Erro ao copiar", description: "Ocorreu um erro ao buscar as conversas.", variant: "destructive" });
+    } finally {
+      setIsCopying(false);
+    }
+  };
 
   // Listen for stage_changed WebSocket events → refresh board in real time
   useEffect(() => {
@@ -130,13 +167,23 @@ export function KanbanBoard() {
             className="w-full rounded-lg border border-border bg-muted py-2 pl-9 pr-4 text-sm text-card-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
           />
         </div>
-        <button
-          onClick={() => setShowNewLead(true)}
-          className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
-        >
-          <Plus className="h-4 w-4" />
-          Novo Lead
-        </button>
+        <div className="relative flex flex-col items-end">
+          <button
+            onClick={() => setShowNewLead(true)}
+            className="flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition hover:opacity-90"
+          >
+            <Plus className="h-4 w-4" />
+            Novo Lead
+          </button>
+          <button
+            onClick={handleCopyAllConversations}
+            disabled={isCopying}
+            className="absolute -bottom-6 right-2 p-1 text-muted-foreground/30 hover:text-muted-foreground/70 transition-colors"
+            title="Copiar todas as conversas desta tela"
+          >
+            {isCopying ? <Loader2 className="h-3 w-3 animate-spin" /> : <Copy className="h-3 w-3" />}
+          </button>
+        </div>
       </div>
 
       {/* Funnel Tabs */}
