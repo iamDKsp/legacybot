@@ -249,8 +249,12 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
                 'l.rg as lead_rg', 'l.marital_status as lead_marital_status',
                 'l.nationality as lead_nationality', 'l.birthdate as lead_birthdate',
                 'l.occupation as lead_occupation', 'l.gender as lead_gender',
-                // CEP do lead — dois nomes possíveis dependendo da migração
-                db.raw(`COALESCE(l.zip_code, l.cep) as lead_cep`),
+                // CEP do lead — coluna real no banco é zip_code
+                db.raw(`l.zip_code as lead_cep`),
+                // Endereço granular
+                db.raw(`l.street as lead_street`),
+                db.raw(`l.number as lead_number`),
+                db.raw(`l.neighborhood as lead_neighborhood`),
                 // Funnel
                 'f.name as funnel_name', 'f.slug as funnel_slug',
                 // Lawyer data
@@ -276,9 +280,12 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             marital_status: doc.lead_marital_status as string | null,
             nationality:    doc.lead_nationality    as string | null,
             address:        doc.lead_address        as string | null,
+            street:         doc.lead_street         as string | null,
+            number:         doc.lead_number         as string | null,
+            neighborhood:   doc.lead_neighborhood   as string | null,
             city:           doc.lead_city           as string | null,
             state:          doc.lead_state          as string | null,
-            cep:            (doc.lead_cep || null)  as string | null,  // CEP FIX
+            cep:            (doc.lead_cep || null)  as string | null,
             phone:          doc.lead_phone          as string | null,
             email:          doc.lead_email          as string | null,
             description:    doc.lead_description    as string | null,
