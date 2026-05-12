@@ -1229,10 +1229,15 @@ async function processDocumentImage(
             if (data.state        && !currentLead.state)        updates.state        = data.state;
             if (data.zip_code     && !currentLead.zip_code)     updates.zip_code     = data.zip_code;
             // CPF: formatar 11 dígitos → 000.000.000-00
+            // Descarta se número errado de dígitos (evita varchar(14) overflow)
             if (updates.cpf) {
                 const digits = updates.cpf.replace(/\D/g, '');
-                if (digits.length === 11)
+                if (digits.length === 11) {
                     updates.cpf = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
+                } else {
+                    console.warn(`[Doc] CPF inválido descartado no bot (${digits.length} dígitos): ${updates.cpf}`);
+                    delete updates.cpf;
+                }
             }
             // Limpar o campo legado "address" quando campos granulares chegam (remove banner "Extraído pelo bot")
             if (data.street || data.number || data.neighborhood || data.city) {
@@ -1278,6 +1283,48 @@ async function processDocumentImage(
                 }
 
                 docState.id_front_done = true;
+
+                // ── Verificar campos críticos não extraídos ──
+                // Mesmo que o doc seja legível, se o nome ou número de identidade não foi lido, pede reenvio
+                const missingName = !exData.name;
+                const missingId   = !exData.rg && !exData.cpf; // RG precisa de rg OU cpf
+                const missingCritical = missingName || missingId;
+
+                if (missingCritical) {
+                    // Contar tentativas anteriores (docs aceitos da frente)
+                    const prevFronts = await db('documents')
+                        .where({ lead_id: leadId, status: 'aprovado' })
+                        .count('id as count')
+                        .first() as { count: string };
+                    const attempt = parseInt(prevFronts?.count || '0', 10);
+
+                    let missingDesc = '';
+                    if (missingName && missingId) missingDesc = 'não consegui ler o nome nem o número do documento';
+                    else if (missingName) missingDesc = 'não consegui ler o nome claramente';
+                    else missingDesc = 'não consegui ler o número do documento (RG/CPF)';
+
+                    let retryMsg: string;
+                    if (attempt === 0) {
+                        retryMsg = `A foto chegou aqui, mas ${missingDesc}. É possível que a parte com esse dado esteja um pouco sombreada ou fora do enquadramento. Consegue tirar uma nova foto garantindo que o documento esteja bem iluminado e completamente dentro da foto? 🙏`;
+                    } else {
+                        retryMsg = `Tentei novamente mas ainda ${missingDesc}. Pode acontecer por sombra no documento, plástico cobrindo o campo ou iluminação fraca. Dica: coloca o documento numa superfície plana e usa a luz natural (próximo a uma janela) para tirar a foto de cima pra baixo. Pode tentar assim? 🙏`;
+                    }
+
+                    // Salva o doc mesmo assim (para o CRM ver a tentativa)
+                    const notesJsonRetry = JSON.stringify({ extractedText: textData, extractedData: exData, missing_fields: missingCritical ? (missingName ? 'name' : '') + (missingId ? ' rg/cpf' : '') : '' });
+                    if (initialDocId) {
+                        await db('documents').where({ id: initialDocId }).update({ name: `${docType} (frente - incompleto)`, status: 'pendente', notes: notesJsonRetry });
+                    } else {
+                        const { filePath: rFilePath, fileData: rFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_frente_incompleto`);
+                        await db('documents').insert({ lead_id: leadId, name: `${docType} (frente - incompleto)`, file_type: imageMimeType, file_path: rFilePath, file_data: rFileData, status: 'pendente', notes: notesJsonRetry });
+                    }
+                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: retryMsg, direction: 'outbound', sender: 'bot' });
+                    await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ ${docType} frente legível mas incompleto | ${missingDesc}` });
+                    const wssR = getWebSocketServer();
+                    if (wssR) wssR.emit('bot_response', { lead_id: leadId, message: retryMsg });
+                    if (canSendOutbound(targetPhone)) await aiService.sendFragmentedMessage(targetPhone, retryMsg);
+                    return;
+                }
 
                 // Ask for the back side
                 const askBackMsg = `Perfeito, ${docType} frente validado! ✅\n\nAgora me manda uma foto do VERSO do mesmo documento, por favor.`;
