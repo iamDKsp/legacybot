@@ -165,6 +165,74 @@ const _leadBuffers = new Map<string, LeadBuffer>();
 const DEBOUNCE_MS = 10_000; // 10 seconds of silence before Sofia responds
 
 // ============================================================
+// BUG 1 FIX: Rate limiter para erros de imagem por lead
+// Impede spam de mensagens de erro quando cliente envia galeria
+// ============================================================
+const _imageErrorCooldown = new Map<string, number>(); // phone → timestamp
+const IMAGE_ERROR_COOLDOWN_MS = 30_000; // 30s entre msgs de erro de imagem
+
+function canSendImageError(phone: string): boolean {
+    const lastError = _imageErrorCooldown.get(phone) || 0;
+    const now = Date.now();
+    if (now - lastError < IMAGE_ERROR_COOLDOWN_MS) {
+        console.log(`[RateLimit] 🚫 Image error suppressed for ${phone} (cooldown active)`);
+        return false;
+    }
+    _imageErrorCooldown.set(phone, now);
+    return true;
+}
+
+// ============================================================
+// BUG 1 EXT: Rate limiter global de mensagens por lead
+// Máximo 3 msgs outbound a cada 10s para evitar flooding
+// ============================================================
+const _outboundMsgCount = new Map<string, { count: number; resetAt: number }>();
+const MAX_MSGS_PER_WINDOW = 3;
+const MSG_WINDOW_MS = 10_000;
+
+function canSendOutbound(phone: string): boolean {
+    const now = Date.now();
+    const entry = _outboundMsgCount.get(phone);
+    if (!entry || now > entry.resetAt) {
+        _outboundMsgCount.set(phone, { count: 1, resetAt: now + MSG_WINDOW_MS });
+        return true;
+    }
+    if (entry.count >= MAX_MSGS_PER_WINDOW) {
+        console.log(`[RateLimit] 🚫 Outbound rate limit hit for ${phone} (${entry.count}/${MAX_MSGS_PER_WINDOW} msgs in window)`);
+        return false;
+    }
+    entry.count++;
+    return true;
+}
+
+// ============================================================
+// BUG 5 FIX: Mensagens terminadoras — suprimir resposta após análise
+// Evita o loop 'Ok' → 'Combinado' → 'Ok' → 'Combinado'
+// ============================================================
+const TERMINATOR_MESSAGES = new Set([
+    'ok', 'okay', 'combinado', 'blz', 'beleza', 'certo', 'entendido',
+    'ta bom', 'tá bom', 'ta ok', 'tá ok', 'perfeito', 'ótimo', 'otimo',
+    'fico no aguardo', 'aguardo', 'obrigado', 'obrigada', 'valeu', 'até logo',
+    'ate logo', 'tchau', 'vlw', 'tmj', 'tamo junto', '👍', '🙏',
+]);
+
+function isTerminatorMessage(msg: string, botStage: string): boolean {
+    if (botStage !== 'analysis') return false;
+    const normalized = msg.trim().toLowerCase().replace(/[!.?,]/g, '');
+    return TERMINATOR_MESSAGES.has(normalized);
+}
+
+// ============================================================
+// BUG 6 FIX: Padrão de mensagem de anúncio
+// Detecta o botão/formulário de anúncio e responde de forma consistente
+// ============================================================
+const AD_MESSAGE_PATTERN = /gostaria de fazer uma an[áa]lise gratuita/i;
+
+function isAdLeadMessage(msg: string): boolean {
+    return AD_MESSAGE_PATTERN.test(msg);
+}
+
+// ============================================================
 // STOP & RESTART: Per-lead AbortController tracking
 // If Sofia is already processing (thinking/sending) for a lead
 // and a new message arrives, we abort the current processing
@@ -910,22 +978,45 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         // Process AI bot response if bot is active
         if (lead.bot_active) {
             // ── Business hours check (BRT = UTC-3) ──
-            // Sofia atende 24h, mas fora do horário comercial (antes das 8h ou
-            // depois das 18h) a frase de encerramento dela deve avisar que a
-            // equipe entrará em contato amanhã de manhã.
             const now = new Date();
             const brtHour = (now.getUTCHours() - 3 + 24) % 24;
             const isOffHours = brtHour < 8 || brtHour >= 18;
-            // Flag is passed to processAIBotResponse via the lead object
             (lead as Record<string, unknown>)._isOffHours = isOffHours;
-            // Pass PDF read failure flag via lead object (same pattern as _isOffHours)
+            // Injeta período do dia para contexto cronológico na resposta da Sofia
+            let dayPeriod = 'horário_comercial';
+            if (brtHour >= 0 && brtHour < 6) dayPeriod = 'madrugada';
+            else if (brtHour >= 6 && brtHour < 9) dayPeriod = 'manhã_cedo';
+            else if (brtHour >= 18 && brtHour < 21) dayPeriod = 'noite';
+            else if (brtHour >= 21) dayPeriod = 'madrugada';
+            (lead as Record<string, unknown>)._dayPeriod = dayPeriod;
+
             if (pdfReadFailedSilently) {
                 (lead as Record<string, unknown>)._pdfReadFailed = true;
             }
 
+            // BUG 5 FIX: Suprimir resposta da IA para mensagens terminadoras pós-análise
+            const currentBotStageCheck = String(lead.bot_stage || 'reception');
+            if (isTerminatorMessage(message, currentBotStageCheck)) {
+                console.log(`[Bot] 🔇 Terminator message suppressed for ${phone} at stage ${currentBotStageCheck}: "${message}"`);
+                return;
+            }
+
+            // BUG 6 FIX: Detectar mensagem de anúncio e responder de forma consistente
+            if (isAdLeadMessage(message) && currentBotStageCheck === 'reception') {
+                const leadFirstName = String(lead.name || '').split(' ')[0];
+                const isValidName = leadFirstName && !/^\d+$/.test(leadFirstName) && leadFirstName.length > 2;
+                const greeting = isValidName ? `, ${leadFirstName}` : '';
+                const adReply = `Olá${greeting}! Sou a Sofia, da Legacy Assessoria. Seja muito bem-vindo(a)!\n\nPara eu conseguir entender como posso te ajudar da melhor forma, me conta o que aconteceu? Qual situação te trouxe até a gente hoje?`;
+                await db('messages').insert({ conversation_id: conversation.id, lead_id: lead.id, content: adReply, direction: 'outbound', sender: 'bot' });
+                const wssAd = getWebSocketServer();
+                if (wssAd) wssAd.emit('bot_response', { lead_id: lead.id, message: adReply });
+                const targetPhoneAd = String(lead.whatsapp_id || phone);
+                await aiService.sendFragmentedMessage(targetPhoneAd, adReply);
+                console.log(`[Bot] 📢 Ad lead detected for ${phone} — sent consistent greeting`);
+                return;
+            }
+
             // ── Document image validation pipeline ──
-            // Runs for ANY image received, regardless of bot_stage.
-            // Flush any pending text buffer first so the image has full context.
             if (imageBase64 && imageMimeType) {
                 if (_leadBuffers.has(phone)) {
                     console.log(`[Buffer] 🖼️ Image received — flushing pending text for ${phone} before document pipeline`);
@@ -939,12 +1030,10 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                     msgId,
                     documentId
                 );
-                return; // Sofia's response is handled inside processDocumentImage
+                return;
             }
 
             // ── Debounce: buffer text/audio messages ─────────────────────
-            // Sofia waits for the client to stop typing (10s silence) before
-            // responding, so broken sentences are read as a single message.
             addToBuffer(phone, message, lead, conversation.id);
         }
     } catch (err) {
@@ -994,11 +1083,22 @@ async function processDocumentImage(
         if (!analysis.isLegible) {
             const isTechnicalError = analysis.issues?.startsWith('technical_error:');
 
+            // BUG 1 FIX: Rate limit — só enviar 1 msg de erro por lead a cada 30s
+            if (!canSendImageError(phone)) {
+                // Silently save the rejected doc to CRM but DON'T spam the client
+                if (initialMsgId) {
+                    await db('messages').where({ id: initialMsgId }).update({ content: '[Imagem recebida — erro silencioso]' });
+                }
+                console.log(`[Doc] 🔇 Image error suppressed (rate limit) for lead ${leadId}`);
+                return;
+            }
+
             let replyMsg: string;
             let inboundLabel: string;
 
             if (isTechnicalError) {
-                replyMsg = 'Opa, tive um probleminha para processar essa imagem. Pode mandar ela de novo, por favor? 🙏';
+                // BUG 4 FIX: Mensagem humanizada no lugar de erro técnico
+                replyMsg = 'Ei, tive uma dificuldade aqui por um segundo. Consegue mandar a foto de novo pra mim?';
                 inboundLabel = '[Imagem recebida — erro de processamento]';
                 console.warn(`[Doc] ⚠️ Technical error during analysis: ${analysis.issues}`);
                 
@@ -1009,10 +1109,37 @@ async function processDocumentImage(
                     payload: JSON.stringify({ imageMimeType, action: 'analyzeImage' }),
                 }).catch(e => console.error('Failed to log AI error:', e));
             } else {
-                const issueMsg = analysis.issues && analysis.issues !== 'nenhum'
-                    ? analysis.issues
-                    : 'a imagem ficou difícil de ler';
-                replyMsg = `Poxa, ${issueMsg}. Consegue mandar essa foto de novo, um pouco mais nítida? Tira com boa iluminação, sem reflexo e sem cortar as bordas do documento 🙏`;
+                // BUG 3 FIX: Traduzir linguagem técnica para texto humanizado
+                const rawIssue = analysis.issues || '';
+                let humanizedIssue: string;
+
+                if (rawIssue.includes('borrad') || rawIssue.includes('desfocad') || rawIssue.includes('tremid')) {
+                    humanizedIssue = 'a foto ficou um pouco tremida';
+                } else if (rawIssue.includes('rosto') || rawIssue.includes('pessoa') || rawIssue.includes('não é um documento') || rawIssue.includes('nao é um documento')) {
+                    humanizedIssue = 'não consegui identificar um documento nessa foto';
+                } else if (rawIssue.includes('cortad') || rawIssue.includes('enquadramento') || rawIssue.includes('borda')) {
+                    humanizedIssue = 'o documento ficou um pouco cortado';
+                } else if (rawIssue.includes('escur') || rawIssue.includes('iluminação') || rawIssue.includes('luz')) {
+                    humanizedIssue = 'a foto ficou escura demais';
+                } else if (rawIssue.includes('reflexo') || rawIssue.includes('flash')) {
+                    humanizedIssue = 'o reflexo cobriu parte do documento';
+                } else {
+                    humanizedIssue = 'a foto ficou difícil de ler';
+                }
+
+                // Verifica quantas tentativas já houve para variar a mensagem
+                const failedAttempts = await db('documents')
+                    .where({ lead_id: leadId, status: 'rejeitado' })
+                    .count('id as count')
+                    .first() as { count: string };
+                const attemptCount = parseInt(failedAttempts?.count || '0', 10);
+
+                if (attemptCount >= 2) {
+                    // Terceira+ tentativa: dica mais específica e diferente
+                    replyMsg = `Ei, vamos tentar diferente! Coloca o documento numa superfície plana, abre uma janela com luz natural do lado e tira a foto de cima para baixo. Assim costuma funcionar muito melhor 👍`;
+                } else {
+                    replyMsg = `Poxa, ${humanizedIssue}. Consegue tirar uma foto nova? Se puder, em um lugar com boa iluminação e sem cortar as bordas do documento.`;
+                }
                 inboundLabel = '[Imagem recebida — ilegível]';
             }
 
@@ -1037,7 +1164,9 @@ async function processDocumentImage(
 
             const wss = getWebSocketServer();
             if (wss) wss.emit('bot_response', { lead_id: leadId, message: replyMsg });
-            await aiService.sendFragmentedMessage(targetPhone, replyMsg);
+            if (canSendOutbound(phone)) {
+                await aiService.sendFragmentedMessage(targetPhone, replyMsg);
+            }
             return;
         }
 

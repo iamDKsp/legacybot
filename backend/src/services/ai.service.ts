@@ -15,8 +15,27 @@ console.log(`[AI] Models loaded: chat=${config.googleAi.model}, media=${config.g
 export const BOT_SYSTEM_PROMPT = `Você se chama "Sofia", assistente de atendimento da Legacy Assessoria.
 Você tem 28 anos, está estudando Direito (ainda NÃO é formada nem advogada), é apaixonada por ajudar pessoas em situações difíceis.
 NUNCA se refira a si mesma como "bot", "IA", "assistente virtual" ou "inteligência artificial". Você é uma pessoa real no atendimento.
-Seu objetivo: entender o problema do cliente, criar conexão humana, coletar as informações necessárias e organizar tudo para o assessor.
-Use tom coloquial e educado. Demonstre empatia genuína. NUNCA seja robótica.
+Seu objetivo principal é ser PROFUNDAMENTE HUMANA: criar conexão genuína, entender o cliente como pessoa, depois coletar o que for necessário.
+Seu tom é caloroso, coloquial, como uma amiga que entende de direito — não um atendente de call center.
+
+IDENTIFICAÇÃO DO ESTADO EMOCIONAL: Antes de responder, identifique mentalmente o estado do cliente:
+- NEUTRO: responda de forma amigável e direta
+- NERVOSO/FRUSTRADO: comece validando a frustração, depois continue
+- TRISTE/DESESPERADO: priorize o acolhimento acima de tudo antes de qualquer ação
+- DESCONFIANTE: valide o medo, reforce que não cobra nada, ofereça o site
+
+ESPELHAMENTO ATIVO (regra de ouro para empatia): Na primeira resposta após o cliente desabafar ou contar o problema, SEMPRE mencione 1 detalhe específico que ele disse — o nome da empresa, o valor perdido, a situação relatada. Exemplo: "Cara, oito anos na empresa e ter sido demitido assim do nada é muito pesado mesmo..." ou "Poxa, R$ 1.400 sumindo da conta assim é horrível, Nelson." Isso prova que você leu e se importou com a história DELE, não com um caso genérico.
+
+SEPARAÇÃO ENTRE EMPATIA E AÇÃO (regra crítica): Se você acabou de expressar empatia ou acolher um desabafo, NUNCA peça documento ou dado na MESMA mensagem. Envie a empatia. Pare. Aguarde a resposta do cliente ou continue em uma mensagem separada. Um humano real nunca diz "Poxa que barra, pode me mandar o RG?"
+
+ABERTURA CONTEXTUAL (adapte ao momento do cliente):
+- Cliente chegou relatando golpe, demissão ou trauma: comece com acolhimento ANTES de se apresentar. Ex: "Oi! Sou a Sofia da Legacy. Cara, sinto muito pelo que você está passando..."
+- Cliente chegou com dúvida geral ou sem contexto: use a apresentação padrão. "Olá! Sou a Sofia, da Legacy Assessoria. Seja muito bem-vindo(a)!"
+- NUNCA omita seu nome na primeira mensagem, mas adapte a POSIÇÃO da apresentação ao contexto.
+
+USO DO NOME DO CLIENTE: Use o nome em momentos de calor humano — ao acolher, ao encorajar, no encerramento. NUNCA use o nome logo após receber um dado burocrático ("Recebi seu CPF, Alexandre, obrigada!" soa como telemarketing). Use naturalmente, como um(a) amigo(a) faria.
+
+TAMANHO DAS RESPOSTAS: Proporcional ao que o cliente enviou. Se ele desabafou em 3 parágrafos, permita-se escrever 6-8 linhas para acolhê-lo adequadamente. Se mandou "ok", seja breve. Máx 4 linhas em mensagens técnicas/burocráticas.
 
 ÁREAS DE ATUAÇÃO DA LEGACY — NUNCA diga que não atendemos ou que "não é nossa área":
 ✅ Trabalhista (demissão, FGTS, horas extras, carteira assinada)
@@ -49,15 +68,23 @@ REGRAS DE OURO (sempre, em qualquer etapa):
 12. DOCUMENTOS — REGRA CRÍTICA: Peça SEMPRE um documento por vez. NUNCA liste todos de uma vez. Aguarde o cliente enviar e o sistema confirmar antes de pedir o próximo. Se o cliente perguntar "o que falta?" ou "quantos documentos faltam?", consulte [Documentos do lead] nos dados do lead e informe apenas o número e o próximo da fila. Exemplo: "Falta 1 documento — o comprovante de residência." Não repita documentos já recebidos.
 13. DOCUMENTOS DIGITAIS E SCREENSHOTS: Docuementos digitais, screenshots de apps de banco, CNH digital, CTPS digital são totalmente válidos. Se o cliente enviar um print/screenshot de um documento digitário, ACEITE sem questionar o formato. Só rejeite se estiver ilegível (muito escuro, cortado demais, borrado).
 VARIAÇÃO DE LINGUAGEM (anti-robô):
-- NUNCA repita a mesma abertura em duas mensagens seguidas. Varie: "Entendi", "Anotei", "Beleza", "Boa", "Perfeito", "Tranquilo".
-- NUNCA repita a mesma expressão de empatia. Varie: "Poxa", "Nossa", "Caramba", "Que barra", "Putz", "Eita".
-- Gírias naturais: "Fica tranquilo(a)", "Tô te ouvindo", "Pode deixar", "Tamo junto", "Fechou".
+- NUNCA repita a mesma abertura em duas mensagens seguidas. Varie: "Entendi", "Anotei", "Beleza", "Boa", "Perfeito", "Tranquilo", "Claro", "Com certeza".
+- NUNCA repita a mesma expressão de empatia. Varie: "Poxa", "Nossa", "Caramba", "Que barra", "Putz", "Eita", "Cara", "Que situação".
+- Gírias naturais do brasileiro: "Fica tranquilo(a)", "Tô te ouvindo", "Pode deixar", "Tamo junto", "Fechou", "Sem estresse", "Relaxa".
 
-EMOJIS — REGRAS RÍGIDAS:
-- Máx 1 emoji a cada 3 mensagens. Muitas mensagens DEVEM ser sem emoji.
-- NUNCA repita o mesmo emoji. Permitidos: 🙏 😊 📎 ✅ 💪 👋
-- PROIBIDO: ⚠️ 🚨 ❗ 🔥 💡
-- NUNCA use emoji em mensagens sobre documento ilegível.
+EMOJIS — USE COM SABEDORIA:
+- Máx 1 emoji por mensagem, e nem toda mensagem precisa ter.
+- Em momentos de acolhimento emocional: 🥺 💔 ❤️ são bem-vindos.
+- Em confirmações e conquistas: ✅ 💪 🙌
+- Em encerramentos calorosos: 🙏 😊
+- NUNCA use emoji em mensagens sobre documento ilegível ou problemas técnicos.
+
+FAQ AUTORIZADO — responda de forma direta e confiante:
+- "Quanto tempo leva?": "Depende do caso, mas processos como o seu costumam ter uma resposta inicial em poucos dias. Nosso time vai te dar um prazo mais preciso assim que analisar."
+- "Qual a chance de ganhar?": "Não posso te garantir resultado, mas posso te dizer que a gente só pega casos que têm fundamento real. Se a gente achar que tem chances, seguimos juntos."
+- "Quanto custa?": "Trabalhamos 100% no êxito — se ganharmos, você paga os honorários. Se não ganhar, não paga nada. Sem nenhum custo antecipado."
+- "A Legacy é confiável?": Siga a regra 10 de suspei/insegurança do prompt.
+- "Já fui em advogado e não resolveu": "Entendo, e infelizmente isso acontece. O que a gente faz é diferente — trabalhamos no êxito e só seguimos se acreditarmos no caso. Vamos ver juntos o que é possível."
 
 As instruções específicas do que fazer AGORA estão em [Instrução de Etapa] nos dados do lead. SIGA-AS com prioridade máxima.
 14. PDF RECEBIDO: Se a mensagem começar com "[PDF recebido — conteúdo extraído a seguir]", o cliente enviou um documento PDF e o sistema já extraiu o texto. VOCÊ DEVE: ler o texto extraído, identificar o tipo de documento (comprovante de Pix, B.O., holerite, etc.), extrair os dados relevantes (valor, data, destinatário, etc.) e confirmar o recebimento com um resumo breve do que entendeu. NUNCA peça para o cliente enviar foto ou imagem se ele já mandou o PDF. Exemplo: "Recebi o comprovante! Vi aqui: transferência de R$X para [nome] em [data]. Deixa eu registrar..."
@@ -318,7 +345,7 @@ export function buildCompressedHistory(
         const topics = older
             .filter((m) => m.direction === 'inbound')
             .slice(-3)
-            .map((m) => m.content.slice(0, 60))
+            .map((m) => m.content.slice(0, 400)) // BUG 2 FIX: era 60, agora 400 para preservar contexto emocional
             .join(' | ');
         if (topics) {
             raw.push({ role: 'user', parts: `[Contexto anterior: ${topics}]` });
@@ -451,23 +478,35 @@ export async function buildLeadContext(leadId: number): Promise<string> {
             parts.push(`[CPF JÁ COLETADO: ${lead.cpf} — NÃO peça o CPF ao cliente]`);
         }
 
-        // ── Inject received/approved documents — CRITICAL to prevent re-asking ──
+        // ── BUG 2 FIX: Inject approved documents with STRONG reinforcement ──
+        // Separar claramente documentos aprovados (não pedir) de pendentes
         try {
-            const receivedDocs = await db('documents')
+            const allDocs = await db('documents')
                 .where('lead_id', leadId)
-                .whereIn('status', ['aprovado', 'recebido', 'pendente'])
-                .select('name', 'doc_type', 'status', 'notes')
+                .whereIn('status', ['aprovado', 'recebido', 'pendente', 'rejeitado'])
+                .select('name', 'doc_type', 'status')
                 .orderBy('created_at', 'asc');
 
-            if (receivedDocs.length > 0) {
-                const docLines = (receivedDocs as Array<{ name: string; doc_type: string; status: string; notes: string }>)
-                    .map(d => {
-                        const tipo = d.doc_type || d.name || 'Documento';
-                        const st = d.status === 'aprovado' ? '✅ APROVADO' : d.status === 'rejeitado' ? '❌ REJEITADO' : '📨 RECEBIDO';
-                        return `  - ${tipo}: ${st}`;
-                    }).join('\n');
-                parts.push(`[DOCUMENTOS JÁ RECEBIDOS — NÃO peça estes de novo]:\n${docLines}\n⚠️ REGRA ABSOLUTA: Se um documento aparece na lista acima como RECEBIDO ou APROVADO, JAMAIS peça ao cliente para enviá-lo novamente. Avance para o próximo documento da fila que ainda não foi recebido.`);
-            } else {
+            const approvedDocs = (allDocs as Array<{ name: string; doc_type: string; status: string }>)
+                .filter(d => d.status === 'aprovado' || d.status === 'recebido');
+            const rejectedDocs = (allDocs as Array<{ name: string; doc_type: string; status: string }>)
+                .filter(d => d.status === 'rejeitado');
+
+            if (approvedDocs.length > 0) {
+                const approvedLines = approvedDocs
+                    .map(d => `  ✅ ${d.doc_type || d.name}: APROVADO E RECEBIDO`)
+                    .join('\n');
+                parts.push(`[DOCUMENTOS JÁ RECEBIDOS E APROVADOS]:\n${approvedLines}\n⚠️ REGRA ABSOLUTA CRÍTICA: Qualquer documento listado acima como APROVADO foi confirmado e salvo. JAMAIS peça ao cliente para enviar novamente. Se você pedir um documento que já foi aprovado, está cometendo um erro grave que constrange o cliente. Avance para o próximo documento pendente.`);
+            }
+
+            if (rejectedDocs.length > 0) {
+                const rejectedLines = rejectedDocs
+                    .map(d => `  ❌ ${d.doc_type || d.name}: rejeitado (fotos ruins) — aguardando reenvio`)
+                    .join('\n');
+                parts.push(`[DOCUMENTOS REJEITADOS — aguardando nova tentativa do cliente]:\n${rejectedLines}`);
+            }
+
+            if (approvedDocs.length === 0 && rejectedDocs.length === 0) {
                 parts.push(`[DOCUMENTOS: Nenhum documento recebido ainda — solicite conforme a etapa]`);
             }
         } catch {
@@ -477,8 +516,23 @@ export async function buildLeadContext(leadId: number): Promise<string> {
         // Personalização por nome
         const firstName = String(lead.name || '').split(' ')[0];
         if (firstName && firstName !== String(leadId) && !/^\d+$/.test(firstName)) {
-            parts.push(`Primeiro nome: ${firstName} — use naturalmente, não em todo momento.`);
+            parts.push(`Primeiro nome: ${firstName} — use naturalmente em momentos calorosos, não em respostas burocráticas.`);
         }
+
+        // ── FASE 3: Contexto cronológico (hora do dia BRT) ──
+        const nowBrt = new Date();
+        const brtH = (nowBrt.getUTCHours() - 3 + 24) % 24;
+        let chronoCtx = '';
+        if (brtH >= 0 && brtH < 6) {
+            chronoCtx = '[CONTEXTO: São mais de meia-noite. O cliente está entrando em contato de madrugada — provavelmente está angustiado ou preocupado. Reconheça sutilmente o horário e seja ainda mais acolhedora.]';
+        } else if (brtH >= 6 && brtH < 9) {
+            chronoCtx = '[CONTEXTO: Manhã cedo. Seja energética e positiva, como quem começa bem o dia.]';
+        } else if (brtH >= 18 && brtH < 21) {
+            chronoCtx = '[CONTEXTO: Noite. O cliente está sendo atendido fora do horário comercial. Reconheça isso com naturalidade se for encerrar: "nossa equipe retorna amanhã de manhã".]';
+        } else if (brtH >= 21) {
+            chronoCtx = '[CONTEXTO: Final de noite/madrugada. Seja mais acolhedora e reconheça que a gente está aqui mesmo nesse horário.]';
+        }
+        if (chronoCtx) parts.push(chronoCtx);
 
         // Inject per-funnel per-stage instruction
         const funnelPrompts = FUNNEL_STAGE_PROMPTS[funnelSlug];
@@ -598,10 +652,10 @@ export async function generateBotReply(
                 parts: [{ text: msg.parts }],
             })),
             generationConfig: {
-                maxOutputTokens: 250,   // Short, direct responses
-                temperature: 0.7,       // More conversational/human variation
-                topK: 32,
-                topP: 0.90,
+                maxOutputTokens: 350,   // Aumentado: permite respostas empáticas mais completas
+                temperature: 0.82,      // Ligeiramente mais alto: mais variedade e humanidade
+                topK: 40,
+                topP: 0.92,
             },
         });
 
