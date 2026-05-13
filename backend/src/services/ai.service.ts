@@ -1337,7 +1337,12 @@ export async function sendTypingPresence(phone: string, durationMs = 2000): Prom
 // Send WhatsApp message in fragments (humanized delivery)
 // Splits by paragraph, sends each with variable delay + typing
 // ============================================================
-export async function sendFragmentedMessage(phone: string, message: string, abortSignal?: AbortSignal): Promise<void> {
+export async function sendFragmentedMessage(
+    phone: string, 
+    message: string, 
+    abortSignal?: AbortSignal,
+    onFragmentSent?: (fragment: string) => Promise<void>
+): Promise<void> {
     // Split by one or more blank lines (\n\n or \r\n\r\n)
     const fragments = message
         .split(/\n{2,}|\r\n\r\n/)
@@ -1346,7 +1351,7 @@ export async function sendFragmentedMessage(phone: string, message: string, abor
 
     if (fragments.length <= 1) {
         // Single message — still simulate typing
-        const typingDelay = Math.min(6000, 1000 + message.length * 25);
+        const typingDelay = Math.min(8000, 2000 + message.length * 35);
         await sendTypingPresence(phone, typingDelay);
         await new Promise((resolve) => setTimeout(resolve, typingDelay));
 
@@ -1357,6 +1362,7 @@ export async function sendFragmentedMessage(phone: string, message: string, abor
         }
 
         await sendWhatsAppMessage(phone, message);
+        if (onFragmentSent) await onFragmentSent(message);
         return;
     }
 
@@ -1369,8 +1375,8 @@ export async function sendFragmentedMessage(phone: string, message: string, abor
             return;
         }
 
-        // Variable delay based on fragment length (~30ms per char, 1.5s base, max 8s)
-        const typingDelay = Math.min(8000, 1500 + fragments[i].length * 30);
+        // Variable delay based on fragment length
+        let typingDelay = Math.min(12000, 3000 + fragments[i].length * 45);
 
         if (i > 0) {
             // Simulate typing before each subsequent fragment
@@ -1378,8 +1384,9 @@ export async function sendFragmentedMessage(phone: string, message: string, abor
             await new Promise((resolve) => setTimeout(resolve, typingDelay));
         } else {
             // First fragment: shorter typing indicator
-            await sendTypingPresence(phone, Math.min(3000, 800 + fragments[i].length * 20));
-            await new Promise((resolve) => setTimeout(resolve, Math.min(3000, 800 + fragments[i].length * 20)));
+            typingDelay = Math.min(5000, 1500 + fragments[i].length * 30);
+            await sendTypingPresence(phone, typingDelay);
+            await new Promise((resolve) => setTimeout(resolve, typingDelay));
         }
 
         // 🛑 STOP & RESTART: Re-check after delay (message may have arrived during typing)
@@ -1390,6 +1397,7 @@ export async function sendFragmentedMessage(phone: string, message: string, abor
 
         console.log(`[WhatsApp] Fragment ${i + 1}/${fragments.length} (${typingDelay}ms delay):`, fragments[i].substring(0, 60));
         await sendWhatsAppMessage(phone, fragments[i]);
+        if (onFragmentSent) await onFragmentSent(fragments[i]);
     }
 }
 

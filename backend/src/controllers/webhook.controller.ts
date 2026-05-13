@@ -162,7 +162,7 @@ interface LeadBuffer {
 }
 
 const _leadBuffers = new Map<string, LeadBuffer>();
-const DEBOUNCE_MS = 10_000; // 10 seconds of silence before Sofia responds
+const DEBOUNCE_MS = 30_000; // 10 seconds of silence before Sofia responds
 
 // ============================================================
 // BUG 1 FIX: Rate limiter para erros de imagem por lead
@@ -1122,11 +1122,12 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 const isValidName = leadFirstName && !/^\d+$/.test(leadFirstName) && leadFirstName.length > 2;
                 const greeting = isValidName ? ` ${leadFirstName}` : '';
                 const adReply = `Oii${greeting}, eu sou a Sofia, da Legacy\n\nTudo bem?\n\nComo posso te ajudar hoje? Me conta um pouquinho do que aconteceu para eu entender sua situação.`;
-                await db('messages').insert({ conversation_id: conversation.id, lead_id: lead.id, content: adReply, direction: 'outbound', sender: 'bot' });
-                const wssAd = getWebSocketServer();
-                if (wssAd) wssAd.emit('bot_response', { lead_id: lead.id, message: adReply });
                 const targetPhoneAd = String(lead.whatsapp_id || phone);
-                await aiService.sendFragmentedMessage(targetPhoneAd, adReply);
+                await aiService.sendFragmentedMessage(targetPhoneAd, adReply, undefined, async (fragment) => {
+                    await db('messages').insert({ conversation_id: conversation.id, lead_id: lead.id, content: fragment, direction: 'outbound', sender: 'bot' });
+                    const wssAd = getWebSocketServer();
+                    if (wssAd) wssAd.emit('bot_response', { lead_id: lead.id, message: fragment });
+                });
                 console.log(`[Bot] 📢 Ad lead detected for ${phone} — sent consistent greeting`);
                 return;
             }
@@ -1280,13 +1281,14 @@ async function processDocumentImage(
             } else {
                 await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: inboundLabel, direction: 'inbound', sender: 'lead', media_type: 'image', image_url: rejDocUrl });
             }
-            await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: replyMsg, direction: 'outbound', sender: 'bot' });
             await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: isTechnicalError ? `[Análise de mídia] ⚠️ Erro técnico — ${analysis.issues}` : `[Análise de mídia] ❌ Documento rejeitado — ${docType} | Motivo: ${analysis.issues}` });
 
-            const wss = getWebSocketServer();
-            if (wss) wss.emit('bot_response', { lead_id: leadId, message: replyMsg });
             if (canSendOutbound(phone)) {
-                await aiService.sendFragmentedMessage(targetPhone, replyMsg);
+                await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
+                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
+                    const wss = getWebSocketServer();
+                    if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
+                });
             }
             return;
         }
@@ -1437,21 +1439,26 @@ async function processDocumentImage(
                         const { filePath: rFilePath, fileData: rFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_frente_incompleto`);
                         await db('documents').insert({ lead_id: leadId, name: `${docType} (frente - incompleto)`, file_type: imageMimeType, file_path: rFilePath, file_data: rFileData, status: 'pendente', notes: notesJsonRetry });
                     }
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: retryMsg, direction: 'outbound', sender: 'bot' });
                     await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ ${docType} frente legível mas incompleto | ${missingDesc}` });
-                    const wssR = getWebSocketServer();
-                    if (wssR) wssR.emit('bot_response', { lead_id: leadId, message: retryMsg });
-                    if (canSendOutbound(targetPhone)) await aiService.sendFragmentedMessage(targetPhone, retryMsg);
+                    if (canSendOutbound(targetPhone)) {
+                        await aiService.sendFragmentedMessage(targetPhone, retryMsg, undefined, async (fragment) => {
+                            await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
+                            const wssR = getWebSocketServer();
+                            if (wssR) wssR.emit('bot_response', { lead_id: leadId, message: fragment });
+                        });
+                    }
                     return;
                 }
 
                 // Ask for the back side
                 const askBackMsg = `Perfeito, ${docType} frente validado! ✅\n\nAgora me manda uma foto do VERSO do mesmo documento, por favor.`;
-                await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: askBackMsg, direction: 'outbound', sender: 'bot' });
                 const wss = getWebSocketServer();
-                if (wss) wss.emit('bot_response', { lead_id: leadId, message: askBackMsg });
                 if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[${docType} frente validado]`, conversation_id: conversationId });
-                await aiService.sendFragmentedMessage(targetPhone, askBackMsg);
+                
+                await aiService.sendFragmentedMessage(targetPhone, askBackMsg, undefined, async (fragment) => {
+                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
+                    if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
+                });
                 return;
 
             } else if (!docState.id_back_done) {
@@ -1577,11 +1584,13 @@ async function processDocumentImage(
                 }
             }
 
-            await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: replyMsg, direction: 'outbound', sender: 'bot' });
             const wss = getWebSocketServer();
-            if (wss) wss.emit('bot_response', { lead_id: leadId, message: replyMsg });
             if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[Imagem — ${docSavedName}]`, conversation_id: conversationId });
-            await aiService.sendFragmentedMessage(targetPhone, replyMsg);
+            
+            await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
+                await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
+                if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
+            });
 
             console.log(`[Doc] ✅ Document saved: ${docSavedName} | Lead: ${leadId} | Remaining: ${updatedChecklist.missing.join(', ') || 'none'}`);
         }
@@ -1696,18 +1705,8 @@ async function processAIBotResponse(
             return;
         }
 
-        await db('messages').insert({
-            conversation_id: conversationId,
-            lead_id: lead.id as number,
-            content: botReply,
-            direction: 'outbound',
-            sender: 'bot',
-        });
-
-        const wss = getWebSocketServer();
-        if (wss) {
-            wss.emit('bot_response', { lead_id: lead.id, message: botReply });
-        }
+        // O banco de dados e o CRM serão notificados a cada fragmento enviado
+        // pela função sendFragmentedMessage mais abaixo.
 
         // ── Stage advancement detection based on bot reply semantics ──
         // Detect keywords in Sofia's reply that signal she moved to the next stage
@@ -1844,7 +1843,19 @@ async function processAIBotResponse(
         }
 
         // Send reply in fragments (variable delay, typing presence)
-        await aiService.sendFragmentedMessage(targetPhone, botReply, signal);
+        await aiService.sendFragmentedMessage(targetPhone, botReply, signal, async (fragment) => {
+            await db('messages').insert({
+                conversation_id: conversationId,
+                lead_id: lead.id as number,
+                content: fragment,
+                direction: 'outbound',
+                sender: 'bot',
+            });
+            const wss = getWebSocketServer();
+            if (wss) {
+                wss.emit('bot_response', { lead_id: lead.id, message: fragment });
+            }
+        });
     } catch (err) {
         // 🛑 If aborted, this is expected — not a real error
         if (signal.aborted) {
