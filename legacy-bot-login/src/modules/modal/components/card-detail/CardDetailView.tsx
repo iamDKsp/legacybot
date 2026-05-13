@@ -68,7 +68,7 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
 }
 
 // ─── Extract Button (✨ fill lead fields from approved document) ──
-function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: number; onSuccess: () => void }) {
+function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: number; onSuccess: (updatedLead?: Record<string, unknown>) => void }) {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const queryClient = useQueryClient();
@@ -97,7 +97,8 @@ function ExtractButton({ leadId, docId, onSuccess }: { leadId: number; docId: nu
         // Invalida o cache do lead no Kanban/card para forçar refetch do nome atualizado
         queryClient.invalidateQueries({ queryKey: ['leads'] });
         queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
-        onSuccess();
+        // Pass updated lead back so InfoPanel can refresh fields immediately
+        onSuccess(data.lead || undefined);
       } else {
         showToast(`❌ ${data.error || 'Erro ao extrair'}`, false);
       }
@@ -714,8 +715,8 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <FieldRow icon={<Phone className="w-3.5 h-3.5"/>}   label="Telefone"   fieldKey="phone"          value={lead.phone ?? ""}          type="tel"        onSave={handleSave} />
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="CPF"        fieldKey="cpf"            value={(lead.cpf as string) ?? ""}    placeholder="000.000.000-00" onSave={handleSave} />
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="RG"         fieldKey="rg"             value={(lead.rg as string) ?? ""}     placeholder="12.345.678" onSave={handleSave} />
-        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="Org. Emis." fieldKey="org_emissor"   value={(lead.org_emissor as string) ?? "SSP"} placeholder="SSP" onSave={handleSave} />
-        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="UF Emis."   fieldKey="uf_emissor"   value={(lead.uf_emissor as string) ?? "SP"} type="select-uf" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="Org. Emis." fieldKey="org_emissor"   value={(lead.org_emissor as string) ?? ""} placeholder="SSP" onSave={handleSave} />
+        <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="UF Emis."   fieldKey="uf_emissor"   value={(lead.uf_emissor as string) ?? ""} type="select-uf" onSave={handleSave} />
         <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
         <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
         <FieldRow icon={<User className="w-3.5 h-3.5"/>}    label="Gênero"     fieldKey="gender"         value={(lead.gender as string) === 'M' ? 'Masculino' : (lead.gender as string) === 'F' ? 'Feminino' : ''} type="select-gender" onSave={handleSave} />
@@ -810,7 +811,7 @@ function inferDocType(filename: string): string {
 
 type FolderKey = 'recebido' | 'aprovado' | 'rejeitado';
 
-function DocumentsPanel({ leadId }: { leadId: number }) {
+function DocumentsPanel({ leadId, onLeadUpdated }: { leadId: number; onLeadUpdated?: (updated: Record<string, unknown>) => void }) {
   const { data: docs = [], isLoading, refetch: refetchDocs } = useLeadDocuments(leadId);
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -894,6 +895,11 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
 
         const extracted = Object.keys(json.extracted || {});
         updateQueueItem(item.id, { status: 'done', extracted });
+
+        // Update lead fields immediately if backend returned updated lead
+        if (json.lead && onLeadUpdated) {
+          onLeadUpdated(json.lead);
+        }
       } catch (err: any) {
         updateQueueItem(item.id, { status: 'error', error: err.message || 'Erro desconhecido' });
       }
@@ -1136,7 +1142,14 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                             </a>
                           )}
                           {(normalizeStatus(status) === 'aprovado' || normalizeStatus(status) === 'recebido') && (
-                            <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
+                            <ExtractButton
+                              leadId={leadId}
+                              docId={Number(doc.id)}
+                              onSuccess={(updatedLead) => {
+                                refetchDocs();
+                                if (updatedLead && onLeadUpdated) onLeadUpdated(updatedLead);
+                              }}
+                            />
                           )}
                           {confirmDeleteId === Number(doc.id) ? (
                             <button
@@ -1677,7 +1690,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
           >
             {activeTab === "conversas" && <ConversationsPanel leadId={leadId} />}
             {activeTab === "info" && <div className="overflow-y-auto h-full scrollbar-thin"><InfoPanel lead={lead} onLeadUpdated={handleLeadUpdated} /></div>}
-            {activeTab === "documentos" && <div className="overflow-y-auto h-full scrollbar-thin"><DocumentsPanel leadId={leadId} /></div>}
+            {activeTab === "documentos" && <div className="overflow-y-auto h-full scrollbar-thin"><DocumentsPanel leadId={leadId} onLeadUpdated={handleLeadUpdated} /></div>}
             {activeTab === "checklist" && <ChecklistPanel leadId={leadId} />}
             {activeTab === "log" && <ActivityLogPanel leadId={leadId} />}
           </motion.div>

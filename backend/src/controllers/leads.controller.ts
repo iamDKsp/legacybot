@@ -923,81 +923,141 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
             return;
         }
 
-        // 1. Analyze image via AI
-        const context = `O usuário está anexando um documento do tipo "${docType}". Valide se a imagem corresponde e extraia as informações essenciais.`;
+        // 1. Analyze image via AI — build rich context so Gemini knows what to extract
+        const isRgDoc = docType.toUpperCase().includes('RG') || docType.toUpperCase().includes('CNH') || docType.includes('/');
+        const isComprovanteDoc = docType.toLowerCase().includes('comprovante') || docType.toLowerCase().includes('resid');
+        const context = isRgDoc
+            ? `Documento: "${docType}". EXTRAIA COM PRIORIDADE: name (nome completo), rg (número do RG), cpf (se visível), birth_date (DD/MM/AAAA), gender (masculino/feminino), org_emissor (abreviatura: SSP, DETRAN, PC, IFP), uf_emissor (UF em 2 letras do órgão emissor — NÃO a naturalidade).`
+            : isComprovanteDoc
+            ? `Documento: "${docType}". EXTRAIA COM PRIORIDADE: name (titular), street (rua/logradouro), number (número do imóvel), neighborhood (bairro), city (cidade), state (UF em 2 letras), zip_code (CEP no formato 00000-000).`
+            : `Documento do tipo "${docType}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
+
         const analysis = await analyzeImage(fileBase64, mimeType, context);
-        
+
         if (!analysis.isLegible) {
-            res.status(400).json({ 
-                success: false, 
+            res.status(400).json({
+                success: false,
                 error: 'Imagem ilegível ou inválida',
-                details: analysis.issues 
+                details: analysis.issues
             });
             return;
         }
 
-        // 2. Extract data based on docType
+        // 2. Use structured extractedData from Gemini (JSON with all fields)
+        //    Falls back to regex only if Gemini returned nothing structured.
+        const exData = analysis.extractedData || {};
         const textData = analysis.extractedText || '';
         const updates: Record<string, string> = {};
-        
-        if (docType === 'RG' || docType === 'CNH') {
-            const extractedCpf = extractCPF(textData);
-            const extractedName = extractName(textData);
 
-            if (extractedCpf && !lead.cpf) updates.cpf = extractedCpf;
-            
-            const currentName = String(lead.name || '');
-            if (extractedName && (!/^[A-Za-záàãâéêíóôõúüçÁÀÃÂÉÊÍÓÔÕÚÜÇ\s]+$/.test(currentName.trim()) || currentName === String(lead.phone) || currentName.startsWith('Lead '))) {
-                updates.name = extractedName;
-            }
-        } else if (docType === 'Comprovante de Residência') {
-            const roughAddress = textData.split('\n').slice(0, 4).join(', ').trim().substring(0, 200);
-            if (roughAddress && roughAddress.length >= 10 && !lead.address) {
-                updates.address = roughAddress;
+        const currentName   = String(lead.name  || '');
+        const currentPhone  = String(lead.phone || '');
+        const isGenericName = !currentName || currentName === currentPhone
+            || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
+
+        // ── Fields from any document type ──
+        if (exData.name       && isGenericName)       updates.name         = exData.name;
+        if (exData.cpf        && !lead.cpf)           updates.cpf          = exData.cpf;
+        if (exData.rg         && !lead.rg)            updates.rg           = exData.rg;
+        if (exData.birth_date && !lead.birthdate) {
+            const raw = String(exData.birth_date).trim();
+            const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            updates.birthdate = ddmmyyyy ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}` : raw;
+        }
+        if (exData.gender      && !lead.gender)       updates.gender       = exData.gender;
+        if (exData.nationality && !lead.nationality)  updates.nationality  = exData.nationality;
+        if (exData.mother      && !lead.mother)       updates.mother       = exData.mother;
+        if (exData.father      && !lead.father)       updates.father       = exData.father;
+        if (exData.org_emissor && !lead.org_emissor)  updates.org_emissor  = exData.org_emissor;
+        if (exData.uf_emissor  && !lead.uf_emissor)   updates.uf_emissor   = exData.uf_emissor;
+        // ── Address fields ──
+        if (exData.street       && !lead.street)       updates.street       = exData.street;
+        if (exData.number       && !lead.number)       updates.number       = exData.number;
+        if (exData.neighborhood && !lead.neighborhood) updates.neighborhood = exData.neighborhood;
+        if (exData.city         && !lead.city)         updates.city         = exData.city;
+        if (exData.state        && !lead.state)        updates.state        = exData.state;
+        if (exData.zip_code     && !lead.zip_code)     updates.zip_code     = exData.zip_code;
+
+        // ── CPF format: 11 digits → 000.000.000-00 ──
+        if (updates.cpf) {
+            const digits = updates.cpf.replace(/\D/g, '');
+            if (digits.length === 11) {
+                updates.cpf = `${digits.slice(0,3)}.${digits.slice(3,6)}.${digits.slice(6,9)}-${digits.slice(9)}`;
+            } else {
+                console.warn(`[UploadExtract] CPF inválido descartado (${digits.length} dígitos): ${updates.cpf}`);
+                delete updates.cpf;
             }
         }
 
-        // 3. Update lead if any extraction succeeded
-        if (Object.keys(updates).length > 0) {
-            await db('leads').where({ id: Number(id) }).update({ ...updates, updated_at: new Date() });
-            
-            // Log update
+        // ── Fallback: if Gemini returned no structured data, try regex ──
+        if (Object.keys(updates).length === 0) {
+            console.warn(`[UploadExtract] No extractedData from Gemini — falling back to regex for doc ${docType}`);
+            if (isRgDoc) {
+                const extractedCpf  = extractCPF(textData);
+                const extractedName = extractName(textData);
+                if (extractedCpf && !lead.cpf) updates.cpf = extractedCpf;
+                if (extractedName && isGenericName) updates.name = extractedName;
+            } else if (isComprovanteDoc) {
+                const roughAddress = textData.split('\n').slice(0, 4).join(', ').trim().substring(0, 200);
+                if (roughAddress && roughAddress.length >= 10 && !lead.address) updates.address = roughAddress;
+            }
+        }
+
+        // 3. Apply updates to lead (one-by-one to survive missing columns)
+        const successfulUpdates: Record<string, string> = {};
+        for (const [col, val] of Object.entries(updates)) {
+            try {
+                await db('leads').where({ id: Number(id) }).update({ [col]: val, updated_at: new Date() });
+                successfulUpdates[col] = val;
+            } catch (colErr) {
+                console.warn(`[UploadExtract] ⚠️ Column "${col}" missing — skipping:`, (colErr as Error).message?.split('\n')[0]);
+            }
+        }
+
+        if (Object.keys(successfulUpdates).length > 0) {
             await logActivity({
-                user_id: req.user?.userId,
-                lead_id: Number(id),
-                action: 'lead_updated',
+                user_id:     req.user?.userId,
+                lead_id:     Number(id),
+                action:      'lead_updated',
                 entity_type: 'lead',
-                entity_id: Number(id),
-                new_value: { updates, source: 'ai_extraction_manual_upload' }
+                entity_id:   Number(id),
+                new_value:   { updates: successfulUpdates, source: 'ai_extraction_manual_upload' },
             });
+            console.log(`[UploadExtract] ✅ Filled lead ${id} fields:`, successfulUpdates);
+        } else {
+            console.log(`[UploadExtract] ℹ️ No new fields to fill for lead ${id} (already set or nothing extracted)`);
         }
 
-        // 4. Save the document
+        // 4. Save the document — notes as JSON so Extract button can use cache
+        const notesJson = JSON.stringify({ extractedText: textData, extractedData: exData });
         const { filePath, fileData } = await saveImageAndPersistLocal(Number(id), fileBase64, mimeType, docType);
-        
+
         const [{ id: docId }] = await db('documents').insert({
-            lead_id: Number(id),
-            name: docType,
-            file_type: mimeType,
-            file_path: filePath,
-            file_data: fileData,
-            status: 'aprovado',
-            notes: textData,
-            uploaded_by: req.user?.userId
+            lead_id:     Number(id),
+            name:        docType,
+            file_type:   mimeType,
+            file_path:   filePath,
+            file_data:   fileData,
+            status:      'aprovado',
+            notes:       notesJson,
+            uploaded_by: req.user?.userId,
         }).returning('id');
 
         const doc = await db('documents').where({ id: docId }).first();
 
         // Include download URL
         const protocol = req.protocol;
-        const host = req.get('host') || 'localhost:3001';
-        const baseUrl = `${protocol}://${host}`;
-        doc.file_url = `${baseUrl}/api/leads/${id}/documents/${docId}/download`;
+        const host     = req.get('host') || 'localhost:3001';
+        const baseUrl  = `${protocol}://${host}`;
+        doc.file_url   = `${baseUrl}/api/leads/${id}/documents/${docId}/download`;
 
-        res.json({ 
-            success: true, 
-            data: doc, 
-            extracted: updates 
+        // Return updated lead so frontend can refresh fields immediately
+        const updatedLead = await db('leads').where({ id: Number(id) }).first();
+
+        res.json({
+            success:  true,
+            data:     doc,
+            extracted: successfulUpdates,
+            lead:     updatedLead,
         });
 
     } catch (err) {
