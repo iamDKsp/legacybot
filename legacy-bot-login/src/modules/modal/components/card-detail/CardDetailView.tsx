@@ -712,7 +712,6 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         </p>
         <FieldRow icon={<User className="w-3.5 h-3.5"/>}    label="Nome"       fieldKey="name"           value={lead.name ?? ""}                           onSave={handleSave} />
         <FieldRow icon={<Phone className="w-3.5 h-3.5"/>}   label="Telefone"   fieldKey="phone"          value={lead.phone ?? ""}          type="tel"        onSave={handleSave} />
-        <FieldRow icon={<Mail className="w-3.5 h-3.5"/>}    label="E-mail"     fieldKey="email"          value={(lead.email as string) ?? ""}  type="email" onSave={handleSave} />
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="CPF"        fieldKey="cpf"            value={(lead.cpf as string) ?? ""}    placeholder="000.000.000-00" onSave={handleSave} />
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="RG"         fieldKey="rg"             value={(lead.rg as string) ?? ""}     placeholder="12.345.678" onSave={handleSave} />
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="Org. Emis." fieldKey="org_emissor"   value={(lead.org_emissor as string) ?? "SSP"} placeholder="SSP" onSave={handleSave} />
@@ -809,6 +808,8 @@ function inferDocType(filename: string): string {
   return 'Outro';
 }
 
+type FolderKey = 'recebido' | 'aprovado' | 'rejeitado';
+
 function DocumentsPanel({ leadId }: { leadId: number }) {
   const { data: docs = [], isLoading, refetch: refetchDocs } = useLeadDocuments(leadId);
   const qc = useQueryClient();
@@ -818,6 +819,8 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [processing, setProcessing] = useState(false);
+  const [activeFolder, setActiveFolder] = useState<FolderKey>('recebido');
+
 
   const deleteDocMutation = useMutation({
     mutationFn: async ({ docId }: { docId: number }) => {
@@ -1029,105 +1032,146 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
         )}
       </div>
 
-      {/* Document grid */}
-      {docs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-3 py-8 text-muted-foreground">
-          <FileText className="h-10 w-10 opacity-30" />
-          <p className="text-sm">Nenhum documento recebido</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          {(docs as Record<string, unknown>[]).map((doc) => {
-            const status = String(doc.status || 'recebido');
-            const docName = String(doc.name || doc.file_name || 'Documento');
-            const rawFileUrl = doc.file_url as string | null;
-            const fileUrl = withToken(rawFileUrl);
-            const isImage = (doc.file_type as string || '').startsWith('image/');
-            const isPdf = (doc.file_type as string || '').includes('pdf');
-            return (
-              <div key={String(doc.id)} className="rounded-xl bg-secondary/40 hover:bg-secondary transition-all group overflow-hidden border border-border/40 flex flex-col">
-                {fileUrl && isImage ? (
-                <div
-                    className="relative h-28 bg-black/10 cursor-pointer overflow-hidden shrink-0 border-b border-border/30"
-                    onClick={() => setLightboxUrl(fileUrl)}
-                  >
-                    <img src={fileUrl} alt={docName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
-                      <Eye className="w-6 h-6 text-white" />
-                    </div>
-                  </div>
-                ) : fileUrl && isPdf ? (
-                  <div
-                    className="relative h-28 bg-white cursor-pointer overflow-hidden shrink-0 border-b border-border/30"
-                    onClick={() => window.open(fileUrl, '_blank')}
-                  >
-                    <iframe
-                      src={`${fileUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-                      className="w-full h-full pointer-events-none"
-                      title={docName}
-                    />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
-                      <Eye className="w-6 h-6 text-white" />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="relative h-28 bg-card/40 flex flex-col items-center justify-center shrink-0 border-b border-border/30">
-                    <FileText className="w-8 h-8 text-muted-foreground/30 mb-2" />
-                  </div>
-                )}
-                <div className="flex flex-col p-3 flex-1 items-center text-center">
-                  <p className="text-sm font-semibold truncate text-foreground w-full px-1" title={docName}>{docName}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{String(doc.file_type || 'arquivo')}</p>
-                  
-                  <div className="flex items-center gap-2 mt-2.5">
-                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${statusStyles[status] || statusStyles.recebido}`}>{status}</span>
-                    {fileUrl && (
-                      <a
-                        href={fileUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1 rounded hover:bg-accent/15 text-muted-foreground hover:text-accent transition-colors"
-                        title="Baixar"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                    {status === 'aprovado' && (
-                      <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
-                    )}
-                    {confirmDeleteId === Number(doc.id) ? (
-                      <button
-                        onClick={() => deleteDocMutation.mutate({ docId: Number(doc.id) })}
-                        disabled={deleteDocMutation.isPending}
-                        title="Confirmar exclusão"
-                        className="p-1 rounded bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold hover:bg-red-500/30 transition-all animate-pulse"
-                      >
-                        {deleteDocMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '⚠ Excluir?'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDeleteId(Number(doc.id))}
-                        title="Excluir documento"
-                        className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
+      {/* ── Document Folders ── */}
+      {(() => {
+        const allDocs = docs as Record<string, unknown>[];
+        const folders = [
+          { key: 'recebido',  label: 'Recebidos',  color: 'text-blue-400',    ring: 'ring-blue-500/30',    bg: 'bg-blue-500/10',    activeBg: 'bg-blue-500/20'   },
+          { key: 'aprovado',  label: 'Aprovados',  color: 'text-emerald-400', ring: 'ring-emerald-500/30', bg: 'bg-emerald-500/10', activeBg: 'bg-emerald-500/20'},
+          { key: 'rejeitado', label: 'Rejeitados', color: 'text-red-400',     ring: 'ring-red-500/30',     bg: 'bg-red-500/10',     activeBg: 'bg-red-500/20'   },
+        ];
+
+        // Map pendente → recebido for display
+        const normalizeStatus = (s: string) => (s === 'pendente' ? 'recebido' : s);
+        const counts = Object.fromEntries(folders.map(f => [
+          f.key,
+          allDocs.filter(d => normalizeStatus(String(d.status || 'recebido')) === f.key).length
+        ]));
+
+        const folder = folders.find(f => f.key === activeFolder) ?? folders[0];
+        const folderDocs = allDocs.filter(d => normalizeStatus(String(d.status || 'recebido')) === folder.key);
+
+        return (
+          <div className="space-y-3">
+            {/* Folder tabs */}
+            <div className="flex gap-2">
+              {folders.map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setActiveFolder(f.key as FolderKey)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ring-1",
+                    activeFolder === f.key
+                      ? `${f.activeBg} ${f.color} ${f.ring}`
+                      : `bg-secondary/40 text-muted-foreground ring-transparent hover:${f.bg} hover:${f.color}`
+                  )}
+                >
+                  <span>{f.label}</span>
+                  {counts[f.key] > 0 && (
+                    <span className={cn(
+                      "text-[10px] font-bold px-1.5 py-0.5 rounded-full",
+                      activeFolder === f.key ? `${f.activeBg} ${f.color}` : "bg-secondary text-muted-foreground"
+                    )}>
+                      {counts[f.key]}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Folder contents */}
+            {folderDocs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-10 text-muted-foreground">
+                <FileText className="h-8 w-8 opacity-20" />
+                <p className="text-xs">Nenhum documento {folder.label.toLowerCase()}</p>
               </div>
-            );
-          })}
-        </div>
-      )}
+            ) : (
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                {folderDocs.map((doc) => {
+                  const status = String(doc.status || 'recebido');
+                  const docName = String(doc.name || doc.file_name || 'Documento');
+                  const rawFileUrl = doc.file_url as string | null;
+                  const fileUrl = withToken(rawFileUrl);
+                  const isImage = (doc.file_type as string || '').startsWith('image/');
+                  const isPdf = (doc.file_type as string || '').includes('pdf');
+                  return (
+                    <div key={String(doc.id)} className="rounded-xl bg-secondary/40 hover:bg-secondary transition-all group overflow-hidden border border-border/40 flex flex-col">
+                      {fileUrl && isImage ? (
+                        <div
+                          className="relative h-28 bg-black/10 cursor-pointer overflow-hidden shrink-0 border-b border-border/30"
+                          onClick={() => setLightboxUrl(fileUrl)}
+                        >
+                          <img src={fileUrl} alt={docName} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
+                            <Eye className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                      ) : fileUrl && isPdf ? (
+                        <div
+                          className="relative h-28 bg-white cursor-pointer overflow-hidden shrink-0 border-b border-border/30"
+                          onClick={() => window.open(fileUrl, '_blank')}
+                        >
+                          <iframe
+                            src={`${fileUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                            className="w-full h-full pointer-events-none"
+                            title={docName}
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-300">
+                            <Eye className="w-6 h-6 text-white" />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="relative h-28 bg-card/40 flex flex-col items-center justify-center shrink-0 border-b border-border/30">
+                          <FileText className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                        </div>
+                      )}
+                      <div className="flex flex-col p-3 flex-1 items-center text-center">
+                        <p className="text-sm font-semibold truncate text-foreground w-full px-1" title={docName}>{docName}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">{String(doc.file_type || 'arquivo')}</p>
+                        <div className="flex items-center gap-2 mt-2.5">
+                          {fileUrl && (
+                            <a href={fileUrl} target="_blank" rel="noreferrer"
+                              className="p-1 rounded hover:bg-accent/15 text-muted-foreground hover:text-accent transition-colors" title="Baixar">
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+                          {status === 'aprovado' && (
+                            <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
+                          )}
+                          {confirmDeleteId === Number(doc.id) ? (
+                            <button
+                              onClick={() => deleteDocMutation.mutate({ docId: Number(doc.id) })}
+                              disabled={deleteDocMutation.isPending}
+                              title="Confirmar exclusão"
+                              className="p-1 rounded bg-red-500/20 border border-red-500/40 text-red-400 text-[10px] font-bold hover:bg-red-500/30 transition-all animate-pulse"
+                            >
+                              {deleteDocMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : '⚠ Excluir?'}
+                            </button>
+                          ) : (
+                            <button onClick={() => setConfirmDeleteId(Number(doc.id))} title="Excluir documento"
+                              className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
 
-
 // ─── Checklist Panel ───────────────────────────────────────────────
 function ChecklistPanel({ leadId }: { leadId: number }) {
+
   const { data, isLoading, refetch } = useLeadChecklist(leadId);
+
 
   // Auto-refresh the checklist every 15s to pick up new OCR extractions
   useEffect(() => {
@@ -1367,7 +1411,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
         )}
       </AnimatePresence>
 
-      {/* ── Lead Location Modal ── */}}
+      {/* ── Lead Location Modal ── */}
       <AnimatePresence>
         {showLocationModal && (
           <motion.div
@@ -1506,7 +1550,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
               </button>
             )}
 
-            {/* Approve */}}
+            {/* Approve */}
             <button
               onClick={() => handleVerdict("approved")}
               disabled={updateStatus.isPending}
@@ -1560,7 +1604,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
 
             <div className="w-px h-5 bg-border mx-0.5" />
 
-            {/* Gerar PHC */}}
+            {/* Gerar PHC */}
             <button
               onClick={() => navigate("/crm", { state: { activeTab: "phc", subTab: "nova", phcLead: lead } })}
               title="Gerar PHC para este lead"
