@@ -63,8 +63,8 @@ const STATUS_FILTERS: { key: StatusFilter; label: string; activeClass: string }[
   { key: "all",      label: "Todos",      activeClass: "text-foreground border-border/60      bg-secondary" },
   { key: "approved", label: "Aprovados",  activeClass: "text-blue-400   border-blue-500/40   bg-blue-500/10" },
   { key: "rejected", label: "Rejeitados", activeClass: "text-red-400    border-red-500/40    bg-red-500/10" },
-  { key: "archived", label: "Arquivados", activeClass: "text-zinc-400   border-zinc-500/40   bg-zinc-500/10" },
 ];
+
 
 export const STATUS_BADGE: Record<string, string> = {
   approved: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
