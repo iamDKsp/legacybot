@@ -963,7 +963,13 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
             const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
             updates.birthdate = ddmmyyyy ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}` : raw;
         }
-        if (exData.gender      && !lead.gender)       updates.gender       = exData.gender;
+        if (exData.gender && !lead.gender) {
+            // Gemini returns "masculino"/"feminino" — map to "M"/"F" for DB/frontend compatibility
+            const g = String(exData.gender).toLowerCase().trim();
+            updates.gender = g === 'masculino' || g === 'male'   || g === 'm' ? 'M'
+                           : g === 'feminino'  || g === 'female' || g === 'f' ? 'F'
+                           : exData.gender; // keep raw if unrecognized (shouldn't happen)
+        }
         if (exData.nationality && !lead.nationality)  updates.nationality  = exData.nationality;
         if (exData.mother      && !lead.mother)       updates.mother       = exData.mother;
         if (exData.father      && !lead.father)       updates.father       = exData.father;
@@ -1224,7 +1230,12 @@ export async function extractDocumentData(req: Request, res: Response) {
                 ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
                 : raw;
         }
-        if (extractedData.gender)      updates.gender        = extractedData.gender;
+        if (extractedData.gender) {
+            const g = String(extractedData.gender).toLowerCase().trim();
+            updates.gender = g === 'masculino' || g === 'male'   || g === 'm' ? 'M'
+                           : g === 'feminino'  || g === 'female' || g === 'f' ? 'F'
+                           : extractedData.gender;
+        }
         if (extractedData.nationality) updates.nationality   = extractedData.nationality;
         if (extractedData.mother)      updates.mother        = extractedData.mother;
         if (extractedData.father)      updates.father        = extractedData.father;

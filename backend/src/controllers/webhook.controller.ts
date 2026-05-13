@@ -1071,8 +1071,9 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 lead.bot_stage = 'approach';
                 // Detect and save gender when name first arrives
                 if (lead.name && typeof lead.name === 'string' && lead.name !== phone) {
-                    const gender = detectGender(lead.name as string);
-                    await db('leads').where({ id: lead.id }).update({ gender });
+                    const genderRaw = detectGender(lead.name as string);
+                    const gender = genderRaw === 'masculino' ? 'M' : genderRaw === 'feminino' ? 'F' : null;
+                    if (gender) await db('leads').where({ id: lead.id }).update({ gender });
                 }
             }
         } catch (err) {
@@ -1318,7 +1319,12 @@ async function processDocumentImage(
                     ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}`
                     : raw;
             }
-            if (data.gender      && !currentLead.gender)       updates.gender       = data.gender;
+            if (data.gender && !currentLead.gender) {
+                const g = String(data.gender).toLowerCase().trim();
+                updates.gender = g === 'masculino' || g === 'male'   || g === 'm' ? 'M'
+                               : g === 'feminino'  || g === 'female' || g === 'f' ? 'F'
+                               : data.gender;
+            }
             if (data.nationality && !currentLead.nationality)  updates.nationality  = data.nationality;
             if (data.mother      && !currentLead.mother)       updates.mother       = data.mother;
             if (data.father      && !currentLead.father)       updates.father       = data.father;
