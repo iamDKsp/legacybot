@@ -65,6 +65,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
             funnel_id,
             stage_id,
             status,
+            exclude_status,
             search,
             assigned_to,
             page = '1',
@@ -91,9 +92,11 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
         if (funnel_id) query = query.where('l.funnel_id', Number(funnel_id));
         if (stage_id) query = query.where('l.stage_id', Number(stage_id));
         // status='all' → sem filtro de status (mostra tudo)
-        // status omitido → padrão: sem filtro (para compatibilidade retro)
+        // exclude_status → exclui um status específico (ex: archived)
         if (status && String(status) !== 'all') {
             query = query.where('l.status', String(status));
+        } else if (exclude_status) {
+            query = query.whereNot('l.status', String(exclude_status));
         }
         if (assigned_to) query = query.where('l.assigned_to', Number(assigned_to));
 
@@ -116,6 +119,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
         if (funnel_id) countQuery.where('l.funnel_id', Number(funnel_id));
         if (stage_id) countQuery.where('l.stage_id', Number(stage_id));
         if (status && String(status) !== 'all') countQuery.where('l.status', String(status));
+        else if (exclude_status) (countQuery as any).whereNot('l.status', String(exclude_status));
 
         const [countResult] = await countQuery;
         const total = Number((countResult as Record<string, unknown>).total || 0);

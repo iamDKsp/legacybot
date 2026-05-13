@@ -95,11 +95,15 @@ export function KanbanBoard() {
   // Fetch ONLY the stages for the active funnel (from funnel_stages table in backend)
   const { data: funnelStages = [], isLoading: stagesLoading } = useStages(currentFunnelSlug);
 
-  // Build query params — status="all" shows everything (pass no status param)
+  // Build query params — "all" shows every status except archived
   const leadsQueryParams = useMemo(() => {
     if (!currentFunnelId) return undefined;
     const params: Record<string, unknown> = { funnel_id: currentFunnelId };
-    if (statusFilter !== "all") params.status = statusFilter;
+    if (statusFilter === "all") {
+      params.exclude_status = "archived";
+    } else {
+      params.status = statusFilter;
+    }
     return params;
   }, [currentFunnelId, statusFilter]);
 

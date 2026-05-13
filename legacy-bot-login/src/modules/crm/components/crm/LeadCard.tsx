@@ -194,8 +194,8 @@ const LeadCard = ({ lead, index, showStatusBadge = false }: LeadCardProps) => {
         </div>
       </div>
 
-      {/* Badge de lead vinculado (retornou de arquivado) */}
-      {parentLeadId && (
+      {/* Badge de lead vinculado (retornou de arquivado) — só exibe se o lead atual NÃO for arquivado */}
+      {parentLeadId && lead.status !== 'archived' && (
         <button
           onClick={handleGoToParent}
           className="flex items-center gap-1 text-[10px] text-amber-400/80 hover:text-amber-400 transition-colors mb-2"
