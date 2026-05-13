@@ -927,7 +927,17 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
         const isRgDoc = docType.toUpperCase().includes('RG') || docType.toUpperCase().includes('CNH') || docType.includes('/');
         const isComprovanteDoc = docType.toLowerCase().includes('comprovante') || docType.toLowerCase().includes('resid');
         const context = isRgDoc
-            ? `Documento: "${docType}". EXTRAIA COM PRIORIDADE: name (nome completo), rg (número do RG), cpf (se visível), birth_date (DD/MM/AAAA), gender (masculino/feminino), org_emissor (abreviatura: SSP, DETRAN, PC, IFP), uf_emissor (UF em 2 letras do órgão emissor — NÃO a naturalidade).`
+            ? `Documento: "${docType}". EXTRAIA COM MÁXIMA PRECISÃO todos os campos visíveis. Campos obrigatórios:
+- rg: número do RG (sequência de dígitos com pontos e traço, geralmente impresso como "Identidade" ou "N° RG" ou "REGISTRO GERAL" — ex: 12.345.678-9 ou 1234567-89). OBRIGATÓRIO extrair se visível.
+- name: nome completo do titular em caixa alta
+- cpf: CPF se visível (formato 000.000.000-00)
+- birth_date: data de nascimento DD/MM/AAAA
+- gender: masculino ou feminino
+- org_emissor: sigla do órgão emissor (SSP, DETRAN, PC, IFP, CRM, CREA, etc.)
+- uf_emissor: UF de 2 letras do ÓRGÃO EMISSOR (NÃO confundir com naturalidade do titular)
+- nationality: naturalidade/nacionalidade
+- mother: nome da mãe
+- father: nome do pai`
             : isComprovanteDoc
             ? `Documento: "${docType}". EXTRAIA COM PRIORIDADE: name (titular), street (rua/logradouro), number (número do imóvel), neighborhood (bairro), city (cidade), state (UF em 2 letras), zip_code (CEP no formato 00000-000).`
             : `Documento do tipo "${docType}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
@@ -954,11 +964,21 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
         const isGenericName = !currentName || currentName === currentPhone
             || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
 
+        // ── Diagnostic log — see exactly what Gemini returned ──
+        console.log(`[UploadExtract] 🔍 Gemini extractedData for lead ${id}:`, JSON.stringify(exData));
+
         // ── Fields from any document type ──
         if (exData.name       && isGenericName)       updates.name         = exData.name;
         if (exData.cpf        && !lead.cpf)           updates.cpf          = exData.cpf;
-        if (exData.rg         && !lead.rg)            updates.rg           = exData.rg;
+
+        // RG: try primary field first, then alternative names Gemini sometimes uses
+        const _exAny = exData as Record<string, string>;
+        const rgValue = exData.rg || _exAny['rg_number'] || _exAny['numero_rg'] || _exAny['identity_number'] || _exAny['identidade'];
+        const existingRg = String(lead.rg || '').trim();
+        if (rgValue && !existingRg)  updates.rg = rgValue;
+
         if (exData.birth_date && !lead.birthdate) {
+
             const raw = String(exData.birth_date).trim();
             const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
             updates.birthdate = ddmmyyyy ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}` : raw;
@@ -1221,7 +1241,10 @@ export async function extractDocumentData(req: Request, res: Response) {
         // Name: always overwrite if we extracted a real name (protect against clearing with blank)
         if (extractedData.name) updates.name = extractedData.name;
         if (extractedData.cpf)         updates.cpf           = extractedData.cpf;
-        if (extractedData.rg)          updates.rg            = extractedData.rg;
+        // RG: try primary field and alternative names Gemini sometimes uses
+        const _extAny = extractedData as Record<string, string>;
+        const rgExtracted = extractedData.rg || _extAny['rg_number'] || _extAny['numero_rg'] || _extAny['identity_number'] || _extAny['identidade'];
+        if (rgExtracted) updates.rg = rgExtracted;
         // birthdate: convert DD/MM/YYYY → YYYY-MM-DD for PostgreSQL
         if (extractedData.birth_date) {
             const raw = String(extractedData.birth_date).trim();
