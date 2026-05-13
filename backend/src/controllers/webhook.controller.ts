@@ -583,7 +583,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         const normalized = normalizeWebhookPayload(payload);
         if (!normalized) return;
 
-        let { phone, name, message, whatsappId, chatId, audioBase64, audioMimeType, imageBase64, imageMimeType, pdfBase64, pdfMimeType, videoMimeType, hasVideoNoBase64 } = normalized;
+        let { phone, name, message, whatsappId, chatId, audioBase64, audioMimeType, imageBase64, imageMimeType, pdfBase64, pdfMimeType, videoMimeType, hasVideoNoBase64, fromMe } = normalized;
 
         // ── Audio transcription ──
         if (audioBase64 && audioMimeType) {
@@ -671,9 +671,21 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         }
 
         // Find or create lead
-        let lead = await db('leads').where({ phone }).first();
+        // ⚠️  Busca apenas leads ATIVOS — evita reutilizar leads arquivados/rejeitados
+        let lead = await db('leads')
+            .where({ phone })
+            .whereIn('status', ['active', 'approved'])
+            .orderBy('updated_at', 'desc')
+            .first();
 
         if (!lead) {
+            // Verificar se existe lead arquivado/rejeitado com este número
+            const archivedLead = await db('leads')
+                .where({ phone })
+                .whereIn('status', ['archived', 'rejected'])
+                .orderBy('updated_at', 'desc')
+                .first();
+
             // Get default funnel (geral) and default stage (recebido)
             const defaultFunnel = await db('funnels').where({ slug: 'geral' }).first();
             const defaultStage = await db('stages').where({ slug: 'recebido' }).first();
@@ -681,6 +693,10 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             if (!defaultFunnel || !defaultStage) {
                 console.error('Default funnel/stage not found. Please run seed.sql');
                 return;
+            }
+
+            if (archivedLead) {
+                console.log(`[Webhook] 🔗 Telefone ${phone} retornou — lead #${archivedLead.id} estava ${archivedLead.status}. Criando novo lead vinculado (parent_lead_id=${archivedLead.id}).`);
             }
 
             const [{ id: leadId }] = await db('leads').insert({
@@ -691,9 +707,23 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 stage_id: defaultStage.id,
                 whatsapp_id: whatsappId,
                 bot_active: true,
+                // Vincular ao lead anterior se existir
+                parent_lead_id: archivedLead?.id ?? null,
             }).returning('id');
 
             lead = await db('leads').where({ id: leadId }).first();
+
+            if (archivedLead) {
+                // Log de vínculo criado
+                await db('activity_logs').insert({
+                    lead_id: leadId,
+                    action: 'lead_linked_from_archive',
+                    entity_type: 'lead',
+                    entity_id: leadId,
+                    old_value: JSON.stringify({ archived_lead_id: archivedLead.id, archived_lead_name: archivedLead.name }),
+                    new_value: JSON.stringify({ new_lead_id: leadId, parent_lead_id: archivedLead.id }),
+                }).catch((e: Error) => console.warn('[Webhook] activity_log link insert failed:', e.message));
+            }
 
             // Create bot session
             const sessionToken = `sess_${leadId}_${Date.now()}`;
@@ -792,6 +822,30 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         let audioUrl: string | null = null;
         let documentId: number | undefined = undefined;
 
+        if ((normalized as Record<string, unknown>)?.imageDownloadFailed) {
+            const botReply = "Poxa, recebi uma imagem sua aqui, mas deu um erro técnico no WhatsApp e ela não abriu pra mim. Consegue me enviar de novo? 🙏";
+            await db('messages').insert({
+                conversation_id: conversation.id,
+                lead_id: lead.id,
+                content: '[Falha no download da imagem]',
+                direction: 'inbound',
+                sender: 'lead',
+                media_type: 'image',
+            });
+            await db('messages').insert({
+                conversation_id: conversation.id,
+                lead_id: lead.id,
+                content: botReply,
+                direction: 'outbound',
+                sender: 'bot'
+            });
+            const wss = getWebSocketServer();
+            if (wss) wss.emit('bot_response', { lead_id: lead.id, message: botReply });
+            const failedPhone = String(lead.whatsapp_id || phone);
+            if (canSendOutbound(failedPhone)) await aiService.sendFragmentedMessage(failedPhone, botReply);
+            return;
+        }
+
         if (imageBase64 && imageMimeType) {
             mediaType = 'image';
             const { filePath, fileData } = await saveImageAndPersist(lead.id as number, imageBase64, imageMimeType, `midia_${Date.now()}`);
@@ -852,12 +906,27 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             }
         }
 
+        if (fromMe) {
+            const duplicate = await db('messages')
+                .where({ lead_id: lead.id, content: message, direction: 'outbound' })
+                .where('created_at', '>', new Date(Date.now() - 10000))
+                .first();
+
+            if (duplicate) {
+                console.log(`[Webhook] Skipping duplicate fromMe message (echo of API)`);
+                return;
+            }
+        }
+
+        const msgDirection = fromMe ? 'outbound' : 'inbound';
+        const msgSender = fromMe ? 'assessor' : 'lead';
+
         const [{ id: msgId }] = await db('messages').insert({
             conversation_id: conversation.id,
             lead_id: lead.id,
             content: message,
-            direction: 'inbound',
-            sender: 'lead',
+            direction: msgDirection,
+            sender: msgSender,
             media_type: mediaType,
             image_url: imageUrl,
             audio_url: audioUrl,
@@ -875,11 +944,18 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         // Update conversation last message
         await db('conversations').where({ id: conversation.id }).update({
             last_message_at: new Date(),
-            unread_count: db.raw('unread_count + 1'),
+            unread_count: fromMe ? 0 : db.raw('unread_count + 1'),
         });
 
         // Update lead
         await db('leads').where({ id: lead.id }).update({ updated_at: new Date() });
+
+        if (fromMe) {
+            const wss = getWebSocketServer();
+            if (wss) wss.emit('new_message', { lead_id: lead.id, lead_name: lead.name, message, conversation_id: conversation.id });
+            console.log(`[Webhook] 👤 Assessor/Meta replied directly: ${message.substring(0, 50)}`);
+            return; // Stop processing, don't trigger Sofia
+        }
 
         // ── Auto-move lead to correct funnel based on detected legal area ──
         // Runs on user message; Sofia's reply will also be checked after generation
@@ -1250,14 +1326,25 @@ async function processDocumentImage(
 
         };
 
+        const safeUpdateLead = async (id: number, updatesObj: Record<string, any>, currentLead: Record<string, any>) => {
+            for (const [col, val] of Object.entries(updatesObj)) {
+                try {
+                    await db('leads').where({ id }).update({ [col]: val });
+                    currentLead[col] = val;
+                } catch (err) {
+                    console.warn(`[Doc] ⚠️ Column "${col}" missing in DB — skipping update`);
+                    delete updatesObj[col]; // remove from object so we know it wasn't saved
+                }
+            }
+        };
+
         // ── RG/CNH handling ──
         if (isIDDoc) {
             // If this is the FRONT (name/cpf not yet gotten) we try to extract data
             if (!docState.id_front_done) {
                 const updates = buildLeadUpdates(exData, lead);
                 if (Object.keys(updates).length > 0) {
-                    await db('leads').where({ id: leadId }).update(updates);
-                    Object.assign(lead, updates);
+                    await safeUpdateLead(leadId, updates, lead);
                     const wssName = getWebSocketServer();
                     if (wssName) wssName.emit('lead_updated', { lead_id: leadId, ...updates });
                     console.log(`[Doc] 📋 Auto-filled lead fields from ${docType}: ${JSON.stringify(updates)}`);
@@ -1360,8 +1447,7 @@ async function processDocumentImage(
                 // Also try to fill fields from the back (CNH back has CPF)
                 const backUpdates = buildLeadUpdates(exData, lead);
                 if (Object.keys(backUpdates).length > 0) {
-                    await db('leads').where({ id: leadId }).update(backUpdates);
-                    Object.assign(lead, backUpdates);
+                    await safeUpdateLead(leadId, backUpdates, lead);
                     const wssBack = getWebSocketServer();
                     if (wssBack) wssBack.emit('lead_updated', { lead_id: leadId, ...backUpdates });
                 }
@@ -1395,8 +1481,7 @@ async function processDocumentImage(
             const addressUpdates = buildLeadUpdates(exData, lead);
             if (Object.keys(addressUpdates).length > 0) {
                 if (!lead.address && exData.street) addressUpdates.address = [exData.street, exData.number, exData.neighborhood, exData.city, exData.state, exData.zip_code].filter(Boolean).join(', ');
-                await db('leads').where({ id: leadId }).update(addressUpdates);
-                Object.assign(lead, addressUpdates);
+                await safeUpdateLead(leadId, addressUpdates, lead);
                 console.log(`[Doc] 📋 Address extracted from Comprovante via AI:`, addressUpdates);
                 const wssAddr = getWebSocketServer();
                 if (wssAddr) wssAddr.emit('lead_updated', { lead_id: leadId, ...addressUpdates });
@@ -1418,8 +1503,7 @@ async function processDocumentImage(
                 // Also try to fill lead fields from any approved document (Holerite, CTPS, etc.)
                 const genericUpdates = buildLeadUpdates(exData, lead);
                 if (Object.keys(genericUpdates).length > 0) {
-                    await db('leads').where({ id: leadId }).update(genericUpdates);
-                    Object.assign(lead, genericUpdates);
+                    await safeUpdateLead(leadId, genericUpdates, lead);
                     const wssGen = getWebSocketServer();
                     if (wssGen) wssGen.emit('lead_updated', { lead_id: leadId, ...genericUpdates });
                 }
@@ -1773,6 +1857,8 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
     rawKey?: Record<string, unknown>;
     /** Full raw data payload from bridge — needed for Evolution API re-fetch */
     rawData?: Record<string, unknown>;
+    /** True when message was sent by THIS device (outbound) — skip processing */
+    fromMe?: boolean;
 } | null {
     try {
         // Only process messages.upsert events — ignore connection.update, qrcode.updated, etc.
@@ -1811,12 +1897,6 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
             // Log messageContent keys for debugging
             const msgKeys = Object.keys(messageContent);
             console.log(`[Webhook] Normalize: messageContent keys = [${msgKeys.join(', ')}]`);
-
-            // CRITICAL: Ignore messages sent BY the bot (fromMe = true)
-            if (key.fromMe === true) {
-                console.log('[Webhook] Skipping outbound message (fromMe=true)');
-                return null;
-            }
 
             // Ignore group messages
             const remoteJid = String(key.remoteJid || '');
@@ -1897,6 +1977,9 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
             const message =
                 (messageContent.conversation as string) ||
                 (messageContent.extendedTextMessage as Record<string, string>)?.text ||
+                (messageContent.buttonsResponseMessage as Record<string, string>)?.selectedDisplayText ||
+                (messageContent.listResponseMessage as Record<string, string>)?.title ||
+                (messageContent.templateButtonReplyMessage as Record<string, string>)?.selectedDisplayText ||
                 (audioBase64 || audioMessage ? '[Áudio]'
                     : imageBase64 ? '[Imagem]'
                     : imageMessage ? '[Imagem]' // imageMessage present but no base64 — will try to re-fetch
@@ -1923,6 +2006,7 @@ function normalizeWebhookPayload(payload: Record<string, unknown>): {
                 hasVideoNoBase64,
                 rawKey: key,
                 rawData: data,
+                fromMe: key.fromMe === true,
             };
         }
 

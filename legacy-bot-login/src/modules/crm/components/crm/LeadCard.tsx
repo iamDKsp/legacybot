@@ -1,5 +1,5 @@
 import { Lead } from "@/services/api";
-import { MessageCircle, User, Phone, CheckCircle2, Clock, Trash2, Copy, Check } from "lucide-react";
+import { MessageCircle, User, Phone, CheckCircle2, Clock, Trash2, Copy, Check, Link2, Archive, ThumbsUp, ThumbsDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { useLeadChecklist, useDeleteLead } from "@/hooks/useLeads";
@@ -9,9 +9,29 @@ import { formatPhoneDisplay } from "@/utils/formatters";
 interface LeadCardProps {
   lead: Lead & Record<string, unknown>;
   index: number;
+  showStatusBadge?: boolean;
 }
 
-const LeadCard = ({ lead, index }: LeadCardProps) => {
+// ── Status visual config ──────────────────────────────────────────────────────
+const STATUS_CONFIG: Record<string, { label: string; icon: React.ReactNode; className: string }> = {
+  approved: {
+    label: "Aprovado",
+    icon: <ThumbsUp className="w-2.5 h-2.5" />,
+    className: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+  },
+  rejected: {
+    label: "Rejeitado",
+    icon: <ThumbsDown className="w-2.5 h-2.5" />,
+    className: "bg-red-500/20 text-red-400 border border-red-500/30",
+  },
+  archived: {
+    label: "Arquivado",
+    icon: <Archive className="w-2.5 h-2.5" />,
+    className: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+  },
+};
+
+const LeadCard = ({ lead, index, showStatusBadge = false }: LeadCardProps) => {
   const navigate = useNavigate();
   const { data: checklist } = useLeadChecklist(lead.id);
   const deleteLead = useDeleteLead();
@@ -37,6 +57,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
   const stageSlug  = (lead as Record<string, unknown>).stage_slug  as string | undefined;
   const funnelSlug = (lead as Record<string, unknown>).funnel_slug as string | undefined;
   const botStage   = (lead as Record<string, unknown>).bot_stage   as string | undefined;
+  const parentLeadId = lead.parent_lead_id;
 
   const showChecklist = hasChecklist && !PRE_DOC_STAGES.has(stageSlug ?? '');
 
@@ -44,6 +65,10 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
   const isTriagem = funnelSlug === 'geral';
   // Identificado quando Sofia avançou para approach ou além (não é mais 'reception')
   const causeIdentified = isTriagem && !!botStage && botStage !== 'reception';
+
+  const statusConfig = showStatusBadge && lead.status !== 'active'
+    ? STATUS_CONFIG[lead.status] ?? null
+    : null;
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -61,13 +86,22 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
     setConfirmDelete(false);
   };
 
+  const handleGoToParent = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigate("/client-hub", { state: { lead: { id: parentLeadId } } });
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.2 }}
       onClick={() => navigate("/client-hub", { state: { lead } })}
-      className="glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group relative"
+      className={`glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group relative ${
+        lead.status === 'archived' ? 'opacity-60' :
+        lead.status === 'rejected' ? 'opacity-70 border-red-500/20' :
+        lead.status === 'approved' ? 'border-blue-500/20' : ''
+      }`}
     >
       {/* Action buttons */}
       <button
@@ -107,7 +141,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
               Excluir <span className="text-red-400">{lead.name}</span>?
             </p>
             <p className="text-[10px] text-muted-foreground text-center">
-              Todos os dados serão removidos permanentemente.
+              O lead será arquivado (não apagado).
             </p>
             <div className="flex gap-2 mt-1">
               <button
@@ -117,7 +151,7 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
                 className="px-3 py-1 text-[11px] font-semibold rounded-md
                            bg-red-500 hover:bg-red-600 text-white transition-colors disabled:opacity-50"
               >
-                {deleteLead.isPending ? 'Excluindo...' : 'Sim, excluir'}
+                {deleteLead.isPending ? 'Arquivando...' : 'Sim, arquivar'}
               </button>
               <button
                 id={`cancel-delete-lead-${lead.id}`}
@@ -146,10 +180,31 @@ const LeadCard = ({ lead, index }: LeadCardProps) => {
             </p>
           </div>
         </div>
-        {lead.origin === "whatsapp" && (
-          <MessageCircle className="w-4 h-4 text-green-500 flex-shrink-0 mr-7" />
-        )}
+        <div className="flex items-center gap-1 flex-shrink-0 mr-7">
+          {lead.origin === "whatsapp" && (
+            <MessageCircle className="w-4 h-4 text-green-500" />
+          )}
+          {/* Status badge para leads não-ativos */}
+          {statusConfig && (
+            <span className={`flex items-center gap-1 text-[10px] font-semibold rounded-full px-1.5 py-0.5 ${statusConfig.className}`}>
+              {statusConfig.icon}
+              {statusConfig.label}
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Badge de lead vinculado (retornou de arquivado) */}
+      {parentLeadId && (
+        <button
+          onClick={handleGoToParent}
+          className="flex items-center gap-1 text-[10px] text-amber-400/80 hover:text-amber-400 transition-colors mb-2"
+          title={`Ver lead anterior #${parentLeadId}`}
+        >
+          <Link2 className="w-3 h-3" />
+          Lead anterior #{parentLeadId}
+        </button>
+      )}
 
       {/* ── TRIAGEM: item único "Tipo de causa" ── */}
       {isTriagem && (

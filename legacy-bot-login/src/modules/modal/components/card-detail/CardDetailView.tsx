@@ -5,12 +5,13 @@ import {
   FileText, ClipboardList, User, Phone, Mail, Calendar,
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
   MessageCircle, Pencil, Check, X as XIcon, Trash2,
-  MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation, Sparkles
+  MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation, Sparkles,
+  Link2, History, ArrowRightLeft
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Lead } from "@/modules/crm/types/crm";
-import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, useUpdateLeadStatus, useToggleBotStatus, useLeadChecklist, useUploadLeadDocument } from "@/hooks/useLeads";
+import { useLeadNotes, useCreateNote, useLeadConversations, useLeadDocuments, useUpdateLeadStatus, useToggleBotStatus, useLeadChecklist, useUploadLeadDocument, useUpdateLeadFunnel, useLeadActivityLog, useFunnels } from "@/hooks/useLeads";
 import { leadsApi } from "@/services/api";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { CheckSquare } from "lucide-react";
@@ -242,14 +243,78 @@ function AudioPlayer({ src, transcription }: { src: string; transcription?: stri
 }
 
 // ─── Types ────────────────────────────────────────────────────
-type TabKey = "conversas" | "info" | "documentos" | "checklist";
+type TabKey = "conversas" | "info" | "documentos" | "checklist" | "log";
 
 const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "conversas", label: "Conversas", icon: <MessageSquare className="w-3.5 h-3.5" /> },
   { key: "info", label: "Informações", icon: <Info className="w-3.5 h-3.5" /> },
   { key: "documentos", label: "Documentos", icon: <FileText className="w-3.5 h-3.5" /> },
-  { key: "checklist", label: "Checklist", icon: <CheckSquare className="w-3.5 h-3.5" /> },
+  { key: "checklist", label: "Checklist", icon: <CheckCircle className="w-3.5 h-3.5" /> },
+  { key: "log", label: "Log", icon: <History className="w-3.5 h-3.5" /> },
 ];
+
+// ─── Activity Log Panel ────────────────────────────────────────
+const ACTION_LABELS: Record<string, string> = {
+  lead_created:            '🆕 Lead criado',
+  lead_archived:           '🗃 Lead arquivado',
+  lead_linked_from_archive:'🔗 Novo card criado (lead retornou)',
+  stage_changed_manual:    '🔀 Etapa movida manualmente',
+  funnel_changed_manual:   '🔀 Funil movido manualmente',
+  status_changed:          '🔄 Status alterado',
+  bot_enabled:             '🤖 Sofia ativada',
+  bot_disabled:            '🤖 Sofia desabilitada',
+};
+
+function ActivityLogPanel({ leadId }: { leadId: number }) {
+  const { data: logs = [], isLoading } = useLeadActivityLog(leadId);
+
+  if (isLoading) return (
+    <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>
+  );
+
+  if (logs.length === 0) return (
+    <div className="flex flex-col items-center justify-center gap-3 py-10 text-muted-foreground">
+      <History className="h-10 w-10 opacity-30" />
+      <p className="text-sm">Nenhuma atividade registrada ainda</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-2 overflow-y-auto h-full scrollbar-thin">
+      {logs.map((log) => {
+        let oldVal: any = null;
+        let newVal: any = null;
+        try { oldVal = log.old_value ? JSON.parse(log.old_value) : null; } catch {}
+        try { newVal = log.new_value ? JSON.parse(log.new_value) : null; } catch {}
+
+        return (
+          <div key={log.id} className="rounded-xl bg-secondary/40 border border-border/30 px-3 py-2.5 space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-foreground">
+                {ACTION_LABELS[log.action] ?? log.action}
+              </span>
+              <span className="text-[10px] text-muted-foreground shrink-0">
+                {new Date(log.created_at).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            {log.user_name && (
+              <p className="text-[11px] text-muted-foreground">por <span className="text-foreground/70">{log.user_name}</span></p>
+            )}
+            {log.ip_address && (
+              <p className="text-[10px] text-muted-foreground/60 font-mono">IP: {log.ip_address}</p>
+            )}
+            {(oldVal || newVal) && (
+              <div className="text-[10px] font-mono bg-background/50 rounded-md p-1.5 mt-1 space-y-0.5 border border-border/20">
+                {oldVal && <p className="text-red-400/70">- {JSON.stringify(oldVal)}</p>}
+                {newVal && <p className="text-green-400/70">+ {JSON.stringify(newVal)}</p>}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── Conversation / Chat Panel ────────────────────────────────
 function ConversationsPanel({ leadId }: { leadId: number }) {
@@ -1013,6 +1078,11 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
   const updateStatus = useUpdateLeadStatus();
   const toggleBot = useToggleBotStatus();
 
+  const updateFunnel = useUpdateLeadFunnel();
+  const { data: funnels = [] } = useFunnels();
+  const [showMoveFunnel, setShowMoveFunnel] = useState(false);
+  const [targetFunnelId, setTargetFunnelId] = useState<number | null>(null);
+
   // ── Lead location state ──
   const [locationData, setLocationData] = useState<Record<string, unknown> | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -1086,7 +1156,65 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden">
 
-      {/* ── Lead Location Modal ── */}
+      {/* ── Move Funnel Modal ── */}
+      <AnimatePresence>
+        {showMoveFunnel && (
+          <motion.div
+            key="move-funnel-backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowMoveFunnel(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+              className="bg-card border border-border rounded-2xl p-6 w-[360px] shadow-2xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-bold flex items-center gap-2">
+                  <ArrowRightLeft className="w-4 h-4 text-accent" /> Mover Lead para outro Funil
+                </h2>
+                <button onClick={() => setShowMoveFunnel(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                  <XIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs text-amber-400/80 mb-4 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                ⚠️ Mover manualmente <strong>desabilita a Sofia</strong> automaticamente. Habilite-a novamente quando o lead estiver pronto.
+              </p>
+              <select
+                value={targetFunnelId ?? ''}
+                onChange={e => setTargetFunnelId(Number(e.target.value))}
+                className="w-full bg-secondary text-sm rounded-lg px-3 py-2.5 border border-border focus:outline-none focus:ring-1 focus:ring-accent mb-4"
+              >
+                <option value="">Selecionar funil...</option>
+                {funnels.filter((f: any) => f.id !== lead?.funnel_id).map((f: any) => (
+                  <option key={f.id} value={f.id}>{f.name}</option>
+                ))}
+              </select>
+              <button
+                disabled={!targetFunnelId || updateFunnel.isPending}
+                onClick={() => {
+                  if (!targetFunnelId || !lead) return;
+                  updateFunnel.mutate({ id: lead.id, funnel_id: targetFunnelId }, {
+                    onSuccess: () => {
+                      setShowMoveFunnel(false);
+                      setTargetFunnelId(null);
+                      const funnel = funnels.find((f: any) => f.id === targetFunnelId) as any;
+                      setLead(prev => prev ? { ...prev, funnel_id: targetFunnelId, funnel_name: funnel?.name, bot_active: false } : prev);
+                    }
+                  });
+                }}
+                className="w-full py-2.5 rounded-xl bg-accent text-accent-foreground font-semibold text-sm hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                {updateFunnel.isPending ? 'Movendo...' : 'Mover Lead'}
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Lead Location Modal ── */}}
       <AnimatePresence>
         {showLocationModal && (
           <motion.div
@@ -1212,8 +1340,20 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {/* Approve */}
+          <div className="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
+            {/* Parent lead link */}
+            {lead.parent_lead_id && (
+              <button
+                onClick={() => navigate("/client-hub", { state: { lead: { id: lead.parent_lead_id } } })}
+                title={`Ver lead anterior #${lead.parent_lead_id}`}
+                className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium ring-1 transition-all bg-amber-500/10 text-amber-400 ring-amber-500/30 hover:bg-amber-500/20"
+              >
+                <Link2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Lead anterior #{String(lead.parent_lead_id)}</span>
+              </button>
+            )}
+
+            {/* Approve */}}
             <button
               onClick={() => handleVerdict("approved")}
               disabled={updateStatus.isPending}
@@ -1255,7 +1395,19 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
 
             <div className="w-px h-5 bg-border mx-0.5" />
 
-            {/* Gerar PHC */}
+            {/* Mover Funil */}
+            <button
+              onClick={() => setShowMoveFunnel(true)}
+              title="Mover lead para outro funil"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ring-1 transition-all bg-purple-500/10 text-purple-400 ring-purple-500/30 hover:bg-purple-500/20"
+            >
+              <ArrowRightLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Mover Funil</span>
+            </button>
+
+            <div className="w-px h-5 bg-border mx-0.5" />
+
+            {/* Gerar PHC */}}
             <button
               onClick={() => navigate("/crm", { state: { activeTab: "phc", subTab: "nova", phcLead: lead } })}
               title="Gerar PHC para este lead"
@@ -1330,6 +1482,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
             {activeTab === "info" && <div className="overflow-y-auto h-full scrollbar-thin"><InfoPanel lead={lead} onLeadUpdated={handleLeadUpdated} /></div>}
             {activeTab === "documentos" && <div className="overflow-y-auto h-full scrollbar-thin"><DocumentsPanel leadId={leadId} /></div>}
             {activeTab === "checklist" && <ChecklistPanel leadId={leadId} />}
+            {activeTab === "log" && <ActivityLogPanel leadId={leadId} />}
           </motion.div>
         </AnimatePresence>
       </div>

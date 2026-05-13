@@ -66,6 +66,9 @@ export const leadsApi = {
     updateStage: (id: number, stage_id: number) =>
         api.patch(`/leads/${id}/stage`, { stage_id }),
 
+    updateFunnel: (id: number, funnel_id: number) =>
+        api.patch<{ success: boolean; message: string }>(`/leads/${id}/funnel`, { funnel_id }),
+
     updateStatus: (id: number, status: string, verdict_notes?: string) =>
         api.patch(`/leads/${id}/status`, { status, verdict_notes }),
 
@@ -105,6 +108,8 @@ export const leadsApi = {
     getChecklist: (id: number) =>
         api.get<{ success: boolean; data: Checklist }>(`/leads/${id}/checklist`),
 
+    getActivityLog: (id: number) =>
+        api.get<{ success: boolean; data: ActivityLog[] }>(`/leads/${id}/activity`),
 };
 
 // ============================================================
@@ -328,6 +333,8 @@ export interface Lead {
     bot_active: boolean;
     created_at: string;
     updated_at: string;
+    // Vínculo com lead anterior (quando retornou após ser arquivado)
+    parent_lead_id?: number | null;
     // Legal/juridical complement fields (filled by assessor or extracted by bot)
     address?: string;       // Legacy single-string address (bot OCR extraction)
     street?: string;        // Rua
@@ -506,6 +513,20 @@ export interface Checklist {
     receivedCount: number;
     totalCount: number;
     complete: boolean;
+    flowItems?: ChecklistItem[];
+    standardFields?: { key: string; label: string; value: string | null; filled: boolean }[];
+}
+
+export interface ActivityLog {
+    id: number;
+    action: string;
+    entity_type?: string;
+    old_value?: string | null;
+    new_value?: string | null;
+    ip_address?: string | null;
+    created_at: string;
+    user_name?: string | null;
+    user_email?: string | null;
 }
 
 export type PhcDocType = 'procuracao' | 'declaracao_hipo' | 'contrato';

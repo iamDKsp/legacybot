@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Search, Loader2, Plus, AlertCircle, ShieldAlert, Scale, UserX, QrCode, Copy } from "lucide-react";
+import { Search, Loader2, Plus, AlertCircle, ShieldAlert, Scale, UserX, QrCode, Copy, Filter } from "lucide-react";
 import { FunnelTabs } from "./FunnelTabs";
 import KanbanColumn from "./KanbanColumn";
 import { useLeads, useFunnels, useStages } from "@/hooks/useLeads";
@@ -55,11 +55,29 @@ const FUNNEL_BANNERS: Record<string, FunnelBanner> = {
   },
 };
 
+// ── Status filter options ─────────────────────────────────────────────────────
+type StatusFilter = "active" | "all" | "approved" | "rejected" | "archived";
+
+const STATUS_FILTERS: { key: StatusFilter; label: string; activeClass: string }[] = [
+  { key: "active",   label: "Ativos",     activeClass: "text-green-400  border-green-500/40  bg-green-500/10" },
+  { key: "all",      label: "Todos",      activeClass: "text-foreground border-border/60      bg-secondary" },
+  { key: "approved", label: "Aprovados",  activeClass: "text-blue-400   border-blue-500/40   bg-blue-500/10" },
+  { key: "rejected", label: "Rejeitados", activeClass: "text-red-400    border-red-500/40    bg-red-500/10" },
+  { key: "archived", label: "Arquivados", activeClass: "text-zinc-400   border-zinc-500/40   bg-zinc-500/10" },
+];
+
+export const STATUS_BADGE: Record<string, string> = {
+  approved: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
+  rejected: "bg-red-500/20 text-red-400 border border-red-500/30",
+  archived: "bg-zinc-500/20 text-zinc-400 border border-zinc-500/30",
+};
+
 export function KanbanBoard() {
   const [activeFunnelId, setActiveFunnelId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [showNewLead, setShowNewLead] = useState(false);
   const [isCopying, setIsCopying] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -77,9 +95,15 @@ export function KanbanBoard() {
   // Fetch ONLY the stages for the active funnel (from funnel_stages table in backend)
   const { data: funnelStages = [], isLoading: stagesLoading } = useStages(currentFunnelSlug);
 
-  const { data: leads = [], isLoading: leadsLoading, error } = useLeads(
-    currentFunnelId ? { funnel_id: currentFunnelId, status: "active" } : undefined
-  );
+  // Build query params — status="all" shows everything (pass no status param)
+  const leadsQueryParams = useMemo(() => {
+    if (!currentFunnelId) return undefined;
+    const params: Record<string, unknown> = { funnel_id: currentFunnelId };
+    if (statusFilter !== "all") params.status = statusFilter;
+    return params;
+  }, [currentFunnelId, statusFilter]);
+
+  const { data: leads = [], isLoading: leadsLoading, error } = useLeads(leadsQueryParams);
 
   const filteredLeads = useMemo(() => {
     if (!search) return leads;
@@ -196,6 +220,32 @@ export function KanbanBoard() {
         />
       )}
 
+      {/* ── Status Filter Bar ──────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Filter className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+        {STATUS_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            id={`status-filter-${f.key}`}
+            onClick={() => setStatusFilter(f.key)}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all duration-150 ${
+              statusFilter === f.key
+                ? f.activeClass
+                : "text-muted-foreground border-transparent hover:border-border hover:text-foreground"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        {statusFilter !== "active" && (
+          <span className="text-[10px] text-amber-400/70 italic ml-1">
+            {statusFilter === "all"
+              ? "Mostrando todos os leads"
+              : `Mostrando apenas leads ${STATUS_FILTERS.find((s) => s.key === statusFilter)?.label.toLowerCase()}`}
+          </span>
+        )}
+      </div>
+
       {/* Loading */}
       {isLoading && (
         <div className="flex flex-1 items-center justify-center">
@@ -216,7 +266,7 @@ export function KanbanBoard() {
         <div className="flex flex-1 gap-3 overflow-x-auto pb-4 kanban-scroll-x">
           {funnelStages.map((stage: { id: number; name: string; slug: string }, i: number) => {
             const stageLeads = filteredLeads.filter(
-              (l: Lead) => l.stage_id === stage.id || l.stage_slug === stage.slug
+              (l: Lead) => l.stage_id === stage.id || (l as any).stage_slug === stage.slug
             );
             return (
               <KanbanColumn
@@ -225,6 +275,7 @@ export function KanbanBoard() {
                 stageLabel={stage.name}
                 leads={stageLeads}
                 index={i}
+                showStatusBadge={statusFilter !== "active"}
               />
             );
           })}

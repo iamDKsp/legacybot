@@ -560,6 +560,53 @@ export async function runAutoMigrations(): Promise<void> {
         `).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_ai_error_logs_created ON ai_error_logs(created_at DESC)`).catch(() => {});
 
+        // ── 12. leads: parent_lead_id (vínculo com lead anterior arquivado) ────
+        await db.raw(`
+            ALTER TABLE leads
+                ADD COLUMN IF NOT EXISTS parent_lead_id INTEGER DEFAULT NULL
+        `).catch(() => {});
+        // Adicionar FK separadamente (pode falhar se a referencia ainda não existe — seguro ignorar)
+        await db.raw(`
+            DO $$ BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE constraint_name = 'leads_parent_lead_id_fkey'
+                ) THEN
+                    ALTER TABLE leads
+                        ADD CONSTRAINT leads_parent_lead_id_fkey
+                        FOREIGN KEY (parent_lead_id) REFERENCES leads(id) ON DELETE SET NULL;
+                END IF;
+            END $$
+        `).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_leads_parent_lead_id ON leads(parent_lead_id)`).catch(() => {});
+
+        // ── 13. activity_logs (auditoria de ações sobre leads) ─────────────
+        await db.raw(`
+            CREATE TABLE IF NOT EXISTS activity_logs (
+                id           SERIAL PRIMARY KEY,
+                user_id      INTEGER      REFERENCES users(id)  ON DELETE SET NULL,
+                lead_id      INTEGER      REFERENCES leads(id)  ON DELETE CASCADE,
+                action       VARCHAR(100) NOT NULL,
+                entity_type  VARCHAR(50)  DEFAULT NULL,
+                entity_id    INTEGER      DEFAULT NULL,
+                old_value    TEXT         DEFAULT NULL,
+                new_value    TEXT         DEFAULT NULL,
+                ip_address   VARCHAR(45)  DEFAULT NULL,
+                user_agent   TEXT         DEFAULT NULL,
+                created_at   TIMESTAMP    DEFAULT NOW()
+            )
+        `).catch(() => {});
+        // Garantir colunas extras caso tabela já existia sem elas
+        await db.raw(`ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS ip_address   VARCHAR(45)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS user_agent   TEXT         DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS old_value    TEXT         DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS new_value    TEXT         DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS entity_type  VARCHAR(50)  DEFAULT NULL`).catch(() => {});
+        await db.raw(`ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS entity_id    INTEGER      DEFAULT NULL`).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_activity_logs_lead_id ON activity_logs(lead_id)`).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_activity_logs_action   ON activity_logs(action)`).catch(() => {});
+        await db.raw(`CREATE INDEX IF NOT EXISTS idx_activity_logs_created  ON activity_logs(created_at DESC)`).catch(() => {});
+
         console.log('[DB] ✅ Auto-migrations concluídas (PostgreSQL)');
 
 

@@ -185,7 +185,7 @@ async function connectInstance(instanceName, { clearSession = false } = {}) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type === 'notify') {
             for (const msg of messages) {
-                if (!msg.key.fromMe) {
+                if (true) { // allow fromMe messages to pass through
                     // ── Create a CLEAN serializable copy of msg ──
                     // Baileys msg is a protobuf object with non-serializable
                     // properties that can cause axios to silently drop fields.
@@ -260,6 +260,7 @@ async function connectInstance(instanceName, { clearSession = false } = {}) {
                             }
                         } catch (err) {
                             console.error(`[${instanceName}] Image download FAILED:`, err.message);
+                            webhookPayload.data.imageDownloadFailed = true;
                         }
                     }
 

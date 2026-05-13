@@ -5,6 +5,7 @@ import {
     createLead,
     updateLead,
     updateLeadStage,
+    updateLeadFunnel,
     updateLeadStatus,
     toggleBotStatus,
     deleteLead,
@@ -20,6 +21,7 @@ import {
     uploadAndExtractDocument,
     getLeadLocation,
     extractDocumentData,
+    getLeadActivityLog,
 } from '../controllers/leads.controller';
 import { getConversations, sendMessage } from '../controllers/webhook.controller';
 import { authMiddleware } from '../middleware/auth';
@@ -42,8 +44,12 @@ router.delete('/:id', deleteLead);
 
 // Lead actions
 router.patch('/:id/stage', updateLeadStage);
+router.patch('/:id/funnel', updateLeadFunnel);
 router.patch('/:id/status', updateLeadStatus);
 router.patch('/:id/bot', toggleBotStatus);
+
+// Lead activity log (audit trail)
+router.get('/:id/activity', getLeadActivityLog);
 
 // Lead notes
 router.get('/:id/notes', getLeadNotes);

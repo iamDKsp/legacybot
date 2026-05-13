@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { leadsApi, Lead, CreateLeadBody } from '@/services/api';
+import { leadsApi, Lead, CreateLeadBody, ActivityLog } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
 // ── Fetch all leads (with optional filters) ──────────────────
@@ -166,12 +166,43 @@ export function useDeleteLead() {
         mutationFn: (id: number) => leadsApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['leads'] });
+            queryClient.invalidateQueries({ queryKey: ['funnels'] });
             queryClient.invalidateQueries({ queryKey: ['dashboard'] });
             toast({ title: 'Lead arquivado com sucesso' });
         },
         onError: () => {
             toast({ title: 'Erro ao arquivar lead', variant: 'destructive' });
         },
+    });
+}
+
+// ── Move lead to another funnel ───────────────────────────────
+export function useUpdateLeadFunnel() {
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    return useMutation({
+        mutationFn: ({ id, funnel_id }: { id: number; funnel_id: number }) =>
+            leadsApi.updateFunnel(id, funnel_id),
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+            queryClient.invalidateQueries({ queryKey: ['funnels'] });
+            queryClient.invalidateQueries({ queryKey: ['lead', variables.id] });
+            toast({ title: 'Lead movido para outro funil. Sofia desabilitada.', description: 'Habilite Sofia quando o lead estiver pronto.' });
+        },
+        onError: () => {
+            toast({ title: 'Erro ao mover lead de funil', variant: 'destructive' });
+        },
+    });
+}
+
+// ── Lead activity log (audit trail) ──────────────────────────
+export function useLeadActivityLog(leadId: number) {
+    return useQuery({
+        queryKey: ['lead-activity', leadId],
+        queryFn: async () => (await leadsApi.getActivityLog(leadId)).data.data as ActivityLog[],
+        enabled: !!leadId,
+        staleTime: 10_000,
     });
 }
 

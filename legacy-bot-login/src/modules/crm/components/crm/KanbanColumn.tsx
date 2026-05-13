@@ -7,9 +7,10 @@ interface KanbanColumnProps {
   stageLabel: string;
   leads: (Lead & Record<string, unknown>)[];
   index: number;
+  showStatusBadge?: boolean;
 }
 
-const KanbanColumn = ({ stageLabel, leads, index }: KanbanColumnProps) => {
+const KanbanColumn = ({ stageLabel, leads, index, showStatusBadge = false }: KanbanColumnProps) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -29,7 +30,7 @@ const KanbanColumn = ({ stageLabel, leads, index }: KanbanColumnProps) => {
       </div>
       <div className="p-2 flex flex-col gap-2 overflow-y-auto kanban-scroll-y flex-1">
         {leads.map((lead, i) => (
-          <LeadCard key={lead.id} lead={lead} index={i} />
+          <LeadCard key={lead.id} lead={lead} index={i} showStatusBadge={showStatusBadge} />
         ))}
         {leads.length === 0 && (
           <div className="text-center py-8 text-muted-foreground text-xs">

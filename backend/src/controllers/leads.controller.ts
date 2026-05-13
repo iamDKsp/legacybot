@@ -90,7 +90,11 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
 
         if (funnel_id) query = query.where('l.funnel_id', Number(funnel_id));
         if (stage_id) query = query.where('l.stage_id', Number(stage_id));
-        if (status) query = query.where('l.status', String(status));
+        // status='all' → sem filtro de status (mostra tudo)
+        // status omitido → padrão: sem filtro (para compatibilidade retro)
+        if (status && String(status) !== 'all') {
+            query = query.where('l.status', String(status));
+        }
         if (assigned_to) query = query.where('l.assigned_to', Number(assigned_to));
 
         if (search) {
@@ -104,8 +108,6 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
             });
         }
 
-
-
         const pageNum = parseInt(String(page), 10);
         const limitNum = parseInt(String(limit), 10);
         const offset = (pageNum - 1) * limitNum;
@@ -113,7 +115,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
         const countQuery = db('leads as l').count('l.id as total');
         if (funnel_id) countQuery.where('l.funnel_id', Number(funnel_id));
         if (stage_id) countQuery.where('l.stage_id', Number(stage_id));
-        if (status) countQuery.where('l.status', String(status));
+        if (status && String(status) !== 'all') countQuery.where('l.status', String(status));
 
         const [countResult] = await countQuery;
         const total = Number((countResult as Record<string, unknown>).total || 0);
@@ -179,6 +181,14 @@ export async function createLead(req: Request, res: Response): Promise<void> {
         // Default stage to "recebido" (id=1) if not provided
         const stageId = result.data.stage_id || 1;
 
+        // ── Audit: obter IP do requisitante ────────────────────────────────
+        const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+            ?? req.socket?.remoteAddress
+            ?? 'unknown';
+        const userAgent = req.headers['user-agent'] ?? 'unknown';
+
+        console.log(`[Lead.Create] 🆕 user_id=${req.user?.userId ?? 'anon'} ip=${ipAddress} | Criando lead: ${JSON.stringify(result.data)}`);
+
         const [{ id }] = await db('leads').insert({
             ...result.data,
             stage_id: stageId,
@@ -192,23 +202,29 @@ export async function createLead(req: Request, res: Response): Promise<void> {
             .where('l.id', id)
             .first();
 
-        await logActivity({
-            user_id: req.user?.userId,
+        console.log(`[Lead.Create] ✅ Lead #${id} criado com status='${lead?.status ?? 'unknown'}' | funnel_id=${result.data.funnel_id} stage_id=${stageId}`);
+
+        // Salvar IP no log de atividade para rastrear quem criou
+        await db('activity_logs').insert({
+            user_id: req.user?.userId ?? null,
             lead_id: id,
             action: 'lead_created',
             entity_type: 'lead',
             entity_id: id,
-            new_value: lead,
-        });
+            new_value: JSON.stringify(lead),
+            ip_address: ipAddress,
+            user_agent: userAgent,
+        }).catch((e: Error) => console.warn('[Lead.Create] activity_log insert failed:', e.message));
 
         res.status(201).json({ success: true, data: lead });
     } catch (err: unknown) {
         const error = err as { code?: string };
         if (error.code === '23505') {
+            console.warn(`[Lead.Create] ❌ 23505 Conflito de telefone: ${JSON.stringify(req.body)}`);
             res.status(409).json({ success: false, error: 'Já existe um lead com este telefone' });
             return;
         }
-        console.error('Create lead error:', err);
+        console.error('[Lead.Create] ❌ Erro inesperado:', err);
         res.status(500).json({ success: false, error: 'Erro ao criar lead' });
     }
 }
@@ -277,22 +293,91 @@ export async function updateLeadStage(req: Request, res: Response): Promise<void
             return;
         }
 
-        await db('leads').where({ id: Number(id) }).update({ stage_id: result.data.stage_id });
-
-        await logActivity({
-            user_id: req.user?.userId,
-            lead_id: Number(id),
-            action: 'stage_changed',
-            entity_type: 'lead',
-            entity_id: Number(id),
-            old_value: { stage_id: existing.stage_id },
-            new_value: { stage_id: result.data.stage_id, stage_name: stage.name },
+        // Mover manualmente → desabilitar Sofia automaticamente
+        await db('leads').where({ id: Number(id) }).update({
+            stage_id: result.data.stage_id,
+            bot_active: false,
         });
 
-        res.json({ success: true, message: `Lead movido para: ${stage.name}` });
+        const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? req.socket?.remoteAddress ?? 'unknown';
+        console.log(`[Lead.StageMove] 🔀 Lead #${id} movido manualmente de stage_id=${existing.stage_id} → stage_id=${result.data.stage_id} (${stage.name}) por user=${req.user?.userId} ip=${ipAddress}. Sofia desabilitada.`);
+
+        await db('activity_logs').insert({
+            user_id: req.user?.userId ?? null,
+            lead_id: Number(id),
+            action: 'stage_changed_manual',
+            entity_type: 'lead',
+            entity_id: Number(id),
+            old_value: JSON.stringify({ stage_id: existing.stage_id, bot_active: existing.bot_active }),
+            new_value: JSON.stringify({ stage_id: result.data.stage_id, stage_name: stage.name, bot_active: false }),
+            ip_address: ipAddress,
+        }).catch((e: Error) => console.warn('[Lead.StageMove] activity_log insert failed:', e.message));
+
+        res.json({ success: true, message: `Lead movido para: ${stage.name}. Sofia desabilitada.` });
     } catch (err) {
         console.error('Update stage error:', err);
         res.status(500).json({ success: false, error: 'Erro ao atualizar estágio' });
+    }
+}
+
+// PATCH /api/leads/:id/funnel — mover lead para outro funil manualmente
+export async function updateLeadFunnel(req: Request, res: Response): Promise<void> {
+    const schema = z.object({ funnel_id: z.number().int().positive() });
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+        res.status(400).json({ success: false, error: 'funnel_id inválido' });
+        return;
+    }
+
+    const { id } = req.params;
+    try {
+        const existing = await db<Lead>('leads').where({ id: Number(id) }).first();
+        if (!existing) {
+            res.status(404).json({ success: false, error: 'Lead não encontrado' });
+            return;
+        }
+
+        const funnel = await db('funnels').where({ id: result.data.funnel_id }).first();
+        if (!funnel) {
+            res.status(400).json({ success: false, error: 'Funil inválido' });
+            return;
+        }
+
+        // Determinar o primeiro estágio do novo funil
+        const firstStage = await db('stages as s')
+            .join('funnel_stages as fs', 's.id', 'fs.stage_id')
+            .where('fs.funnel_id', result.data.funnel_id)
+            .orderBy('fs.display_order', 'asc')
+            .select('s.id', 's.name', 's.slug')
+            .first();
+
+        // Mover para novo funil + primeiro estágio do funil + desabilitar Sofia
+        await db('leads').where({ id: Number(id) }).update({
+            funnel_id: result.data.funnel_id,
+            stage_id: firstStage?.id ?? existing.stage_id,
+            bot_active: false,
+            // Reset bot_stage para Sofia revisar o contexto ao ser reativada
+            bot_stage: 'reception',
+        });
+
+        const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? req.socket?.remoteAddress ?? 'unknown';
+        console.log(`[Lead.FunnelMove] 🔀 Lead #${id} movido manualmente de funnel_id=${existing.funnel_id} → funnel_id=${result.data.funnel_id} (${funnel.name}) por user=${req.user?.userId} ip=${ipAddress}. Sofia desabilitada. bot_stage resetado para 'reception'.`);
+
+        await db('activity_logs').insert({
+            user_id: req.user?.userId ?? null,
+            lead_id: Number(id),
+            action: 'funnel_changed_manual',
+            entity_type: 'lead',
+            entity_id: Number(id),
+            old_value: JSON.stringify({ funnel_id: existing.funnel_id, stage_id: existing.stage_id, bot_active: existing.bot_active }),
+            new_value: JSON.stringify({ funnel_id: result.data.funnel_id, funnel_name: funnel.name, stage_id: firstStage?.id, bot_active: false, bot_stage: 'reception' }),
+            ip_address: ipAddress,
+        }).catch((e: Error) => console.warn('[Lead.FunnelMove] activity_log insert failed:', e.message));
+
+        res.json({ success: true, message: `Lead movido para funil: ${funnel.name}. Sofia desabilitada. Habilite Sofia quando o lead estiver pronto.` });
+    } catch (err) {
+        console.error('Update funnel error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao mover lead de funil' });
     }
 }
 
@@ -424,9 +509,38 @@ export async function toggleBotStatus(req: Request, res: Response): Promise<void
         }
 
         const newValue = !lead.bot_active;
-        await db('leads').where({ id: Number(id) }).update({ bot_active: newValue });
+        const updatePayload: Record<string, unknown> = { bot_active: newValue };
 
-        res.json({ success: true, data: { bot_active: newValue } });
+        // Ao REATIVAR Sofia — garantir que bot_stage seja 'approach' ou superior
+        // para que ela releia o contexto do funil atual e cheque docs faltantes.
+        // Se estava em 'reception' (valor de reset), avança para 'approach'.
+        if (newValue === true) {
+            const currentStage = (lead as unknown as Record<string, unknown>).bot_stage as string | undefined;
+            if (!currentStage || currentStage === 'reception') {
+                updatePayload.bot_stage = 'approach';
+                console.log(`[Bot.Toggle] 🤖 Sofia reativada para lead #${id} — bot_stage forçado para 'approach' (era '${currentStage ?? 'nulo'}').`);
+            } else {
+                console.log(`[Bot.Toggle] 🤖 Sofia reativada para lead #${id} — mantendo bot_stage='${currentStage}'.`);
+            }
+        } else {
+            console.log(`[Bot.Toggle] 🤖 Sofia desabilitada para lead #${id} por user=${req.user?.userId}.`);
+        }
+
+        await db('leads').where({ id: Number(id) }).update(updatePayload);
+
+        const ipAddress = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? req.socket?.remoteAddress ?? 'unknown';
+        await db('activity_logs').insert({
+            user_id: req.user?.userId ?? null,
+            lead_id: Number(id),
+            action: newValue ? 'bot_enabled' : 'bot_disabled',
+            entity_type: 'lead',
+            entity_id: Number(id),
+            old_value: JSON.stringify({ bot_active: lead.bot_active }),
+            new_value: JSON.stringify(updatePayload),
+            ip_address: ipAddress,
+        }).catch((e: Error) => console.warn('[Bot.Toggle] activity_log insert failed:', e.message));
+
+        res.json({ success: true, data: { bot_active: newValue, bot_stage: updatePayload.bot_stage } });
     } catch (err) {
         console.error('Toggle bot error:', err);
         res.status(500).json({ success: false, error: 'Erro ao alterar status do bot' });
@@ -693,8 +807,11 @@ export async function downloadDocument(req: Request, res: Response): Promise<voi
 
 export async function getFunnels(req: Request, res: Response): Promise<void> {
     try {
+        // COUNT apenas leads ATIVOS — alinha com o que o Kanban exibe
         const funnels = await db('funnels as f')
-            .leftJoin('leads as l', 'f.id', 'l.funnel_id')
+            .leftJoin('leads as l', function(this: any) {
+                this.on('f.id', '=', 'l.funnel_id').andOnVal('l.status', '=', 'active');
+            })
             .where('f.is_active', true)
             .groupBy('f.id')
             .orderBy('f.display_order')
@@ -704,6 +821,28 @@ export async function getFunnels(req: Request, res: Response): Promise<void> {
     } catch (err) {
         console.error('Get funnels error:', err);
         res.status(500).json({ success: false, error: 'Erro ao buscar funis' });
+    }
+}
+
+// GET /api/leads/:id/activity — log de auditoria do lead
+export async function getLeadActivityLog(req: Request, res: Response): Promise<void> {
+    const { id } = req.params;
+    try {
+        const logs = await db('activity_logs as a')
+            .leftJoin('users as u', 'a.user_id', 'u.id')
+            .where('a.lead_id', Number(id))
+            .orderBy('a.created_at', 'desc')
+            .limit(100)
+            .select(
+                'a.id', 'a.action', 'a.entity_type', 'a.old_value', 'a.new_value',
+                'a.ip_address', 'a.created_at',
+                'u.name as user_name', 'u.email as user_email'
+            );
+
+        res.json({ success: true, data: logs });
+    } catch (err) {
+        console.error('Get activity log error:', err);
+        res.status(500).json({ success: false, error: 'Erro ao buscar log de atividade' });
     }
 }
 
