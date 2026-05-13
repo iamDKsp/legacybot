@@ -56,6 +56,9 @@ const updateLeadSchema = createLeadSchema.partial().extend({
     marital_status: z.enum(['solteiro','casado','divorciado','viuvo','outro']).optional(),
     nationality:    z.string().optional(),
     birthdate:      z.string().optional(), // ISO date string "YYYY-MM-DD"
+    gender:         z.enum(['M','F']).optional(),
+    occupation:     z.string().optional(),
+    status:         z.string().optional(),
 });
 
 
