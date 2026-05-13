@@ -94,16 +94,23 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
     setSaving(true);
     setError("");
     try {
+      // ── Persistir gênero no lead antes de gerar os documentos ──
+      // O serviço de PDF lê lead.gender direto do banco; as notes são apenas anotação visual.
+      if (gender && gender !== (selectedLead.gender as string)) {
+        await leadsApi.update(selectedLead.id, { gender } as Record<string, unknown>);
+      }
+
       for (const doc_type of Array.from(selectedDocTypes)) {
         await phcApi.createDocument({
           lead_id: selectedLead.id,
           lawyer_id: selectedLawyer.id,
           doc_type,
           funnel_slug: selectedLead.funnel_slug,
-          notes: notes + (gender ? `\nGênero: ${gender === 'M' ? 'Masculino' : 'Feminino'}` : ''),
+          notes: notes || undefined,
         });
       }
       qc.invalidateQueries({ queryKey: ["phc-documents"] });
+      qc.invalidateQueries({ queryKey: ["lead", selectedLead.id] });
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
@@ -118,6 +125,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
 
     } catch {
       setError("Erro ao salvar PHC. Tente novamente.");
+
     } finally {
       setSaving(false);
     }
