@@ -54,6 +54,8 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
   const [selectedDocTypes, setSelectedDocTypes] = useState<Set<PhcDocType>>(new Set());
   const [gender, setGender] = useState<'M' | 'F' | ''>('');
   const [notes, setNotes] = useState("");
+  const [docArguments, setDocArguments] = useState("");
+  const [argumentsFocused, setArgumentsFocused] = useState(false);
   const [showLeadDropdown, setShowLeadDropdown] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -107,6 +109,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
           doc_type,
           funnel_slug: selectedLead.funnel_slug,
           notes: notes || undefined,
+          arguments: docArguments || undefined,
         });
       }
       qc.invalidateQueries({ queryKey: ["phc-documents"] });
@@ -118,6 +121,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
         setSelectedLawyer(null);
         setSelectedDocTypes(new Set());
         setNotes("");
+        setDocArguments("");
         setLeadSearch("");
         setShowPreview(false);
         onSuccess?.();
@@ -354,18 +358,38 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
         </div>
       </div>
 
-      {/* Optional Notes */}
-      <div className="rounded-xl border border-border/40 bg-card p-4">
+      {/* Arguments Field — Instrua Sofia */}
+      <div className="rounded-xl border border-border/40 bg-card p-4 relative">
         <label className="mb-2 block text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Observações (opcional)
+          Argumentos
+          <span className="ml-1.5 text-accent/70 normal-case font-normal">— instrua Sofia a gerar este documento</span>
         </label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Notas sobre este PHC..."
-          rows={2}
-          className="w-full rounded-lg border border-border bg-muted py-2.5 px-4 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none"
-        />
+        <div className="relative flex gap-3">
+          <textarea
+            value={docArguments}
+            onChange={(e) => setDocArguments(e.target.value)}
+            onFocus={() => setArgumentsFocused(true)}
+            onBlur={() => setTimeout(() => setArgumentsFocused(false), 3000)}
+            placeholder='Ex: "A procuração deve ser no masculino" ou "Adicione a cláusula X ao contrato"...'
+            rows={3}
+            className="flex-1 rounded-lg border border-border bg-muted py-2.5 px-4 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none transition-all"
+          />
+          {/* Sofia reaction */}
+          {argumentsFocused && (
+            <div className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full flex flex-col items-center gap-1.5 pointer-events-none animate-in fade-in slide-in-from-right-2 duration-300">
+              <div className="bg-accent text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap relative">
+                As ordens! ⚡
+                <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-0 h-0 border-r-[6px] border-r-accent border-y-[5px] border-y-transparent" />
+              </div>
+              <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-accent/40 shadow-md">
+                <img src="/sofia-3d.png" alt="Sofia" className="w-full h-full object-cover" />
+              </div>
+            </div>
+          )}
+        </div>
+        <p className="mt-1.5 text-[10px] text-muted-foreground/70">
+          Estes argumentos são injetados diretamente no prompt da IA e têm prioridade absoluta sobre o template padrão.
+        </p>
       </div>
 
       {/* Preview */}

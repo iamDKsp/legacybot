@@ -165,7 +165,7 @@ export const getPhcDocumentById = async (req: Request, res: Response): Promise<v
 
 export const createPhcDocument = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { lead_id, lawyer_id, doc_type, funnel_slug, notes } = req.body;
+        const { lead_id, lawyer_id, doc_type, funnel_slug, notes, arguments: docArguments } = req.body;
 
         if (!lead_id || !lawyer_id || !doc_type) {
             res.status(400).json({ success: false, error: 'lead_id, lawyer_id e doc_type são obrigatórios' });
@@ -178,6 +178,7 @@ export const createPhcDocument = async (req: Request, res: Response): Promise<vo
             doc_type,
             funnel_slug,
             notes,
+            arguments: docArguments || null,
             status: 'rascunho',
         }).returning('id');
 
@@ -241,7 +242,7 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             .join('phc_lawyers as pl', 'pd.lawyer_id', 'pl.id')
             .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
             .select(
-                'pd.id', 'pd.doc_type', 'pd.status', 'pd.notes', 'pd.file_path',
+                'pd.id', 'pd.doc_type', 'pd.status', 'pd.notes', 'pd.arguments', 'pd.file_path',
                 // Lead data
                 'l.name as lead_name', 'l.phone as lead_phone', 'l.cpf as lead_cpf',
                 'l.email as lead_email', 'l.description as lead_description',
@@ -316,7 +317,8 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
             doc.doc_type as 'procuracao' | 'declaracao_hipo' | 'contrato',
             lead,
             lawyer,
-            doc.notes as string | null
+            doc.notes as string | null,
+            doc.arguments as string | null
         );
 
         // Marca como 'baixado'

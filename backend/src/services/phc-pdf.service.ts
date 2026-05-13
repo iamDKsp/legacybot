@@ -1,11 +1,40 @@
 import PDFDocument from 'pdfkit';
 import * as path from 'path';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { config } from '../config/env';
 import { buildCtx } from './gender-detect';
 import {
   getAcaoContrato, getAcaoProcuracao, clienteQual,
   buildContrato, buildProcuracao, buildDeclaracaoHipo,
   ContratoData, ProcuracaoData, HipoData,
 } from './phc-templates';
+
+const _genAI = new GoogleGenerativeAI(config.googleAi.apiKey);
+
+/**
+ * Aplica os argumentos do usuário ao texto do documento via Gemini.
+ * Os argumentos têm prioridade absoluta sobre o template.
+ */
+async function applyArguments(docText: string, userArgs: string): Promise<string> {
+  try {
+    const model = _genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const prompt = `Você é um assistente jurídico especialista em documentos brasileiros.
+Abaixo está um documento jurídico já redigido. Aplique EXATAMENTE as instruções do usuário ao documento.
+As instruções têm prioridade absoluta — elas sobrepõem qualquer padrão do documento.
+Mantém a estrutura, formatação e termos jurídicos. Retorne SOMENTE o texto do documento modificado, sem explicações.
+
+INSTRUÇÕES DO USUÁRIO:
+${userArgs}
+
+DOCUMENTO:
+${docText}`;
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (e) {
+    console.error('[PHC] applyArguments error:', e);
+    return docText; // fallback: usa original
+  }
+}
 
 // --- Types -------------------------------------------------------------------
 export interface LeadData {
@@ -150,7 +179,7 @@ function witness(doc: PDFKit.PDFDocument) {
 }
 
 // --- Contrato (meta: 2 paginas) ----------------------------------------------
-async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|null): Promise<Buffer> {
+async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|null, docArguments?: string|null): Promise<Buffer> {
   const doc = createDoc(), buf = collectBuffer(doc);
   const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const slug = lead.funnel_slug || lead.funnel_name || 'geral';
@@ -206,6 +235,16 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
   sec(p[14]); for (let i = 15; i <= 17; i++) cl(p[i]);
   sec(p[18]); cl(p[19]);
 
+  // Se houver argumentos, reescreve o conteúdo via Gemini antes de renderizar
+  let p2 = p;
+  if (docArguments) {
+    const fullText = p.join('\n\n');
+    const modified = await applyArguments(fullText, docArguments);
+    // split back into same number of parts (best-effort)
+    const parts = modified.split(/\n{2,}/);
+    p2 = p.map((_, i) => parts[i] ?? p[i]);
+  }
+
   if (notes) { sec('OBSERVAÇÕES'); cl(notes); }
 
   // local e data centralizado
@@ -220,7 +259,7 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
 }
 
 // --- Procuracao (meta: 1 pagina) ---------------------------------------------
-async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|null): Promise<Buffer> {
+async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|null, docArguments?: string|null): Promise<Buffer> {
   const doc = createDoc(), buf = collectBuffer(doc);
   const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const slug = lead.funnel_slug || lead.funnel_name || 'geral';
@@ -239,8 +278,13 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
   doc.font('MyFont-Bold').fontSize(13).fillColor('#1a1a1a').text(p[0], { align: 'center' });
   doc.moveDown(0.9);
 
-  // Procuracao: fonte 10pt, lineGap 4.5 — preenche a pagina com boa leiturabilidade
-  doc.font('MyFont').fontSize(10).fillColor('#111').text(p[1], { align: 'justify', lineGap: 4.5 });
+  // Aplica argumentos via Gemini (override absoluto)
+  let finalBody = p[1];
+  if (docArguments) {
+    finalBody = await applyArguments(p[1], docArguments);
+  }
+
+  doc.font('MyFont').fontSize(10).fillColor('#111').text(finalBody, { align: 'justify', lineGap: 4.5 });
   doc.moveDown(0.8);
 
   if (notes) {
@@ -259,7 +303,7 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
 }
 
 // --- Declaracao de Hipossuficiencia (meta: 1 pagina) -------------------------
-async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
+async function genHipo(lead: LeadData, notes?: string|null, docArguments?: string|null): Promise<Buffer> {
   const doc = createDoc(), buf = collectBuffer(doc);
   const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
@@ -275,8 +319,13 @@ async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
   doc.font('MyFont-Bold').fontSize(14).fillColor('#1a1a1a').text(p[0], { align: 'center' });
   doc.moveDown(1.5);
 
-  // Declaracao: fonte 12pt, lineGap 16 — preenche elegantemente a pagina
-  doc.font('MyFont').fontSize(12).fillColor('#111').text(p[1], { align: 'justify', lineGap: 16 });
+  // Aplica argumentos via Gemini
+  let finalBody = p[1];
+  if (docArguments) {
+    finalBody = await applyArguments(p[1], docArguments);
+  }
+
+  doc.font('MyFont').fontSize(12).fillColor('#111').text(finalBody, { align: 'justify', lineGap: 16 });
   doc.moveDown(2);
 
   if (notes) {
@@ -297,12 +346,12 @@ async function genHipo(lead: LeadData, notes?: string|null): Promise<Buffer> {
 
 // --- Public API --------------------------------------------------------------
 export async function generatePhcPdfBuffer(
-  docType: DocType, lead: LeadData, lawyer: LawyerData, notes?: string|null
+  docType: DocType, lead: LeadData, lawyer: LawyerData, notes?: string|null, docArguments?: string|null
 ): Promise<Buffer> {
   switch (docType) {
-    case 'procuracao':      return genProcuracao(lead, lawyer, notes);
-    case 'declaracao_hipo': return genHipo(lead, notes);
-    case 'contrato':        return genContrato(lead, lawyer, notes);
+    case 'procuracao':      return genProcuracao(lead, lawyer, notes, docArguments);
+    case 'declaracao_hipo': return genHipo(lead, notes, docArguments);
+    case 'contrato':        return genContrato(lead, lawyer, notes, docArguments);
     default: throw new Error('Unknown docType: ' + docType);
   }
 }

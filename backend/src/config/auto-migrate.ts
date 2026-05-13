@@ -494,7 +494,9 @@ export async function runAutoMigrations(): Promise<void> {
         // Recriar constraint de status para garantir que inclui 'baixado'
         await db.raw(`ALTER TABLE phc_documents DROP CONSTRAINT IF EXISTS phc_documents_status_check`).catch(() => {});
         await db.raw(`ALTER TABLE phc_documents ADD CONSTRAINT  phc_documents_status_check CHECK (status IN ('rascunho','salvo','baixado'))`).catch(() => {});
+        await db.raw(`ALTER TABLE phc_documents ADD COLUMN IF NOT EXISTS arguments TEXT DEFAULT NULL`).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_phc_funnel ON phc_documents(funnel_slug)`).catch(() => {});
+
 
         // ── DOC-1. documents: file_path + file_url ───────────────────────────
         await db.raw(`ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_url  VARCHAR(500) DEFAULT NULL`).catch(() => {});
