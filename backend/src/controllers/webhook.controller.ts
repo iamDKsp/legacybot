@@ -958,6 +958,24 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             const wss = getWebSocketServer();
             if (wss) wss.emit('new_message', { lead_id: lead.id, lead_name: lead.name, message, conversation_id: conversation.id });
             console.log(`[Webhook] 👤 Assessor/Meta replied directly: ${message.substring(0, 50)}`);
+            
+            // BUG FIX: Se o assessor ou a automação do Meta responder diretamente,
+            // precisamos calar a Sofia cancelando o buffer atual para ela não responder em cima.
+            const existingBuffer = _leadBuffers.get(phone);
+            if (existingBuffer) {
+                clearTimeout(existingBuffer.timer);
+                _leadBuffers.delete(phone);
+                console.log(`[Buffer] 🔇 Cancelled pending bot reply for ${phone} because Assessor/Meta replied directly`);
+            }
+            
+            // Cancela processamento da IA que já estiver rodando
+            const activeController = _activeProcessing.get(phone);
+            if (activeController) {
+                activeController.abort();
+                _activeProcessing.delete(phone);
+                console.log(`[Bot] 🛑 Cancelled active processing for ${phone} because Assessor/Meta replied directly`);
+            }
+
             return; // Stop processing, don't trigger Sofia
         }
 
