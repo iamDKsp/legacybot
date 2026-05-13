@@ -359,38 +359,59 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
       </div>
 
       {/* Arguments Field — Instrua Sofia */}
-      <div className="rounded-xl border border-border/40 bg-card p-4 relative">
-        <label className="mb-2 block text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Argumentos
-          <span className="ml-1.5 text-accent/70 normal-case font-normal">— instrua Sofia a gerar este documento</span>
-        </label>
-        <div className="relative flex gap-3">
-          <textarea
-            value={docArguments}
-            onChange={(e) => setDocArguments(e.target.value)}
-            onFocus={() => setArgumentsFocused(true)}
-            onBlur={() => setTimeout(() => setArgumentsFocused(false), 3000)}
-            placeholder='Ex: "A procuração deve ser no masculino" ou "Adicione a cláusula X ao contrato"...'
-            rows={3}
-            className="flex-1 rounded-lg border border-border bg-muted py-2.5 px-4 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 resize-none transition-all"
-          />
-          {/* Sofia reaction */}
-          {argumentsFocused && (
-            <div className="absolute -right-2 top-1/2 -translate-y-1/2 translate-x-full flex flex-col items-center gap-1.5 pointer-events-none animate-in fade-in slide-in-from-right-2 duration-300">
-              <div className="bg-accent text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap relative">
-                As ordens! ⚡
-                <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-0 h-0 border-r-[6px] border-r-accent border-y-[5px] border-y-transparent" />
-              </div>
-              <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-accent/40 shadow-md">
-                <img src="/sofia-3d.png" alt="Sofia" className="w-full h-full object-cover" />
-              </div>
-            </div>
-          )}
+      <div className={`rounded-xl border-2 p-4 transition-all duration-300 ${
+        argumentsFocused
+          ? 'border-accent bg-accent/5 shadow-lg shadow-accent/10'
+          : 'border-accent/30 bg-card hover:border-accent/50'
+      }`}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-accent text-[10px] font-black text-black">⚡</div>
+            <span className="text-xs font-bold text-accent uppercase tracking-widest">Argumentos</span>
+            <span className="text-xs text-muted-foreground font-normal">— instrua Sofia a gerar este documento</span>
+          </div>
+          {/* AI Badge */}
+          <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-accent/15 text-accent border border-accent/30">
+            IA Override
+          </span>
         </div>
-        <p className="mt-1.5 text-[10px] text-muted-foreground/70">
-          Estes argumentos são injetados diretamente no prompt da IA e têm prioridade absoluta sobre o template padrão.
+
+        {/* Sofia reaction — above textarea, no overflow issue */}
+        {argumentsFocused && (
+          <div className="flex items-center gap-2.5 mb-3 animate-in fade-in slide-in-from-top-1 duration-300">
+            <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-accent/60 shadow-md shadow-accent/20 shrink-0">
+              <img src="/sofia-3d.png" alt="Sofia" className="w-full h-full object-cover" />
+            </div>
+            <div className="relative bg-accent/15 border border-accent/30 text-accent text-xs font-semibold px-3 py-1.5 rounded-xl rounded-tl-none">
+              As ordens! Vou aplicar exatamente o que você mandar. ⚡
+              <div className="absolute -left-2 top-2 w-0 h-0 border-r-[8px] border-r-accent/30 border-y-[6px] border-y-transparent" />
+            </div>
+          </div>
+        )}
+
+        {/* Textarea */}
+        <textarea
+          value={docArguments}
+          onChange={(e) => setDocArguments(e.target.value)}
+          onFocus={() => setArgumentsFocused(true)}
+          onBlur={() => setTimeout(() => setArgumentsFocused(false), 2500)}
+          placeholder='Ex: "Gere o documento no feminino" ou "Adicione a cláusula X ao contrato" ou "Altere o prazo para 30 dias"...'
+          rows={3}
+          className={`w-full rounded-lg border py-2.5 px-3.5 text-sm placeholder:text-muted-foreground/50 focus:outline-none resize-none transition-all duration-200 ${
+            argumentsFocused
+              ? 'border-accent/60 bg-background text-foreground'
+              : 'border-border/40 bg-muted/60 text-foreground'
+          }`}
+        />
+
+        <p className="mt-1.5 text-[10px] text-muted-foreground/60 flex items-center gap-1">
+          <span className="text-accent/60">⚡</span>
+          Prioridade absoluta — sobrepõe qualquer padrão do template gerado.
         </p>
       </div>
+
 
       {/* Preview */}
       {canPreview && showPreview && (
