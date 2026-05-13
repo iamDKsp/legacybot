@@ -1102,8 +1102,8 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             if (isAdLeadMessage(message) && currentBotStageCheck === 'reception') {
                 const leadFirstName = String(lead.name || '').split(' ')[0];
                 const isValidName = leadFirstName && !/^\d+$/.test(leadFirstName) && leadFirstName.length > 2;
-                const greeting = isValidName ? `, ${leadFirstName}` : '';
-                const adReply = `Olá${greeting}! Sou a Sofia, da Legacy Assessoria. Seja muito bem-vindo(a)!\n\nPara eu conseguir entender como posso te ajudar da melhor forma, me conta o que aconteceu? Qual situação te trouxe até a gente hoje?`;
+                const greeting = isValidName ? ` ${leadFirstName}` : '';
+                const adReply = `Oii${greeting}, eu sou a Sofia, da Legacy\n\nTudo bem?\n\nComo posso te ajudar hoje? Me conta um pouquinho do que aconteceu para eu entender sua situação.`;
                 await db('messages').insert({ conversation_id: conversation.id, lead_id: lead.id, content: adReply, direction: 'outbound', sender: 'bot' });
                 const wssAd = getWebSocketServer();
                 if (wssAd) wssAd.emit('bot_response', { lead_id: lead.id, message: adReply });
