@@ -79,7 +79,7 @@ const App = () => (
               }
             />
             <Route
-              path="/client-hub"
+              path="/client-hub/:id"
               element={
                 <ProtectedRoute>
                   <ClientHub />

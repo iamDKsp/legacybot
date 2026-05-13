@@ -88,7 +88,7 @@ const LeadCard = ({ lead, index, showStatusBadge = false }: LeadCardProps) => {
 
   const handleGoToParent = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigate("/client-hub", { state: { lead: { id: parentLeadId } } });
+    navigate(`/client-hub/${parentLeadId}`);
   };
 
   return (
@@ -96,7 +96,7 @@ const LeadCard = ({ lead, index, showStatusBadge = false }: LeadCardProps) => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05, duration: 0.2 }}
-      onClick={() => navigate("/client-hub", { state: { lead } })}
+      onClick={() => navigate(`/client-hub/${lead.id}`)}
       className={`glass-card rounded-lg p-3 cursor-pointer hover:border-primary/40 transition-all duration-200 group relative ${
         lead.status === 'archived' ? 'opacity-60' :
         lead.status === 'rejected' ? 'opacity-70 border-red-500/20' :

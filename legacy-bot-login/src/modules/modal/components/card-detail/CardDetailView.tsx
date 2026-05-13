@@ -1554,7 +1554,7 @@ const CardDetailView = ({ initialLead }: CardDetailViewProps) => {
             {/* Parent lead link */}
             {lead.parent_lead_id && (
               <button
-                onClick={() => navigate("/client-hub", { state: { lead: { id: lead.parent_lead_id } } })}
+                onClick={() => navigate(`/client-hub/${lead.parent_lead_id}`)}
                 title={`Ver lead anterior #${lead.parent_lead_id}`}
                 className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium ring-1 transition-all bg-amber-500/10 text-amber-400 ring-amber-500/30 hover:bg-amber-500/20"
               >

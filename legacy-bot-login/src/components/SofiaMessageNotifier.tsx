@@ -15,7 +15,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MessageCircle, X, ExternalLink } from "lucide-react";
 import sofiaImg from "@/assets/sofia-3d.png";
-import { leadsApi } from "@/services/api";
 
 // ── Notification payload from the `legacy_new_message` DOM event ──
 interface NewMessageDetail {
@@ -83,7 +82,6 @@ export default function SofiaMessageNotifier() {
     const [notification, setNotification] = useState<NewMessageDetail | null>(null);
     const [visible, setVisible] = useState(false);
     const [exiting, setExiting] = useState(false);
-    const [loading, setLoading] = useState(false);
 
     // Debounce: multiple rapid messages from the same lead collapse
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -134,30 +132,10 @@ export default function SofiaMessageNotifier() {
         };
     }, [handleEvent]);
 
-    // ── "Abrir" — fetch lead and navigate to ClientHub → conversas ──
     const handleOpen = useCallback(async () => {
         if (!notification) return;
-        setLoading(true);
-        try {
-            const res = await leadsApi.getById(notification.leadId);
-            const lead = res.data.data;
-            dismiss();
-            // Navigate to client hub; CardDetailView defaults to "conversas" tab
-            navigate("/client-hub", { state: { lead } });
-        } catch {
-            // Fallback: navigate anyway without full lead data
-            dismiss();
-            navigate("/client-hub", {
-                state: {
-                    lead: {
-                        id: notification.leadId,
-                        name: notification.leadName,
-                    },
-                },
-            });
-        } finally {
-            setLoading(false);
-        }
+        dismiss();
+        navigate(`/client-hub/${notification.leadId}`);
     }, [notification, navigate, dismiss]);
 
     if (!visible || !notification) return null;

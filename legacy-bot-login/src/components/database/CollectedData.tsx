@@ -12,36 +12,11 @@ export function CollectedData() {
   const navigate = useNavigate();
 
   const handleOpenCrm = (lead: CollectedLead) => {
-    const crmLead = {
-      id: lead.id,
-      name: lead.name,
-      phone: lead.phone,
-      email: lead.email,
-      cpf: lead.cpf,
-      origin: (lead.origin === "whatsapp" ? "whatsapp" : "manual") as "whatsapp" | "manual",
-      status: (lead.status || "active") as "active" | "approved" | "rejected" | "archived",
-      bot_active: lead.bot_active,
-      bot_stage: lead.bot_stage,
-      funnel_name: lead.funnel_name,
-      funnel_slug: lead.funnel_slug,
-      stage_name: lead.stage_name,
-      created_at: lead.created_at,
-      updated_at: lead.updated_at,
-    };
-    navigate("/client-hub", { state: { lead: crmLead } });
+    navigate(`/client-hub/${lead.id}`);
   };
 
   const handleOpenConversation = (lead: CollectedLead) => {
-    const crmLead = {
-      id: String(lead.id),
-      name: lead.name,
-      phone: lead.phone,
-      origin: (lead.origin === "whatsapp" ? "whatsapp" : "manual") as "whatsapp" | "manual",
-      createdAt: new Date(lead.created_at).toLocaleDateString("pt-BR"),
-      funnel: lead.funnel_slug || "trabalhista",
-      stage: lead.stage_name || "recebido",
-    };
-    navigate("/client-hub", { state: { lead: crmLead } });
+    navigate(`/client-hub/${lead.id}`);
   };
 
   useEffect(() => {
