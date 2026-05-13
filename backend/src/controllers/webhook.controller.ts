@@ -697,6 +697,10 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
 
             if (archivedLead) {
                 console.log(`[Webhook] 🔗 Telefone ${phone} retornou — lead #${archivedLead.id} estava ${archivedLead.status}. Criando novo lead vinculado (parent_lead_id=${archivedLead.id}).`);
+                
+                // CRITICAL FIX: Remove whatsapp_id from the archived lead to free up the unique constraint
+                // so the new lead can claim it without crashing the database.
+                await db('leads').where({ id: archivedLead.id }).update({ whatsapp_id: null });
             }
 
             const [{ id: leadId }] = await db('leads').insert({
