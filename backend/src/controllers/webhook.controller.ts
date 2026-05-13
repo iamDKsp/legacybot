@@ -913,7 +913,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
         if (fromMe) {
             const duplicate = await db('messages')
                 .where({ lead_id: lead.id, content: message, direction: 'outbound' })
-                .where('created_at', '>', new Date(Date.now() - 10000))
+                .where('sent_at', '>', new Date(Date.now() - 10000))
                 .first();
 
             if (duplicate) {

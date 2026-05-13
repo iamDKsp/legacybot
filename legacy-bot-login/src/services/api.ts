@@ -347,6 +347,12 @@ export interface Lead {
     marital_status?: 'solteiro' | 'casado' | 'divorciado' | 'viuvo' | 'outro';
     nationality?: string;
     birthdate?: string;
+    gender?: 'M' | 'F' | null;
+    occupation?: string;
+    mother?: string;
+    father?: string;
+    org_emissor?: string;
+    uf_emissor?: string;
     // Joined fields from API
     funnel_name?: string;
     funnel_slug?: string;

@@ -545,7 +545,7 @@ interface FieldRowProps {
   label: string;
   value: string;
   fieldKey: string;
-  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "select-uf" | "tel";
+  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "select-uf" | "select-gender" | "tel";
   placeholder?: string;
   readOnly?: boolean;
   onSave: (key: string, value: string) => Promise<void>;
@@ -617,6 +617,17 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               onChange={(v) => { setDraft(v); }}
               placeholder="UF..."
               options={ESTADOS.map(s => ({ value: s, label: s }))}
+              className="flex-1 min-w-0"
+            />
+          ) : type === "select-gender" ? (
+            <StyledSelect
+              value={draft}
+              onChange={(v) => { setDraft(v); }}
+              placeholder="Selecionar..."
+              options={[
+                { value: 'M', label: 'Masculino' },
+                { value: 'F', label: 'Feminino' },
+              ]}
               className="flex-1 min-w-0"
             />
           ) : (
@@ -708,6 +719,7 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <FieldRow icon={<Hash className="w-3.5 h-3.5"/>}    label="UF Emis."   fieldKey="uf_emissor"   value={(lead.uf_emissor as string) ?? "SP"} type="select-uf" onSave={handleSave} />
         <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
         <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
+        <FieldRow icon={<User className="w-3.5 h-3.5"/>}    label="Gênero"     fieldKey="gender"         value={(lead.gender as string) === 'M' ? 'Masculino' : (lead.gender as string) === 'F' ? 'Feminino' : ''} type="select-gender" onSave={handleSave} />
       </div>
 
       {/* Section: Endereço */}
@@ -765,14 +777,47 @@ function withToken(url: string | null): string | null {
   return `${fullUrl}${sep}token=${encodeURIComponent(token)}`;
 }
 
+// ── Upload queue item type ────────────────────────────────────────
+interface QueueItem {
+  id: string;
+  file: File;
+  docType: string;
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  extracted?: string[];
+  error?: string;
+}
+
+const DOC_TYPE_OPTIONS = [
+  'RG / CNH',
+  'Comprovante de Residência',
+  'Carteira de Trabalho',
+  'Holerite',
+  'Comprovante Pix',
+  'Contrato',
+  'Outro',
+];
+
+// Infer doc type from filename (best-effort)
+function inferDocType(filename: string): string {
+  const n = filename.toLowerCase();
+  if (n.includes('rg') || n.includes('cnh') || n.includes('identidade')) return 'RG / CNH';
+  if (n.includes('comprovante') && n.includes('pix')) return 'Comprovante Pix';
+  if (n.includes('comprovante') || n.includes('residencia') || n.includes('residência')) return 'Comprovante de Residência';
+  if (n.includes('holerite') || n.includes('salario') || n.includes('salário')) return 'Holerite';
+  if (n.includes('ctps') || n.includes('carteira')) return 'Carteira de Trabalho';
+  if (n.includes('contrato')) return 'Contrato';
+  return 'Outro';
+}
+
 function DocumentsPanel({ leadId }: { leadId: number }) {
   const { data: docs = [], isLoading, refetch: refetchDocs } = useLeadDocuments(leadId);
-  const uploadDoc = useUploadLeadDocument();
+  const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [docType, setDocType] = useState('RG');
   const [showUpload, setShowUpload] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [processing, setProcessing] = useState(false);
 
   const deleteDocMutation = useMutation({
     mutationFn: async ({ docId }: { docId: number }) => {
@@ -787,7 +832,6 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
     onSuccess: () => { refetchDocs(); setConfirmDeleteId(null); },
   });
 
-
   const statusStyles: Record<string, string> = {
     pendente: "bg-yellow-500/15 text-yellow-400",
     recebido: "bg-blue-500/15 text-blue-400",
@@ -795,88 +839,197 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
     rejeitado: "bg-red-500/15 text-red-400",
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const base64Full = ev.target?.result as string;
-      const base64 = base64Full.split(',')[1] || base64Full;
-      
-      uploadDoc.mutate(
-        {
-          leadId,
-          data: {
-            fileBase64: base64,
-            mimeType: file.type || 'image/jpeg',
-            docType: docType
-          }
-        },
-        {
-          onSettled: () => {
-            if (fileInputRef.current) fileInputRef.current.value = '';
-            setShowUpload(false);
-          }
-        }
-      );
-    };
-    reader.readAsDataURL(file);
+  // Add files to queue
+  const handleFilesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    const newItems: QueueItem[] = files.map(file => ({
+      id: `${Date.now()}-${Math.random()}`,
+      file,
+      docType: inferDocType(file.name),
+      status: 'pending',
+    }));
+    setQueue(prev => [...prev, ...newItems]);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  const updateQueueItem = (id: string, patch: Partial<QueueItem>) => {
+    setQueue(prev => prev.map(item => item.id === id ? { ...item, ...patch } : item));
+  };
+
+  // Process queue sequentially (one at a time to avoid Gemini overload)
+  const processQueue = async () => {
+    const pending = queue.filter(i => i.status === 'pending');
+    if (!pending.length) return;
+
+    setProcessing(true);
+    const token = localStorage.getItem('legacy_token') || localStorage.getItem('token') || '';
+    const baseUrl = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+
+    for (const item of pending) {
+      updateQueueItem(item.id, { status: 'uploading' });
+      try {
+        const base64Full = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = ev => resolve(ev.target?.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(item.file);
+        });
+        const base64 = base64Full.split(',')[1] || base64Full;
+
+        const res = await fetch(`${baseUrl}/leads/${leadId}/documents/upload`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ fileBase64: base64, mimeType: item.file.type || 'image/jpeg', docType: item.docType }),
+        });
+
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Erro no servidor');
+
+        const extracted = Object.keys(json.extracted || {});
+        updateQueueItem(item.id, { status: 'done', extracted });
+      } catch (err: any) {
+        updateQueueItem(item.id, { status: 'error', error: err.message || 'Erro desconhecido' });
+      }
+    }
+
+    // Refresh docs + lead data after all uploads
+    refetchDocs();
+    qc.invalidateQueries({ queryKey: ['lead', leadId] });
+    qc.invalidateQueries({ queryKey: ['lead-checklist', leadId] });
+    setProcessing(false);
+  };
+
+  const clearDone = () => setQueue(prev => prev.filter(i => i.status !== 'done'));
+  const removeFromQueue = (id: string) => setQueue(prev => prev.filter(i => i.id !== id));
+
+  const pendingCount = queue.filter(i => i.status === 'pending').length;
+  const doneCount = queue.filter(i => i.status === 'done').length;
+  const errorCount = queue.filter(i => i.status === 'error').length;
 
   if (isLoading) return <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 animate-spin text-accent" /></div>;
 
   return (
     <div className="space-y-4">
-      {/* Lightbox for documents */}
       {lightboxUrl && <Lightbox url={lightboxUrl} onClose={() => setLightboxUrl(null)} />}
 
-      {/* Upload Header/Form */}
-      <div className="bg-card rounded-lg p-3 border border-border flex flex-col gap-3">
+      {/* Upload Header */}
+      <div className="bg-card rounded-xl p-3 border border-border space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold">Documentos</h3>
           <button
-            onClick={() => setShowUpload(!showUpload)}
+            onClick={() => { setShowUpload(!showUpload); if (!showUpload) setQueue([]); }}
             className="text-xs flex items-center gap-1.5 bg-accent/20 text-accent hover:bg-accent/30 px-3 py-1.5 rounded-md transition-colors font-medium"
           >
             {showUpload ? <XIcon className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-            {showUpload ? "Cancelar" : "Anexar"}
+            {showUpload ? 'Cancelar' : 'Anexar'}
           </button>
         </div>
 
         {showUpload && (
-          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
-            <select
-              value={docType}
-              onChange={(e) => setDocType(e.target.value)}
-              className="flex-1 bg-secondary text-sm rounded-md px-2 py-1.5 border border-border focus:outline-none focus:ring-1 focus:ring-accent"
-            >
-              <option value="RG">RG / CNH</option>
-              <option value="Comprovante de Residência">Comprovante de Residência</option>
-              <option value="Carteira de Trabalho">Carteira de Trabalho</option>
-              <option value="Holerite">Holerite</option>
-              <option value="Comprovante Pix">Comprovante Pix</option>
-              <option value="Outro">Outro</option>
-            </select>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileChange} 
-              className="hidden" 
+          <div className="space-y-3 pt-2 border-t border-border/50">
+            {/* Drop zone / file picker */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFilesChange}
+              className="hidden"
               accept="image/*,application/pdf"
+              multiple
             />
             <button
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploadDoc.isPending}
-              className="flex items-center gap-1.5 bg-accent text-accent-foreground px-3 py-1.5 rounded-md text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
+              disabled={processing}
+              className="w-full border-2 border-dashed border-border/50 hover:border-accent/50 rounded-xl py-5 flex flex-col items-center gap-2 text-muted-foreground hover:text-accent transition-all group"
             >
-              {uploadDoc.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-              {uploadDoc.isPending ? "Analisando IA..." : "Selecionar Arquivo"}
+              <Upload className="w-6 h-6 group-hover:scale-110 transition-transform" />
+              <span className="text-xs font-medium">Clique para selecionar arquivos</span>
+              <span className="text-[10px] opacity-60">PNG, JPG, PDF — múltiplos de uma vez</span>
             </button>
+
+            {/* Queue list */}
+            {queue.length > 0 && (
+              <div className="space-y-2">
+                {queue.map(item => (
+                  <div key={item.id} className={cn(
+                    "flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition-all",
+                    item.status === 'done'     && "bg-emerald-500/10 border-emerald-500/20",
+                    item.status === 'error'    && "bg-red-500/10 border-red-500/20",
+                    item.status === 'uploading'&& "bg-blue-500/10 border-blue-500/20 animate-pulse",
+                    item.status === 'pending'  && "bg-secondary/40 border-border/30",
+                  )}>
+                    {/* Status icon */}
+                    <span className="shrink-0">
+                      {item.status === 'uploading' && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />}
+                      {item.status === 'done'      && <span className="text-emerald-400">✓</span>}
+                      {item.status === 'error'     && <span className="text-red-400">✗</span>}
+                      {item.status === 'pending'   && <FileText className="w-3.5 h-3.5 text-muted-foreground" />}
+                    </span>
+
+                    {/* Filename */}
+                    <span className="flex-1 truncate text-foreground/80" title={item.file.name}>{item.file.name}</span>
+
+                    {/* Doc type selector (only when pending) */}
+                    {item.status === 'pending' && (
+                      <select
+                        value={item.docType}
+                        onChange={e => updateQueueItem(item.id, { docType: e.target.value })}
+                        className="bg-secondary border border-border rounded-md px-1.5 py-0.5 text-[10px] text-foreground focus:outline-none shrink-0 max-w-[120px]"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {DOC_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    )}
+
+                    {/* Extraction result */}
+                    {item.status === 'done' && item.extracted && item.extracted.length > 0 && (
+                      <span className="text-emerald-400/70 text-[10px] shrink-0">IA: {item.extracted.join(', ')}</span>
+                    )}
+                    {item.status === 'error' && (
+                      <span className="text-red-400/80 text-[10px] shrink-0 max-w-[120px] truncate" title={item.error}>{item.error}</span>
+                    )}
+
+                    {/* Remove button */}
+                    {item.status !== 'uploading' && (
+                      <button onClick={() => removeFromQueue(item.id)} className="p-0.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors shrink-0">
+                        <XIcon className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {/* Actions row */}
+                <div className="flex items-center gap-2 pt-1">
+                  {doneCount > 0 && (
+                    <button onClick={clearDone} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                      Limpar concluídos ({doneCount})
+                    </button>
+                  )}
+                  <div className="flex-1" />
+                  {errorCount > 0 && (
+                    <span className="text-[10px] text-red-400">{errorCount} erro(s)</span>
+                  )}
+                  <button
+                    onClick={processQueue}
+                    disabled={processing || pendingCount === 0}
+                    className="flex items-center gap-1.5 bg-accent text-accent-foreground px-4 py-1.5 rounded-md text-xs font-semibold hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  >
+                    {processing
+                      ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Processando IA...</>
+                      : <><Upload className="w-3.5 h-3.5" /> Enviar {pendingCount > 0 ? `${pendingCount} arquivo${pendingCount > 1 ? 's' : ''}` : 'tudo'}</>
+                    }
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
 
+      {/* Document grid */}
       {docs.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 py-8 text-muted-foreground">
           <FileText className="h-10 w-10 opacity-30" />
@@ -942,7 +1095,6 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                     {status === 'aprovado' && (
                       <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
                     )}
-                    {/* Botão excluir com confirmação de 2 cliques */}
                     {confirmDeleteId === Number(doc.id) ? (
                       <button
                         onClick={() => deleteDocMutation.mutate({ docId: Number(doc.id) })}
@@ -971,6 +1123,7 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
     </div>
   );
 }
+
 
 // ─── Checklist Panel ───────────────────────────────────────────────
 function ChecklistPanel({ leadId }: { leadId: number }) {

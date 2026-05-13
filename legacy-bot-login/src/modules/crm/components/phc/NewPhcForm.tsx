@@ -44,11 +44,15 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
 
   useEffect(() => {
     if ((location.state as any)?.phcLead && !selectedLead) {
-      setSelectedLead((location.state as any).phcLead);
+      const phcLead = (location.state as any).phcLead;
+      setSelectedLead(phcLead);
+      // Pre-fill gender from lead data
+      if (phcLead.gender === 'M' || phcLead.gender === 'F') setGender(phcLead.gender);
     }
   }, [location.state, selectedLead]);
   const [selectedLawyer, setSelectedLawyer] = useState<Lawyer | null>(null);
   const [selectedDocTypes, setSelectedDocTypes] = useState<Set<PhcDocType>>(new Set());
+  const [gender, setGender] = useState<'M' | 'F' | ''>('');
   const [notes, setNotes] = useState("");
   const [showLeadDropdown, setShowLeadDropdown] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -96,7 +100,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
           lawyer_id: selectedLawyer.id,
           doc_type,
           funnel_slug: selectedLead.funnel_slug,
-          notes,
+          notes: notes + (gender ? `\nGênero: ${gender === 'M' ? 'Masculino' : 'Feminino'}` : ''),
         });
       }
       qc.invalidateQueries({ queryKey: ["phc-documents"] });
@@ -240,6 +244,40 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
               Este cliente não tem CPF cadastrado. O PHC será gerado com "CPF não informado".
               Complete os dados do cliente no card do CRM antes de gerar.
             </p>
+          </div>
+        )}
+
+        {/* Gender select — visible only when lead is selected */}
+        {selectedLead && (
+          <div className="flex items-center gap-3 mt-2">
+            <label className="text-xs font-medium text-muted-foreground w-16 shrink-0">Gênero</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGender('M')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  gender === 'M'
+                    ? 'bg-blue-500/20 border-blue-500/40 text-blue-400'
+                    : 'border-border/40 text-muted-foreground hover:border-blue-500/30 hover:text-blue-400'
+                }`}
+              >
+                ♂ Masculino
+              </button>
+              <button
+                type="button"
+                onClick={() => setGender('F')}
+                className={`px-4 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                  gender === 'F'
+                    ? 'bg-pink-500/20 border-pink-500/40 text-pink-400'
+                    : 'border-border/40 text-muted-foreground hover:border-pink-500/30 hover:text-pink-400'
+                }`}
+              >
+                ♀ Feminino
+              </button>
+              {gender && (
+                <button type="button" onClick={() => setGender('')} className="text-xs text-muted-foreground hover:text-red-400 transition-colors">✕</button>
+              )}
+            </div>
           </div>
         )}
       </div>
