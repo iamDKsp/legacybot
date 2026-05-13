@@ -1135,7 +1135,7 @@ function DocumentsPanel({ leadId }: { leadId: number }) {
                               <Download className="w-3.5 h-3.5" />
                             </a>
                           )}
-                          {status === 'aprovado' && (
+                          {(normalizeStatus(status) === 'aprovado' || normalizeStatus(status) === 'recebido') && (
                             <ExtractButton leadId={leadId} docId={Number(doc.id)} onSuccess={() => refetchDocs()} />
                           )}
                           {confirmDeleteId === Number(doc.id) ? (
