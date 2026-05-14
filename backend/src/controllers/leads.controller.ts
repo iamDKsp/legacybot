@@ -942,7 +942,14 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
 - mother: nome da mãe (em CNH: campo "Filiação" — segunda linha)
 - father: nome do pai (em CNH: campo "Filiação" — primeira linha)`
             : isComprovanteDoc
-            ? `Documento: "${docType}". EXTRAIA COM PRIORIDADE: name (titular), street (rua/logradouro), number (número do imóvel), neighborhood (bairro), city (cidade), state (UF em 2 letras), zip_code (CEP no formato 00000-000).`
+            ? `Documento: "${docType}". Extraia o endereço completo com máxima precisão. Campos obrigatórios:
+- name: nome do titular (geralmente na primeira linha do endereço)
+- street: logradouro/rua (ex: RUA XV DE NOVEMBRO, AV BRASIL, LIN ROSITA, ROD BR-116)
+- number: número do imóvel (ex: 409, S/N)
+- neighborhood: bairro ou localidade. IMPORTANTE: em endereços rurais, a linha entre o logradouro e o CEP pode ser "RURAL", "ZONA RURAL", "INTERIOR", "CENTRO", "VILA X" — isso É o bairro, mesmo que pareça uma classificação. Use EXATAMENTE o texto que aparece nessa linha.
+- city: cidade/município (a cidade que aparece junto ao CEP e UF)
+- state: UF em 2 letras (ex: RS, SP, SC)
+- zip_code: CEP no formato 00000-000`
             : `Documento do tipo "${docType}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
 
         const analysis = await analyzeImage(fileBase64, mimeType, context);
@@ -1241,7 +1248,14 @@ export async function extractDocumentData(req: Request, res: Response) {
 - mother: nome da mãe (em CNH: campo "Filiação" — segunda linha)
 - father: nome do pai (em CNH: campo "Filiação" — primeira linha)`
                 : isComprovanteDoc
-                ? `Documento: "${docLabel}". EXTRAIA COM PRIORIDADE: name (titular), street (rua/logradouro), number (número do imóvel), neighborhood (bairro), city (cidade), state (UF em 2 letras), zip_code (CEP no formato 00000-000).`
+                ? `Documento: "${docLabel}". Extraia o endereço completo com máxima precisão. Campos obrigatórios:
+- name: nome do titular (geralmente na primeira linha do endereço)
+- street: logradouro/rua (ex: RUA XV DE NOVEMBRO, AV BRASIL, LIN ROSITA, ROD BR-116)
+- number: número do imóvel (ex: 409, S/N)
+- neighborhood: bairro ou localidade. IMPORTANTE: em endereços rurais, a linha entre o logradouro e o CEP pode ser "RURAL", "ZONA RURAL", "INTERIOR", "CENTRO", "VILA X" — isso É o bairro, mesmo que pareça uma classificação. Use EXATAMENTE o texto que aparece nessa linha.
+- city: cidade/município (a cidade que aparece junto ao CEP e UF)
+- state: UF em 2 letras (ex: RS, SP, SC)
+- zip_code: CEP no formato 00000-000`
                 : `Documento do tipo "${docLabel}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
             const analysis   = await analyzeImage(fileBase64, mimeType, context);
             console.log(`[Extract] Gemini extractedData for doc ${docId}:`, JSON.stringify(analysis.extractedData));
