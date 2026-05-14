@@ -928,16 +928,19 @@ export async function uploadAndExtractDocument(req: Request, res: Response): Pro
         const isComprovanteDoc = docType.toLowerCase().includes('comprovante') || docType.toLowerCase().includes('resid');
         const context = isRgDoc
             ? `Documento: "${docType}". EXTRAIA COM MÁXIMA PRECISÃO todos os campos visíveis. Campos obrigatórios:
-- rg: número do RG (sequência de dígitos com pontos e traço, geralmente impresso como "Identidade" ou "N° RG" ou "REGISTRO GERAL" — ex: 12.345.678-9 ou 1234567-89). OBRIGATÓRIO extrair se visível.
-- name: nome completo do titular em caixa alta
-- cpf: CPF se visível (formato 000.000.000-00)
+- rg: número do RG/Identidade.
+  * Em um RG físico: campo "REGISTRO GERAL" ou "N° RG" (dígitos com pontos e traço, ex: 12.345.678-9).
+  * Em uma CNH: campo "Identidade" — contém o número seguido do órgão emissor e UF (ex: "4561770 SSP SC" → rg="4561770"). O número que vem ANTES da sigla do órgão É o RG.
+  OBRIGATÓRIO extrair esse número se visível. NÃO confundir com o "N° Registro" da CNH (número longo de 11 dígitos).
+- name: nome completo do titular
+- cpf: CPF (formato 000.000.000-00)
 - birth_date: data de nascimento DD/MM/AAAA
 - gender: masculino ou feminino
-- org_emissor: sigla do órgão emissor (SSP, DETRAN, PC, IFP, CRM, CREA, etc.)
-- uf_emissor: UF de 2 letras do ÓRGÃO EMISSOR (NÃO confundir com naturalidade do titular)
+- org_emissor: sigla do órgão emissor do RG/Identidade (SSP, DETRAN, PC, IFP, etc.)
+- uf_emissor: UF de 2 letras do ÓRGÃO EMISSOR (NÃO a naturalidade do titular)
 - nationality: naturalidade/nacionalidade
-- mother: nome da mãe
-- father: nome do pai`
+- mother: nome da mãe (em CNH: campo "Filiação" — segunda linha)
+- father: nome do pai (em CNH: campo "Filiação" — primeira linha)`
             : isComprovanteDoc
             ? `Documento: "${docType}". EXTRAIA COM PRIORIDADE: name (titular), street (rua/logradouro), number (número do imóvel), neighborhood (bairro), city (cidade), state (UF em 2 letras), zip_code (CEP no formato 00000-000).`
             : `Documento do tipo "${docType}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
@@ -1182,16 +1185,22 @@ export async function extractDocumentData(req: Request, res: Response) {
                 if (parsed.extractedData && Object.keys(parsed.extractedData).length > 0) {
                     const cached = parsed.extractedData as Record<string, string>;
                     const docName = (doc.doc_type || doc.name || '').toString().toUpperCase();
-                    const isRG = docName.includes('RG');
+                    const isRG = docName.includes('RG') || docName.includes('CNH');
                     const isComprovante = docName.includes('COMPROVANTE') || docName.includes('RESID');
 
-                    // Se já foi analisado fresco, aceita o cache sem bypass (evita loop infinito)
-                    if (parsed.analyzed_fresh) {
+                    // Check which critical fields are missing from the cache
+                    const missingRgNumber   = isRG         && !cached.rg;
+                    const missingNeighborhood = isComprovante && !cached.neighborhood;
+
+                    // Se já foi analisado fresco E não faltam campos críticos, usa o cache
+                    if (parsed.analyzed_fresh && !missingRgNumber && !missingNeighborhood) {
                         extractedData = cached;
                         console.log(`[Extract] Using cache (already fresh-analyzed) for doc ${docId}`);
+                    } else if (parsed.analyzed_fresh) {
+                        console.log(`[Extract] Cache bypass — analyzed_fresh but missing critical fields for doc ${docId} (missingRg:${missingRgNumber} missingNeighborhood:${missingNeighborhood}) — re-analyzing`);
                     } else {
-                        // Bypass cache se RG falta org_emissor/uf_emissor (cache antigo)
-                        const missingRgFields = isRG && (!cached.org_emissor && !cached.uf_emissor);
+                        // Bypass cache se RG falta org_emissor/uf_emissor/rg (cache antigo)
+                        const missingRgFields = isRG && (!cached.org_emissor && !cached.uf_emissor && !cached.rg);
                         // Bypass cache se Comprovante falta campos granulares
                         const missingAddressFields = isComprovante && (!cached.street && !cached.zip_code && !cached.neighborhood);
 
@@ -1214,9 +1223,25 @@ export async function extractDocumentData(req: Request, res: Response) {
                 : String(doc.file_data);
             const mimeType   = (doc.file_type as string) || 'image/jpeg';
             const docLabel   = (doc.name || doc.doc_type || 'documento') as string;
-            const isRgDoc    = docLabel.toUpperCase().includes('RG') || docLabel.toUpperCase().includes('IDENTIDADE');
+            const isRgDoc    = docLabel.toUpperCase().includes('RG') || docLabel.toUpperCase().includes('CNH') || docLabel.toUpperCase().includes('IDENTIDADE');
+            const isComprovanteDoc = docLabel.toLowerCase().includes('comprovante') || docLabel.toLowerCase().includes('resid');
             const context    = isRgDoc
-                ? `Documento: "${docLabel}". EXTRAIA COM PRIORIDADE: org_emissor (abreviatura do órgão emissor: SSP, DETRAN, PC, IFP — geralmente impresso no rodapé ou canto do RG) e uf_emissor (UF do estado emissor em 2 letras — NÃO confundir com naturalidade). RGs emitidos até 2010 frequentemente exibem esses dados em fonte menor no cabeçalho ou rodapé. Extraia todos os outros campos visíveis.`
+                ? `Documento: "${docLabel}". EXTRAIA COM MÁXIMA PRECISÃO todos os campos visíveis. Campos obrigatórios:
+- rg: número do RG/Identidade.
+  * Em um RG físico: campo "REGISTRO GERAL" ou "N° RG" (dígitos com pontos e traço, ex: 12.345.678-9).
+  * Em uma CNH: campo "Identidade" — contém o número seguido do órgão emissor e UF (ex: "4561770 SSP SC" → rg="4561770"). O número que vem ANTES da sigla do órgão É o RG.
+  OBRIGATÓRIO extrair esse número se visível. NÃO confundir com o "N° Registro" da CNH (número longo de 11 dígitos).
+- name: nome completo do titular
+- cpf: CPF (formato 000.000.000-00)
+- birth_date: data de nascimento DD/MM/AAAA
+- gender: masculino ou feminino
+- org_emissor: sigla do órgão emissor do RG/Identidade (SSP, DETRAN, PC, IFP, etc.)
+- uf_emissor: UF de 2 letras do ÓRGÃO EMISSOR (NÃO a naturalidade do titular)
+- nationality: naturalidade/nacionalidade
+- mother: nome da mãe (em CNH: campo "Filiação" — segunda linha)
+- father: nome do pai (em CNH: campo "Filiação" — primeira linha)`
+                : isComprovanteDoc
+                ? `Documento: "${docLabel}". EXTRAIA COM PRIORIDADE: name (titular), street (rua/logradouro), number (número do imóvel), neighborhood (bairro), city (cidade), state (UF em 2 letras), zip_code (CEP no formato 00000-000).`
                 : `Documento do tipo "${docLabel}". Extraia TODOS os dados pessoais e de endereço visíveis com máxima precisão.`;
             const analysis   = await analyzeImage(fileBase64, mimeType, context);
             console.log(`[Extract] Gemini extractedData for doc ${docId}:`, JSON.stringify(analysis.extractedData));
