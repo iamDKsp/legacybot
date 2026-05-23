@@ -134,7 +134,10 @@ function renderWithBold(
     text: string,
     options: { fontSize: number; lineGap: number; align?: string }
 ) {
-    const parts = text.split(/\[\[BOLD\]\]|\[\[\/BOLD\]\]/g);
+    // Automatically bold key terms (singular and plural, case-insensitive)
+    const processedText = text.replace(/(?<!\[\[BOLD\]\])\b(contratante|contratado|outorgante|outorgado|declarante|declarado|contratantes|contratados|outorgantes|outorgados|declarantes|declarados)\b(?!\[\[\/BOLD\]\])/gi, (m) => `[[BOLD]]${m}[[/BOLD]]`);
+
+    const parts = processedText.split(/\[\[BOLD\]\]|\[\[\/BOLD\]\]/g);
     let isBold = false;
 
     const pageW = doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -145,9 +148,24 @@ function renderWithBold(
         isBold = !isBold;
     }
 
-    // Renderiza segmentos em sequência com continued=true para evitar overflow
+    // Normalize lineBuffer to prevent PDFKit continued text space-stripping bug
+    for (let i = 0; i < lineBuffer.length - 1; i++) {
+        const current = lineBuffer[i];
+        const next = lineBuffer[i + 1];
+        if (next.text.startsWith(' ')) {
+            const match = next.text.match(/^( +)/);
+            if (match) {
+                const spaces = match[1];
+                current.text += spaces;
+                next.text = next.text.substring(spaces.length);
+            }
+        }
+    }
+
+    // Render segments
     for (let i = 0; i < lineBuffer.length; i++) {
         const seg = lineBuffer[i];
+        if (!seg.text) continue;
         const font = seg.bold ? 'MyFont-Bold' : 'MyFont';
         const isLast = i === lineBuffer.length - 1;
 
