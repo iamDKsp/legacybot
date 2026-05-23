@@ -8,6 +8,7 @@ import {
 import { phcApi, leadsApi, PhcDocType, Lawyer, Lead } from "@/services/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { StyledSelect } from "@/components/ui/StyledSelect";
+import sofiaImg from "@/assets/sofia-3d.png";
 
 const DOC_TYPES: { id: PhcDocType; label: string; icon: React.ReactNode; description: string }[] = [
   {
@@ -401,7 +402,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
         {argumentsFocused && (
           <div className="flex items-center gap-2.5 mb-3 animate-in fade-in slide-in-from-top-1 duration-300">
             <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-accent/60 shadow-md shadow-accent/20 shrink-0">
-              <img src="/sofia-3d.png" alt="Sofia" className="w-full h-full object-cover" />
+              <img src={sofiaImg} alt="Sofia" className="w-full h-full object-cover" />
             </div>
             <div className="relative bg-accent/15 border border-accent/30 text-accent text-xs font-semibold px-3 py-1.5 rounded-xl rounded-tl-none">
               As ordens! Vou aplicar exatamente o que você mandar. ⚡
