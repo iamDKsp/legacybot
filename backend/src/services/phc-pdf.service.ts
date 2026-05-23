@@ -41,6 +41,9 @@ export interface LeadData {
   name: string; cpf?: string|null; rg?: string|null;
   marital_status?: string|null; occupation?: string|null;
   nationality?: string|null; address?: string|null;
+  street?: string|null;
+  number?: string|null;
+  neighborhood?: string|null;
   city?: string|null; state?: string|null; cep?: string|null;
   phone?: string|null; email?: string|null;
   description?: string|null; funnel_name?: string|null;
@@ -83,7 +86,7 @@ const FONT_BOLD = path.join(FONT_DIR, 'Arial-Bold.ttf');
 /** Only draws lines — safe inside pageAdded (no doc.text which can recurse) */
 function decoratePageLines(doc: PDFKit.PDFDocument) {
   const w = doc.page.width, h = doc.page.height;
-  doc.save().moveTo(50, 46).lineTo(w - 50, 46).lineWidth(1.5).strokeColor('#B8860B').stroke().restore();
+  doc.save().moveTo(50, 46).lineTo(w - 50, 46).lineWidth(1.5).strokeColor('#000').stroke().restore();
   doc.save().moveTo(50, h - 36).lineTo(w - 50, h - 36).lineWidth(0.35).strokeColor('#ccc').stroke().restore();
 }
 
@@ -161,10 +164,10 @@ function renderWithBold(
 function sig(doc: PDFKit.PDFDocument, label: string, name: string, extra?: string) {
   doc.moveDown(5); // espaço generoso antes da assinatura
   const x0 = 80, x1 = doc.page.width - 80;
-  doc.save().moveTo(x0, doc.y).lineTo(x1, doc.y).lineWidth(0.45).strokeColor('#555').stroke().restore();
-  doc.moveDown(0.4).font('MyFont').fontSize(9).fillColor('#666').text(label, { align: 'center' });
-  doc.font('MyFont-Bold').fontSize(9.5).fillColor('#111').text(name, { align: 'center' });
-  if (extra) doc.font('MyFont').fontSize(8.5).fillColor('#666').text(extra, { align: 'center' });
+  doc.save().moveTo(x0, doc.y).lineTo(x1, doc.y).lineWidth(0.45).strokeColor('#000').stroke().restore();
+  doc.moveDown(0.4).font('MyFont-Bold').fontSize(9.5).fillColor('#000').text(label, { align: 'center' });
+  doc.font('MyFont-Bold').fontSize(9.5).fillColor('#000').text(name, { align: 'center' });
+  if (extra) doc.font('MyFont').fontSize(8.5).fillColor('#333').text(extra, { align: 'center' });
 }
 
 function witness(doc: PDFKit.PDFDocument) {
@@ -192,11 +195,21 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
   const MD = 0.9;
 
   const advStr = `${lawyer.name}, advogado inscrit${g.o_a} na ${lawyer.oab}, com escritório profissional localizado à ${lawyerFullAddr(lawyer)}`;
-  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
+  
+  const addrParts = [
+    lead.street,
+    lead.number ? `nº ${lead.number}` : null,
+    lead.neighborhood
+  ].filter(Boolean).join(', ');
+  const cliAddr = addrParts || lead.address || 'endereço não informado';
+  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep);
+
+  const docCity = lead.city || lawyer.city;
+  const docState = lead.state || lawyer.state;
 
   const data: ContratoData = {
     advQualificacao: advStr, clienteQualificacao: cliStr, g, acao, foro,
-    localData: localData(lead.city, lead.state),
+    localData: localData(docCity, docState),
     advNome: lawyer.name, advOab: lawyer.oab,
     clienteNome: lead.name.toUpperCase(), clienteCpf: lead.cpf,
   };
@@ -210,20 +223,20 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
   doc.moveDown(1);
 
   // Introducao
-  doc.font('MyFont').fontSize(FS).fillColor('#111').text(p[0], { align: 'left', lineGap: LG });
+  renderWithBold(doc, p[0], { fontSize: FS, lineGap: LG, align: 'left' });
   doc.moveDown(MD);
-  doc.font('MyFont').fontSize(FS).fillColor('#111').text(p[1], { align: 'justify', lineGap: LG });
+  renderWithBold(doc, p[1], { fontSize: FS, lineGap: LG, align: 'justify' });
   doc.moveDown(MD);
 
   // Helper de secao local
   const sec = (t: string) => {
-    doc.moveDown(0.65).font('MyFont-Bold').fontSize(10).fillColor('#8B6914').text(t.toUpperCase());
+    doc.moveDown(0.65).font('MyFont-Bold').fontSize(10).fillColor('#000000').text(t.toUpperCase());
     const y = doc.y + 2;
-    doc.save().moveTo(52, y).lineTo(doc.page.width - 52, y).lineWidth(0.3).strokeColor('#C9A227').stroke().restore();
+    doc.save().moveTo(52, y).lineTo(doc.page.width - 52, y).lineWidth(0.3).strokeColor('#000000').stroke().restore();
     doc.moveDown(0.5);
   };
   const cl = (t: string) => {
-    doc.font('MyFont').fontSize(FS).fillColor('#111').text(t, { align: 'left', lineGap: LG });
+    renderWithBold(doc, t, { fontSize: FS, lineGap: LG, align: 'justify' });
     doc.moveDown(MD);
   };
 
@@ -248,7 +261,7 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
   if (notes) { sec('OBSERVAÇÕES'); cl(notes); }
 
   // local e data centralizado
-  doc.moveDown(0.4).font('MyFont').fontSize(FS).fillColor('#111').text(p[20], { align: 'center' });
+  doc.moveDown(0.4).font('MyFont').fontSize(FS).fillColor('#111').text(p2[20], { align: 'center' });
 
   sig(doc, 'Contratado', lawyer.name, `OAB ${lawyer.oab}`);
   sig(doc, `Contratante${lead.cpf ? ' — CPF: ' + lead.cpf : ''}`, lead.name.toUpperCase());
@@ -264,12 +277,22 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
   const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
   const slug = lead.funnel_slug || lead.funnel_name || 'geral';
   const acao = getAcaoProcuracao(slug);
-  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
+
+  const addrParts = [
+    lead.street,
+    lead.number ? `nº ${lead.number}` : null,
+    lead.neighborhood
+  ].filter(Boolean).join(', ');
+  const cliAddr = addrParts || lead.address || 'endereço não informado';
+  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep);
+
+  const docCity = lead.city || lawyer.city;
+  const docState = lead.state || lawyer.state;
 
   const data: ProcuracaoData = {
     clienteQualificacao: cliStr, advNome: lawyer.name, advOab: lawyer.oab,
     advEndereco: lawyerFullAddr(lawyer), g, acao,
-    localData: localData(lead.city, lead.state),
+    localData: localData(docCity, docState),
     clienteNome: lead.name.toUpperCase(),
   };
   const p = buildProcuracao(data);
@@ -284,12 +307,12 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
     finalBody = await applyArguments(p[1], docArguments);
   }
 
-  doc.font('MyFont').fontSize(10).fillColor('#111').text(finalBody, { align: 'justify', lineGap: 4.5 });
+  renderWithBold(doc, finalBody, { fontSize: 10, lineGap: 4.5, align: 'justify' });
   doc.moveDown(0.8);
 
   if (notes) {
-    doc.moveDown(0.3).font('MyFont-Bold').fontSize(10).fillColor('#8B6914').text('OBSERVAÇÕES:');
-    doc.font('MyFont').fontSize(10).fillColor('#111').text(notes, { align: 'justify', lineGap: 4.5 });
+    doc.moveDown(0.3).font('MyFont-Bold').fontSize(10).fillColor('#000000').text('OBSERVAÇÕES:');
+    renderWithBold(doc, notes, { fontSize: 10, lineGap: 4.5, align: 'justify' });
     doc.moveDown(0.6);
   }
 
@@ -306,11 +329,23 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
 async function genHipo(lead: LeadData, notes?: string|null, docArguments?: string|null): Promise<Buffer> {
   const doc = createDoc(), buf = collectBuffer(doc);
   const g    = buildCtx(lead.name, lead.marital_status, lead.occupation, lead.gender as 'F'|'M'|null);
-  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, lead.address, lead.city, lead.state, lead.cep);
+
+  const addrParts = [
+    lead.street,
+    lead.number ? `nº ${lead.number}` : null,
+    lead.neighborhood
+  ].filter(Boolean).join(', ');
+  const cliAddr = addrParts || lead.address || 'endereço não informado';
+  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep);
+
+  // Fallback para cidade do advogado não é aplicável aqui já que genHipo não recebe advogado,
+  // mas usaremos lead.city/state de forma limpa.
+  const docCity = lead.city || 'São José do Rio Preto';
+  const docState = lead.state || 'SP';
 
   const data: HipoData = {
     clienteQualificacao: cliStr, g,
-    localData: localData(lead.city, lead.state),
+    localData: localData(docCity, docState),
     clienteNome: lead.name.toUpperCase(),
   };
   const p = buildDeclaracaoHipo(data);
@@ -325,13 +360,13 @@ async function genHipo(lead: LeadData, notes?: string|null, docArguments?: strin
     finalBody = await applyArguments(p[1], docArguments);
   }
 
-  doc.font('MyFont').fontSize(12).fillColor('#111').text(finalBody, { align: 'justify', lineGap: 16 });
+  renderWithBold(doc, finalBody, { fontSize: 12, lineGap: 16, align: 'justify' });
   doc.moveDown(2);
 
   if (notes) {
-    doc.font('MyFont-Bold').fontSize(12).fillColor('#8B6914').text('OBSERVAÇÕES:');
+    doc.font('MyFont-Bold').fontSize(12).fillColor('#000000').text('OBSERVAÇÕES:');
     doc.moveDown(0.4);
-    doc.font('MyFont').fontSize(12).fillColor('#111').text(notes, { align: 'justify', lineGap: 16 });
+    renderWithBold(doc, notes, { fontSize: 12, lineGap: 16, align: 'justify' });
     doc.moveDown(1.5);
   }
 

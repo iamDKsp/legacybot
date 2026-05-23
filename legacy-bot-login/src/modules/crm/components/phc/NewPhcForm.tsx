@@ -62,6 +62,11 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
 
+  const isTrabalhista = selectedLead && (
+    selectedLead.funnel_slug?.includes("trabalhista") ||
+    selectedLead.funnel_name?.toLowerCase().includes("trabalhista")
+  );
+
   // Lawyers list
   const { data: lawyers = [] } = useQuery({
     queryKey: ["phc-lawyers"],
@@ -90,6 +95,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
 
   const handleSave = async () => {
     if (!selectedLead) { setError("Selecione um lead."); return; }
+    if (isTrabalhista) { setError("O modo PHC para a área Trabalhista está inativo no momento."); return; }
     if (!selectedLawyer) { setError("Selecione um advogado."); return; }
     if (selectedDocTypes.size === 0) { setError("Selecione ao menos um tipo de documento."); return; }
 
@@ -135,7 +141,7 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
     }
   };
 
-  const canPreview = selectedLead && selectedLawyer && selectedDocTypes.size > 0;
+  const canPreview = selectedLead && selectedLawyer && selectedDocTypes.size > 0 && !isTrabalhista;
 
   if (success) {
     return (
@@ -293,6 +299,19 @@ export function NewPhcForm({ onSuccess }: NewPhcFormProps) {
           </div>
         )}
       </div>
+
+      {/* Trabalhista inactive warning banner */}
+      {isTrabalhista && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-5 w-5 text-red-400 shrink-0" />
+            <h4 className="text-sm font-semibold text-red-400">Modo Inativo</h4>
+          </div>
+          <p className="text-xs text-red-300 leading-relaxed">
+            O modo PHC para a área Trabalhista está inativo no momento. Não é possível gerar documentos para clientes deste funil.
+          </p>
+        </div>
+      )}
 
 
       {/* Step 2 — Lawyer */}

@@ -172,6 +172,18 @@ export const createPhcDocument = async (req: Request, res: Response): Promise<vo
             return;
         }
 
+        // Bloquear geração para o funil Trabalhista
+        const lead = await db('leads as l')
+            .leftJoin('funnels as f', 'l.funnel_id', 'f.id')
+            .select('f.slug as funnel_slug')
+            .where('l.id', lead_id)
+            .first();
+
+        if (lead && lead.funnel_slug && lead.funnel_slug.includes('trabalhista')) {
+            res.status(400).json({ success: false, error: 'O modo PHC para a área Trabalhista está inativo no momento.' });
+            return;
+        }
+
         const [{ id }] = await db('phc_documents').insert({
             lead_id,
             lawyer_id,

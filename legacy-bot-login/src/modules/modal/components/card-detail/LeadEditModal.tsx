@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, User, MapPin, FileText, Save, Loader2,
-  Hash, Globe, Heart
+  Hash, Globe, Heart, Briefcase
 } from "lucide-react";
 import { leadsApi, Lead } from "@/services/api";
 import { useQueryClient } from "@tanstack/react-query";
@@ -51,6 +51,7 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
     uf_emissor:     (lead.uf_emissor     as string) ?? "SP",
     marital_status: (lead.marital_status as string) ?? "",
     nationality:    (lead.nationality    as string) ?? "brasileiro(a)",
+    occupation:     (lead.occupation     as string) ?? "",
   });
 
   const set = (k: keyof typeof form, v: string) =>
@@ -179,6 +180,14 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                   </label>
                   <input value={form.nationality} onChange={e => set("nationality", e.target.value)}
                     placeholder="brasileiro(a)"
+                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Briefcase className="h-3.5 w-3.5" /> Profissão
+                  </label>
+                  <input value={form.occupation} onChange={e => set("occupation", e.target.value)}
+                    placeholder="desempregado(a)"
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
               </div>
