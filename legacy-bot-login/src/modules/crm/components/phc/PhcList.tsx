@@ -128,7 +128,7 @@ export function PhcList() {
 
   // Folder Navigation and Bulk Selection states
   const [viewMode, setViewMode] = useState<'folders' | 'list'>('folders');
-  const [activeFolderLeadId, setActiveFolderLeadId] = useState<number | null>(null);
+  const [activeFolderKey, setActiveFolderKey] = useState<string | null>(null);
   const [selectedDocIds, setSelectedDocIds] = useState<Set<number>>(new Set());
   const [downloadingBulk, setDownloadingBulk] = useState(false);
   const [deletingBulk, setDeletingBulk] = useState(false);
@@ -191,32 +191,34 @@ export function PhcList() {
     } catch { /* silent */ }
   };
 
-  // Group docs by lead_id for folders mode
-  const clientFoldersMap = docs.reduce((acc: Record<number, { lead_name: string; lead_cpf?: string|null; funnel_slug?: string|null; docs: PhcDocument[] }>, doc: PhcDocument) => {
-    const leadId = doc.lead_id;
-    if (!acc[leadId]) {
-      acc[leadId] = {
+  // Group docs by clientKey (CPF if exists, else normalized name) to prevent duplicate folders for same client
+  const clientFoldersMap = docs.reduce((acc: Record<string, { lead_name: string; lead_cpf?: string|null; funnel_slug?: string|null; docs: PhcDocument[] }>, doc: PhcDocument) => {
+    const folderKey = doc.lead_cpf ? `cpf:${doc.lead_cpf}` : `name:${String(doc.lead_name).trim().toLowerCase()}`;
+    if (!acc[folderKey]) {
+      acc[folderKey] = {
         lead_name: doc.lead_name || "Cliente Sem Nome",
         lead_cpf: doc.lead_cpf,
         funnel_slug: doc.funnel_slug,
         docs: []
       };
     }
-    acc[leadId].docs.push(doc);
+    acc[folderKey].docs.push(doc);
     return acc;
   }, {});
 
-  const folders = Object.keys(clientFoldersMap).map((leadIdStr) => {
-    const leadId = Number(leadIdStr);
+  const folders = Object.keys(clientFoldersMap).map((folderKey) => {
     return {
-      lead_id: leadId,
-      ...clientFoldersMap[leadId]
+      key: folderKey,
+      ...clientFoldersMap[folderKey]
     };
   });
 
   // Filter docs for internal folder view
-  const visibleDocs = activeFolderLeadId !== null
-    ? docs.filter((d: PhcDocument) => d.lead_id === activeFolderLeadId)
+  const visibleDocs = activeFolderKey !== null
+    ? docs.filter((d: PhcDocument) => {
+        const key = d.lead_cpf ? `cpf:${d.lead_cpf}` : `name:${String(d.lead_name).trim().toLowerCase()}`;
+        return key === activeFolderKey;
+      })
     : docs;
 
   // Selection helpers
@@ -346,17 +348,17 @@ export function PhcList() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               {/* Folder Breadcrumbs or Standard Title */}
-              {viewMode === 'folders' && activeFolderLeadId !== null ? (
+              {viewMode === 'folders' && activeFolderKey !== null ? (
                 <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground select-none">
                   <button
-                    onClick={() => { setActiveFolderLeadId(null); setSelectedDocIds(new Set()); }}
+                    onClick={() => { setActiveFolderKey(null); setSelectedDocIds(new Set()); }}
                     className="hover:text-accent transition-colors flex items-center gap-1.5"
                   >
                     <Folder className="h-4 w-4 text-accent" /> PHCs Salvos
                   </button>
                   <span>/</span>
                   <span className="text-card-foreground flex items-center gap-1.5 bg-accent/15 border border-accent/20 px-2.5 py-0.5 rounded-lg text-accent font-bold">
-                    <FolderOpen className="h-4 w-4" /> {clientFoldersMap[activeFolderLeadId]?.lead_name}
+                    <FolderOpen className="h-4 w-4" /> {clientFoldersMap[activeFolderKey]?.lead_name}
                   </span>
                 </div>
               ) : (
@@ -377,7 +379,7 @@ export function PhcList() {
               {/* Toggle switch between folders and flat list */}
               <div className="flex items-center p-1 rounded-xl bg-secondary/40 border border-border/30 shrink-0 select-none">
                 <button
-                  onClick={() => { setViewMode('folders'); setActiveFolderLeadId(null); setSelectedDocIds(new Set()); }}
+                  onClick={() => { setViewMode('folders'); setActiveFolderKey(null); setSelectedDocIds(new Set()); }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
                     viewMode === 'folders'
                       ? 'bg-accent text-black shadow font-bold'
@@ -388,7 +390,7 @@ export function PhcList() {
                   Pastas
                 </button>
                 <button
-                  onClick={() => { setViewMode('list'); setActiveFolderLeadId(null); setSelectedDocIds(new Set()); }}
+                  onClick={() => { setViewMode('list'); setActiveFolderKey(null); setSelectedDocIds(new Set()); }}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 ${
                     viewMode === 'list'
                       ? 'bg-accent text-black shadow font-bold'
@@ -449,12 +451,12 @@ export function PhcList() {
         )}
 
         {/* FOLDERS GRID MODE */}
-        {!isLoading && !error && viewMode === 'folders' && activeFolderLeadId === null && folders.length > 0 && (
+        {!isLoading && !error && viewMode === 'folders' && activeFolderKey === null && folders.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 animate-in fade-in duration-300">
             {folders.map((folder) => (
               <div
-                key={folder.lead_id}
-                onClick={() => setActiveFolderLeadId(folder.lead_id)}
+                key={folder.key}
+                onClick={() => setActiveFolderKey(folder.key)}
                 className="group relative flex flex-col justify-between rounded-2xl border border-border/40 bg-card p-5 hover:border-accent/50 hover:bg-secondary/10 hover:shadow-xl hover:shadow-accent/5 transition-all duration-300 cursor-pointer overflow-hidden min-h-[145px]"
               >
                 {/* Card top */}
@@ -503,7 +505,7 @@ export function PhcList() {
         )}
 
         {/* DETAILS TABLE MODE (Flat List or inside specific client folder) */}
-        {!isLoading && !error && docs.length > 0 && (viewMode === 'list' || activeFolderLeadId !== null) && (
+        {!isLoading && !error && docs.length > 0 && (viewMode === 'list' || activeFolderKey !== null) && (
           <div className="rounded-xl border border-border/40 overflow-hidden bg-card animate-in fade-in duration-300">
             <table className="w-full text-sm">
               <thead>
@@ -655,7 +657,7 @@ export function PhcList() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
             transition={{ type: "spring", duration: 0.4 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3.5 rounded-2xl border border-accent/30 bg-card/90 backdrop-blur-xl shadow-2xl shadow-black/50"
+            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 px-6 py-3.5 rounded-2xl border border-accent/30 bg-card/90 backdrop-blur-xl shadow-2xl shadow-black/50"
           >
             <div className="flex items-center gap-2 border-r border-border/40 pr-4">
               <span className="text-xs font-bold text-accent px-2 py-0.5 rounded-lg bg-accent/15 font-mono">
