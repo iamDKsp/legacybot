@@ -316,12 +316,23 @@ export function PhcList() {
     if (!confirm(`Excluir permanentemente os ${selectedDocIds.size} documentos selecionados?`)) return;
     setDeletingBulk(true);
     const ids = Array.from(selectedDocIds);
+    let successCount = 0;
     try {
-      await Promise.all(ids.map((id) => phcApi.deleteDocument(id)));
-      setSelectedDocIds(new Set());
+      for (const id of ids) {
+        await phcApi.deleteDocument(id);
+        successCount++;
+        // Remover do set de selecionados conforme deleta com sucesso
+        setSelectedDocIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
       qc.invalidateQueries({ queryKey: ["phc-documents"] });
-    } catch {
-      alert("Erro ao excluir alguns documentos. Tente novamente.");
+    } catch (err) {
+      console.error("Erro ao deletar em lote:", err);
+      alert(`Erro ao excluir alguns documentos. Sucesso em ${successCount} de ${ids.length}. Tente novamente.`);
+      qc.invalidateQueries({ queryKey: ["phc-documents"] });
     } finally {
       setDeletingBulk(false);
     }

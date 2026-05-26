@@ -140,6 +140,11 @@ export const getPhcDocumentById = async (req: Request, res: Response): Promise<v
                 'l.address as lead_address', 'l.city as lead_city', 'l.state as lead_state',
                 'l.rg as lead_rg', 'l.marital_status as lead_marital_status',
                 'l.nationality as lead_nationality', 'l.birthdate as lead_birthdate',
+                'l.occupation as lead_occupation', 'l.gender as lead_gender',
+                'l.zip_code as lead_cep',
+                'l.street as lead_street',
+                'l.number as lead_number',
+                'l.neighborhood as lead_neighborhood',
                 // Funnel
                 'f.name as funnel_name', 'f.slug as funnel_slug',
                 // Lawyer — all fields needed for PDF generation
@@ -263,11 +268,11 @@ export const downloadPhcPdf = async (req: Request, res: Response): Promise<void>
                 'l.nationality as lead_nationality', 'l.birthdate as lead_birthdate',
                 'l.occupation as lead_occupation', 'l.gender as lead_gender',
                 // CEP do lead — coluna real no banco é zip_code
-                db.raw(`l.zip_code as lead_cep`),
+                'l.zip_code as lead_cep',
                 // Endereço granular
-                db.raw(`l.street as lead_street`),
-                db.raw(`l.number as lead_number`),
-                db.raw(`l.neighborhood as lead_neighborhood`),
+                'l.street as lead_street',
+                'l.number as lead_number',
+                'l.neighborhood as lead_neighborhood',
                 // Funnel
                 'f.name as funnel_name', 'f.slug as funnel_slug',
                 // Lawyer data
