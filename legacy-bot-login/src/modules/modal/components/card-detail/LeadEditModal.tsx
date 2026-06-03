@@ -27,6 +27,7 @@ const ESTADO_CIVIL = [
   { value: "outro",      label: "Outro" },
 ];
 
+
 export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
   const qc = useQueryClient();
   const [saving, setSaving] = useState(false);
@@ -51,7 +52,9 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
     uf_emissor:     (lead.uf_emissor     as string) ?? "SP",
     marital_status: (lead.marital_status as string) ?? "",
     nationality:    (lead.nationality    as string) ?? "brasileiro(a)",
-    occupation:     (lead.occupation     as string) ?? "",
+    // Employment
+    employment_status: (lead.employment_status as string) ?? "",
+    occupation_detail: (lead.occupation_detail as string) ?? "",
   });
 
   const set = (k: keyof typeof form, v: string) =>
@@ -182,12 +185,22 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                     placeholder="brasileiro(a)"
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
+                {/* Situação de emprego — texto livre */}
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Briefcase className="h-3.5 w-3.5" /> Profissão
+                    <Briefcase className="h-3.5 w-3.5" /> Situação de Emprego
                   </label>
-                  <input value={form.occupation} onChange={e => set("occupation", e.target.value)}
-                    placeholder="desempregado(a)"
+                  <input value={form.employment_status} onChange={e => set("employment_status", e.target.value)}
+                    placeholder="Ex: desempregado(a), autônomo(a), CLT..."
+                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                </div>
+                {/* Profissão / detalhe livre */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
+                    <Briefcase className="h-3.5 w-3.5" /> Profissão (detalhe)
+                  </label>
+                  <input value={form.occupation_detail} onChange={e => set("occupation_detail", e.target.value)}
+                    placeholder="Ex: motorista de aplicativo, professora..."
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
               </div>

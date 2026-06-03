@@ -58,6 +58,9 @@ const updateLeadSchema = createLeadSchema.partial().extend({
     birthdate:      z.string().optional(), // ISO date string "YYYY-MM-DD"
     gender:         z.enum(['M','F']).optional(),
     occupation:     z.string().optional(),
+    // Employment fields
+    employment_status: z.string().optional().nullable(),
+    occupation_detail: z.string().optional().nullable(),
     status:         z.string().optional(),
 });
 

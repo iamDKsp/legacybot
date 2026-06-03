@@ -349,6 +349,8 @@ export interface Lead {
     birthdate?: string;
     gender?: 'M' | 'F' | null;
     occupation?: string;
+    employment_status?: string;
+    occupation_detail?: string;
     mother?: string;
     father?: string;
     org_emissor?: string;

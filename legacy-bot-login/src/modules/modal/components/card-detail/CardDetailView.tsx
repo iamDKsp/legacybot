@@ -6,7 +6,7 @@ import {
   Send, Loader2, Plus, Download, Upload, Info, RefreshCw,
   MessageCircle, Pencil, Check, X as XIcon, Trash2,
   MapPin, Hash, Heart, Globe, Copy, ImageIcon, Mic, Navigation, Sparkles,
-  Link2, History, ArrowRightLeft
+  Link2, History, ArrowRightLeft, Briefcase
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -541,6 +541,17 @@ const ESTADO_CIVIL = [
   { value: "outro",      label: "Outro" },
 ];
 
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: "empregado",           label: "Empregado(a) com carteira assinada (CLT)" },
+  { value: "desempregado",        label: "Desempregado(a)" },
+  { value: "autonomo",            label: "Autônomo(a) / Conta própria" },
+  { value: "mei",                 label: "Microempreendedor(a) Individual (MEI)" },
+  { value: "aposentado",          label: "Aposentado(a) / Pensionista" },
+  { value: "funcionario_publico", label: "Funcionário(a) Público(a)" },
+  { value: "estudante",           label: "Estudante" },
+  { value: "outro",               label: "Outro" },
+];
+
 interface FieldRowProps {
   icon: React.ReactNode;
   label: string;
@@ -720,6 +731,8 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
         <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
         <FieldRow icon={<User className="w-3.5 h-3.5"/>}    label="Gênero"     fieldKey="gender"         value={(lead.gender as string) === 'M' ? 'Masculino' : (lead.gender as string) === 'F' ? 'Feminino' : ''} type="select-gender" onSave={handleSave} />
+        <FieldRow icon={<Briefcase className="w-3.5 h-3.5"/>} label="Emprego"   fieldKey="employment_status" value={(lead.employment_status as string) ?? ""} placeholder="Ex: desempregado(a), autônomo(a)..." onSave={handleSave} />
+        <FieldRow icon={<Briefcase className="w-3.5 h-3.5"/>} label="Profissão"  fieldKey="occupation_detail" value={(lead.occupation_detail as string) ?? ""} placeholder="Ex: motorista, professora..." onSave={handleSave} />
       </div>
 
       {/* Section: Endereço */}

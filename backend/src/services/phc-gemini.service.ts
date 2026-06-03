@@ -11,6 +11,8 @@ export interface PhcLeadData {
   marital_status?: string | null;
   nationality?: string | null;
   occupation?: string | null;
+  employment_status?: string | null;
+  occupation_detail?: string | null;
   gender?: string | null;
   address?: string | null;
   city?: string | null;
@@ -72,11 +74,13 @@ function buildPrompt(docType: DocType, lead: PhcLeadData, lawyer: PhcLawyerData)
     lawyer.city, lawyer.state, lawyer.cep ? `CEP ${lawyer.cep}` : null
   ].filter(Boolean).join(', ');
 
+  const occupationStr = [lead.employment_status || null, (lead.occupation_detail || lead.occupation) ? `(${lead.occupation_detail || lead.occupation})` : null].filter(Boolean).join(' ') || null;
+
   const clienteQual = [
     lead.name.toUpperCase(),
     lead.nationality || 'brasileiro',
     lead.marital_status || null,
-    lead.occupation || null,
+    occupationStr,
     lead.rg ? `inscrit${artigo} no RG no ${lead.rg}` : null,
     lead.cpf ? `CPF no ${lead.cpf}` : null,
     lead.address && lead.city

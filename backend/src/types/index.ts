@@ -48,6 +48,9 @@ export interface Lead {
     whatsapp_id?: string;
     bot_active: boolean;
     bot_session_id?: string;
+    // Employment fields
+    employment_status?: 'empregado' | 'desempregado' | 'autonomo' | 'mei' | 'aposentado' | 'funcionario_publico' | 'estudante' | 'outro' | null;
+    occupation_detail?: string | null;
     created_at: Date;
     updated_at: Date;
     // Joined fields

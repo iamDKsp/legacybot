@@ -49,14 +49,15 @@ function formatRg(rg: string): string {
     return clean;
 }
 
-export function clienteQual(g:GenderCtx, name:string, rg?:string|null, cpf?:string|null, addr?:string|null, city?:string|null, state?:string|null, cep?:string|null):string {
+export function clienteQual(g:GenderCtx, name:string, rg?:string|null, cpf?:string|null, addr?:string|null, city?:string|null, state?:string|null, cep?:string|null, occupation?:string|null):string {
   const rgFormatted = rg ? formatRg(rg) : null;
   const rgStr  = rgFormatted ? `inscrit${g.o_a} no RG nº ${rgFormatted}` : '';
   const cpfStr = cpf ? `CPF nº ${cpf}` : '';
   const id     = [rgStr, cpfStr].filter(Boolean).join(' e ');
   const end    = [addr, city && state ? `${city}/${state}` : city||state].filter(Boolean).join(', ');
   const cepStr = cep ? `, CEP ${cep}` : '';
-  return `${name}, ${g.qualificacao}${id ? ', ' + id : ''}${end ? ', residente e domiciliad' + g.o_a + ' à ' + end + cepStr : ''}`;
+  const occStr = occupation ? `, ${occupation}` : '';
+  return `${name}, ${g.qualificacao}${occStr}${id ? ', ' + id : ''}${end ? ', residente e domiciliad' + g.o_a + ' à ' + end + cepStr : ''}`;
 }
 
 // -- Template: CONTRATO -----------------------------------------
