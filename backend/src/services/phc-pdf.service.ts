@@ -79,11 +79,44 @@ function lawyerFullAddr(l: LawyerData): string {
   return `${parts || 'endereço não informado'}, na cidade de ${cidade}${cep}`;
 }
 
-// Build occupation qualifier string from employment_status + occupation_detail
-function buildOccupationStr(lead: LeadData): string | null {
+// Build occupation qualifier string from employment_status (gendered) + occupation fallback
+function buildOccupationStr(lead: LeadData, isFemale: boolean): string {
   const empStatus = lead.employment_status || null;
-  const profDetail = lead.occupation_detail || lead.occupation || null;
-  return [empStatus, profDetail ? `(${profDetail})` : null].filter(Boolean).join(' ') || null;
+  
+  if (empStatus) {
+    const status = empStatus.toLowerCase().trim();
+    switch (status) {
+      case 'registrado':
+      case 'empregado':
+        return isFemale ? 'registrada' : 'registrado';
+      case 'autonomo':
+        return isFemale ? 'autônoma' : 'autônomo';
+      case 'desempregado':
+        return isFemale ? 'desempregada' : 'desempregado';
+      case 'mei':
+        return isFemale ? 'microempreendedora individual (MEI)' : 'microempreendedor individual (MEI)';
+      case 'aposentado':
+        return isFemale ? 'aposentada' : 'aposentado';
+      case 'pensionista':
+        return 'pensionista';
+      case 'funcionario_publico':
+        return isFemale ? 'funcionária pública' : 'funcionário público';
+      case 'estudante':
+        return 'estudante';
+      case 'do_lar':
+        return 'do lar';
+      case 'outro':
+        return 'outro';
+      default:
+        return empStatus;
+    }
+  }
+
+  if (lead.occupation) {
+    return lead.occupation;
+  }
+
+  return isFemale ? 'desempregada' : 'desempregado';
 }
 
 // --- PDF core ----------------------------------------------------------------
@@ -228,7 +261,7 @@ async function genContrato(lead: LeadData, lawyer: LawyerData, notes?: string|nu
     lead.neighborhood
   ].filter(Boolean).join(', ');
   const cliAddr = addrParts || lead.address || 'endereço não informado';
-  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep, buildOccupationStr(lead));
+  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep, buildOccupationStr(lead, g.gender === 'F'));
 
   const docCity = lead.city || lawyer.city;
   const docState = lead.state || lawyer.state;
@@ -310,7 +343,7 @@ async function genProcuracao(lead: LeadData, lawyer: LawyerData, notes?: string|
     lead.neighborhood
   ].filter(Boolean).join(', ');
   const cliAddr = addrParts || lead.address || 'endereço não informado';
-  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep, buildOccupationStr(lead));
+  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep, buildOccupationStr(lead, g.gender === 'F'));
 
   const docCity = lead.city || lawyer.city;
   const docState = lead.state || lawyer.state;
@@ -362,7 +395,7 @@ async function genHipo(lead: LeadData, notes?: string|null, docArguments?: strin
     lead.neighborhood
   ].filter(Boolean).join(', ');
   const cliAddr = addrParts || lead.address || 'endereço não informado';
-  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep, buildOccupationStr(lead));
+  const cliStr = clienteQual(g, lead.name.toUpperCase(), lead.rg, lead.cpf, cliAddr, lead.city, lead.state, lead.cep, buildOccupationStr(lead, g.gender === 'F'));
 
   // Fallback para cidade do advogado não é aplicável aqui já que genHipo não recebe advogado,
   // mas usaremos lead.city/state de forma limpa.

@@ -542,22 +542,38 @@ const ESTADO_CIVIL = [
 ];
 
 const EMPLOYMENT_STATUS_OPTIONS = [
-  { value: "empregado",           label: "Empregado(a) com carteira assinada (CLT)" },
+  { value: "registrado",          label: "Registrado(a) (CLT)" },
+  { value: "autonomo",            label: "Autônomo(a)" },
   { value: "desempregado",        label: "Desempregado(a)" },
-  { value: "autonomo",            label: "Autônomo(a) / Conta própria" },
   { value: "mei",                 label: "Microempreendedor(a) Individual (MEI)" },
-  { value: "aposentado",          label: "Aposentado(a) / Pensionista" },
+  { value: "aposentado",          label: "Aposentado(a)" },
+  { value: "pensionista",         label: "Pensionista" },
   { value: "funcionario_publico", label: "Funcionário(a) Público(a)" },
   { value: "estudante",           label: "Estudante" },
+  { value: "do_lar",              label: "Do lar" },
   { value: "outro",               label: "Outro" },
 ];
+
+const EMPLOYMENT_STATUS_LABEL: Record<string, string> = {
+  registrado: "Registrado(a) (CLT)",
+  empregado: "Registrado(a) (CLT)",
+  autonomo: "Autônomo(a)",
+  desempregado: "Desempregado(a)",
+  mei: "Microempreendedor(a) Individual (MEI)",
+  aposentado: "Aposentado(a)",
+  pensionista: "Pensionista",
+  funcionario_publico: "Funcionário(a) Público(a)",
+  estudante: "Estudante",
+  do_lar: "Do lar",
+  outro: "Outro",
+};
 
 interface FieldRowProps {
   icon: React.ReactNode;
   label: string;
   value: string;
   fieldKey: string;
-  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "select-uf" | "select-gender" | "tel";
+  type?: "text" | "email" | "date" | "select-state" | "select-civil" | "select-uf" | "select-gender" | "select-employment" | "tel";
   placeholder?: string;
   readOnly?: boolean;
   onSave: (key: string, value: string) => Promise<void>;
@@ -640,6 +656,14 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
                 { value: 'M', label: 'Masculino' },
                 { value: 'F', label: 'Feminino' },
               ]}
+              className="flex-1 min-w-0"
+            />
+          ) : type === "select-employment" ? (
+            <StyledSelect
+              value={draft}
+              onChange={(v) => { setDraft(v); }}
+              placeholder="Selecionar..."
+              options={EMPLOYMENT_STATUS_OPTIONS}
               className="flex-1 min-w-0"
             />
           ) : (
@@ -731,8 +755,7 @@ function InfoPanel({ lead, onLeadUpdated }: { lead: Lead & Record<string, unknow
         <FieldRow icon={<Heart className="w-3.5 h-3.5"/>}   label="Est. Civil" fieldKey="marital_status" value={ESTADO_CIVIL_LABEL[(lead.marital_status as string) ?? ""] ?? (lead.marital_status as string) ?? ""} type="select-civil" onSave={async (key, val) => handleSave(key, val)} />
         <FieldRow icon={<Globe className="w-3.5 h-3.5"/>}   label="Nacion."    fieldKey="nationality"    value={(lead.nationality as string) ?? "brasileiro(a)"} placeholder="brasileiro(a)" onSave={handleSave} />
         <FieldRow icon={<User className="w-3.5 h-3.5"/>}    label="Gênero"     fieldKey="gender"         value={(lead.gender as string) === 'M' ? 'Masculino' : (lead.gender as string) === 'F' ? 'Feminino' : ''} type="select-gender" onSave={handleSave} />
-        <FieldRow icon={<Briefcase className="w-3.5 h-3.5"/>} label="Emprego"   fieldKey="employment_status" value={(lead.employment_status as string) ?? ""} placeholder="Ex: desempregado(a), autônomo(a)..." onSave={handleSave} />
-        <FieldRow icon={<Briefcase className="w-3.5 h-3.5"/>} label="Profissão"  fieldKey="occupation_detail" value={(lead.occupation_detail as string) ?? ""} placeholder="Ex: motorista, professora..." onSave={handleSave} />
+        <FieldRow icon={<Briefcase className="w-3.5 h-3.5"/>} label="Profissão"  fieldKey="employment_status" value={EMPLOYMENT_STATUS_LABEL[(lead.employment_status as string) ?? ""] ?? (lead.employment_status as string) ?? ""} type="select-employment" onSave={handleSave} />
       </div>
 
       {/* Section: Endereço */}

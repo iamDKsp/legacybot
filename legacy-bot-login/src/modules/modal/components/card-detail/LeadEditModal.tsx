@@ -27,6 +27,19 @@ const ESTADO_CIVIL = [
   { value: "outro",      label: "Outro" },
 ];
 
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: "registrado",          label: "Registrado(a) (CLT)" },
+  { value: "autonomo",            label: "Autônomo(a)" },
+  { value: "desempregado",        label: "Desempregado(a)" },
+  { value: "mei",                 label: "Microempreendedor(a) Individual (MEI)" },
+  { value: "aposentado",          label: "Aposentado(a)" },
+  { value: "pensionista",         label: "Pensionista" },
+  { value: "funcionario_publico", label: "Funcionário(a) Público(a)" },
+  { value: "estudante",           label: "Estudante" },
+  { value: "do_lar",              label: "Do lar" },
+  { value: "outro",               label: "Outro" },
+];
+
 
 export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
   const qc = useQueryClient();
@@ -185,23 +198,17 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                     placeholder="brasileiro(a)"
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
-                {/* Situação de emprego — texto livre */}
-                <div>
+                {/* Situação de emprego / Profissão — Select dropdown */}
+                <div className="col-span-2">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Briefcase className="h-3.5 w-3.5" /> Situação de Emprego
+                    <Briefcase className="h-3.5 w-3.5" /> Profissão
                   </label>
-                  <input value={form.employment_status} onChange={e => set("employment_status", e.target.value)}
-                    placeholder="Ex: desempregado(a), autônomo(a), CLT..."
-                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
-                </div>
-                {/* Profissão / detalhe livre */}
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
-                    <Briefcase className="h-3.5 w-3.5" /> Profissão (detalhe)
-                  </label>
-                  <input value={form.occupation_detail} onChange={e => set("occupation_detail", e.target.value)}
-                    placeholder="Ex: motorista de aplicativo, professora..."
-                    className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
+                  <StyledSelect
+                    value={form.employment_status}
+                    onChange={(v) => set("employment_status", v)}
+                    placeholder="Selecionar profissão..."
+                    options={EMPLOYMENT_STATUS_OPTIONS}
+                  />
                 </div>
               </div>
             </div>

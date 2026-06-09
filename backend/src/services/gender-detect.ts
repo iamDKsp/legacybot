@@ -46,6 +46,6 @@ export function buildCtx(
     OUTORGANTE:  F?'A outorgante':'O outorgante',
     nacional, marital,
     declaracaoTitulo: F ? 'DECLARA\u00C7\u00C3O' : 'DECLARA\u00C7\u00C3O DE POBREZA',
-    qualificacao: `${nacional}, ${marital}, ${occ}`,
+    qualificacao: `${nacional}, ${marital}`,
   };
 }
