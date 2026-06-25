@@ -74,9 +74,10 @@ async function getDocState(leadId: number): Promise<DocState> {
 
         const names = approved.map(d => String(d.name || ''));
 
+        const hasPdfId = names.some(n => (n.startsWith('RG') || n.startsWith('CNH')) && n.includes('PDF'));
         return {
-            id_front_done:        names.some(n => ID_FRONT_NAMES.some(f => n.startsWith(f.split(' ')[0]) && n.includes('frente'))),
-            id_back_done:         names.some(n => ID_BACK_NAMES .some(b => n.startsWith(b.split(' ')[0]) && n.includes('verso'))),
+            id_front_done:        hasPdfId || names.some(n => ID_FRONT_NAMES.some(f => n.startsWith(f.split(' ')[0]) && n.includes('frente'))),
+            id_back_done:         hasPdfId || names.some(n => ID_BACK_NAMES .some(b => n.startsWith(b.split(' ')[0]) && n.includes('verso'))),
             proof_of_address_done: names.some(n => PROOF_NAMES.some(p => n.startsWith(p.split(' ')[0]))),
         };
     } catch (err) {
@@ -101,7 +102,7 @@ async function saveImageAndPersist(
     // Try to save to disk (works locally; ephemeral in Railway without a Volume)
     let filePath: string | null = null;
     try {
-        const ext = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+        const ext = mimeType.includes('pdf') ? 'pdf' : mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
         const dirPath = path.join(process.cwd(), 'uploads', 'documents', String(leadId));
         if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
         const safeName = docLabel.replace(/[^a-z0-9_\-]/gi, '_').slice(0, 40);
@@ -906,6 +907,7 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                         : 'PDF recebido — sem texto extraído',
                 }).returning('id');
                 console.log(`[PDF] ✅ PDF persisted for lead ${lead.id}: docId=${pdfDocId}`);
+                documentId = pdfDocId;
             } catch (pdfSaveErr) {
                 console.error('[PDF] Failed to persist PDF:', (pdfSaveErr as Error).message);
             }
@@ -1134,10 +1136,15 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 return;
             }
 
-            // ── Document image validation pipeline ──
-            if (imageBase64 && imageMimeType) {
+            // ── Document image/PDF validation pipeline ──
+            const isPDF = !!(pdfBase64 && pdfMimeType);
+            if ((imageBase64 && imageMimeType) || isPDF) {
+                const fileBase64 = isPDF ? pdfBase64! : imageBase64!;
+                const fileMimeType = isPDF ? pdfMimeType! : imageMimeType!;
+
                 if (_leadBuffers.has(phone)) {
-                    console.log(`[Buffer] 🖼️ Image received — flushing pending text for ${phone} before document pipeline`);
+                    const fileLabel = isPDF ? 'PDF' : 'Image';
+                    console.log(`[Buffer] 📁 ${fileLabel} received — flushing pending text for ${phone} before document pipeline`);
                     await flushBuffer(phone);
                 }
                 // BUG FIX: Mutex para prevenir duplicatas de galeria (Pastor Nielson)
@@ -1145,8 +1152,8 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                     processDocumentImage(
                         lead,
                         conversation.id,
-                        imageBase64,
-                        imageMimeType,
+                        fileBase64,
+                        fileMimeType,
                         msgId,
                         documentId
                     )
@@ -1164,22 +1171,23 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
 
 // ============================================================
 // Full document validation pipeline
-// Called when lead is in document_request stage and sends an image
+// Called when lead is in document_request stage and sends an image or PDF
 // ============================================================
 async function processDocumentImage(
     lead: Record<string, unknown>,
     conversationId: number,
-    imageBase64: string,
-    imageMimeType: string,
+    fileBase64: string,
+    fileMimeType: string,
     initialMsgId?: number,
     initialDocId?: number
 ): Promise<void> {
     const leadId = lead.id as number;
     const phone = String(lead.phone || '');
     const targetPhone = String(lead.whatsapp_id || phone);
+    const isPDF = fileMimeType === 'application/pdf';
     
-    const base64SizeKB = Math.round(imageBase64.length * 0.75 / 1024);
-    console.log(`[Doc] 🖼️ [START] processDocumentImage for lead ${leadId} | Size: ${base64SizeKB}KB | Mime: ${imageMimeType}`);
+    const base64SizeKB = Math.round(fileBase64.length * 0.75 / 1024);
+    console.log(`[Doc] 📁 [START] processDocumentFile for lead ${leadId} | Size: ${base64SizeKB}KB | Mime: ${fileMimeType}`);
     
     // Bug #1 Fix: getDocState is now async and reads from DB (survives restarts)
     const docState = await getDocState(leadId);
@@ -1197,12 +1205,12 @@ async function processDocumentImage(
         const checklist = await getDocumentChecklist(leadId, funnelSlug);
         const nextExpected = checklist.missing[0] ?? null;
         const analysisContext = nextExpected
-            ? `O cliente está no processo de coleta de documentos para o funil "${funnelSlug}". O próximo documento esperado é: "${nextExpected}". Se a imagem for compatível com esse tipo de documento, classifique como "${nextExpected}".`
+            ? `O cliente está no processo de coleta de documentos para o funil "${funnelSlug}". O próximo documento esperado é: "${nextExpected}". Se o arquivo for compatível com esse tipo de documento, classifique como "${nextExpected}".`
             : `O cliente está no funil "${funnelSlug}" e pode estar enviando qualquer documento relacionado ao caso.`;
 
-        // Analyze image via Gemini Vision
-        console.log(`[Doc] 🔍 Calling analyzeImage for lead ${leadId}...`);
-        const analysis = await analyzeImage(imageBase64, imageMimeType, analysisContext);
+        // Analyze file via Gemini
+        console.log(`[Doc] 🔍 Calling analyzeImage/PDF for lead ${leadId}...`);
+        const analysis = await analyzeImage(fileBase64, fileMimeType, analysisContext);
         const docType = analysis.docType;
         console.log(`[Doc] 🔍 Analysis result for lead ${leadId}:`, JSON.stringify(analysis, null, 2));
         console.log(`[Doc] 🔍 Analysis: isLegible=${analysis.isLegible} | docType=${docType} | issues=${analysis.issues} | extractedText=${(analysis.extractedText || '').substring(0, 80)}`);
@@ -1227,14 +1235,14 @@ async function processDocumentImage(
             if (isTechnicalError) {
                 // BUG 4 FIX: Mensagem humanizada no lugar de erro técnico
                 replyMsg = 'Ei, tive uma dificuldade aqui por um segundo. Consegue mandar a foto de novo pra mim?';
-                inboundLabel = '[Imagem recebida — erro de processamento]';
+                inboundLabel = `[${isPDF ? 'PDF' : 'Imagem'} recebido — erro de processamento]`;
                 console.warn(`[Doc] ⚠️ Technical error during analysis: ${analysis.issues}`);
                 
                 await db('ai_error_logs').insert({
                     lead_id: leadId,
                     error_message: analysis.issues || 'Erro técnico na IA Vision',
                     stack_trace: null,
-                    payload: JSON.stringify({ imageMimeType, action: 'analyzeImage' }),
+                    payload: JSON.stringify({ fileMimeType, action: 'analyzeImage' }),
                 }).catch(e => console.error('Failed to log AI error:', e));
             } else {
                 // Usa o reading_issues do Gemini se disponível, senão infere do texto
@@ -1271,7 +1279,7 @@ async function processDocumentImage(
                 } else {
                     replyMsg = `Poxa, ${humanizedIssue}. Consegue tirar uma foto nova? Se puder, em um lugar com boa iluminação e sem cortar as bordas do documento.`;
                 }
-                inboundLabel = '[Imagem recebida — ilegível]';
+                inboundLabel = `[${isPDF ? 'PDF' : 'Imagem'} recebido — ilegível]`;
             }
 
             // Save the rejected image so the CRM can display it
@@ -1280,8 +1288,8 @@ async function processDocumentImage(
                 await db('documents').where({ id: initialDocId }).update({ name: `[Ilegível] ${docType}`, status: 'rejeitado', notes: analysis.issues });
                 rejDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
             } else {
-                const { filePath: rejFilePath, fileData: rejFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `recebido_rejeitado_${Date.now()}`);
-                const [{ id: rejDocId }] = await db('documents').insert({ lead_id: leadId, name: `[Ilegivel] ${docType}`, file_type: imageMimeType, file_path: rejFilePath, file_data: rejFileData, status: 'rejeitado', notes: analysis.issues }).returning('id');
+                const { filePath: rejFilePath, fileData: rejFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, `recebido_rejeitado_${Date.now()}`);
+                const [{ id: rejDocId }] = await db('documents').insert({ lead_id: leadId, name: `[Ilegivel] ${docType}`, file_type: fileMimeType, file_path: rejFilePath, file_data: rejFileData, status: 'rejeitado', notes: analysis.issues }).returning('id');
                 rejDocUrl = `/api/leads/${leadId}/documents/${rejDocId}/download`;
             }
 
@@ -1381,8 +1389,36 @@ async function processDocumentImage(
 
         // ── RG/CNH handling ──
         if (isIDDoc) {
-            // If this is the FRONT (name/cpf not yet gotten) we try to extract data
-            if (!docState.id_front_done) {
+            if (isPDF) {
+                // For PDF ID documents (CNH/RG Digital), we consider both front and back sides received
+                const updates = buildLeadUpdates(exData, lead);
+                if (Object.keys(updates).length > 0) {
+                    await safeUpdateLead(leadId, updates, lead);
+                    const wssName = getWebSocketServer();
+                    if (wssName) wssName.emit('lead_updated', { lead_id: leadId, ...updates });
+                    console.log(`[Doc] 📋 Auto-filled lead fields from ${docType} PDF: ${JSON.stringify(updates)}`);
+                } else {
+                    console.log(`[Doc] ℹ️ ${docType} PDF: no new fields to fill (already set or not extracted)`);
+                }
+
+                const notesJson = JSON.stringify({ extractedText: textData, extractedData: exData });
+                let docUrl: string | null = null;
+                if (initialDocId) {
+                    await db('documents').where({ id: initialDocId }).update({ name: `${docType} (PDF)`, status: 'aprovado', notes: notesJson });
+                    docUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
+                }
+                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} PDF aprovado | Nome: ${exData.name || 'N/D'} | CPF: ${exData.cpf || 'N/D'} | RG: ${exData.rg || 'N/D'}` });
+
+                const contentStr = `[PDF recebido — ${docType} ✅]`;
+                if (initialMsgId) {
+                    await db('messages').where({ id: initialMsgId }).update({ content: contentStr, image_url: docUrl });
+                } else {
+                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStr, direction: 'inbound', sender: 'lead', media_type: 'document', image_url: docUrl });
+                }
+
+                docState.id_front_done = true;
+                docState.id_back_done = true;
+            } else if (!docState.id_front_done) {
                 const updates = buildLeadUpdates(exData, lead);
                 if (Object.keys(updates).length > 0) {
                     await safeUpdateLead(leadId, updates, lead);
@@ -1400,8 +1436,8 @@ async function processDocumentImage(
                     await db('documents').where({ id: initialDocId }).update({ name: `${docType} (frente)`, status: 'aprovado', notes: notesJson });
                     frontDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
-                    const { filePath: frontFilePath, fileData: frontFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_frente`);
-                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: imageMimeType, file_path: frontFilePath, file_data: frontFileData, status: 'aprovado', notes: notesJson }).returning('id');
+                    const { filePath: frontFilePath, fileData: frontFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, `${docType}_frente`);
+                    const [{ id: frontDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (frente)`, file_type: fileMimeType, file_path: frontFilePath, file_data: frontFileData, status: 'aprovado', notes: notesJson }).returning('id');
                     frontDocUrl = `/api/leads/${leadId}/documents/${frontDocId}/download`;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} frente aprovada | Nome: ${exData.name || 'N/D'} | CPF: ${exData.cpf || 'N/D'} | RG: ${exData.rg || 'N/D'}` });
@@ -1453,8 +1489,8 @@ async function processDocumentImage(
                     if (initialDocId) {
                         await db('documents').where({ id: initialDocId }).update({ name: `${docType} (frente - incompleto)`, status: 'pendente', notes: notesJsonRetry });
                     } else {
-                        const { filePath: rFilePath, fileData: rFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_frente_incompleto`);
-                        await db('documents').insert({ lead_id: leadId, name: `${docType} (frente - incompleto)`, file_type: imageMimeType, file_path: rFilePath, file_data: rFileData, status: 'pendente', notes: notesJsonRetry });
+                        const { filePath: rFilePath, fileData: rFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, `${docType}_frente_incompleto`);
+                        await db('documents').insert({ lead_id: leadId, name: `${docType} (frente - incompleto)`, file_type: fileMimeType, file_path: rFilePath, file_data: rFileData, status: 'pendente', notes: notesJsonRetry });
                     }
                     await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ ${docType} frente legível mas incompleto | ${missingDesc}` });
                     // Commented out to prevent sending retry message to client when critical fields are missing
@@ -1489,8 +1525,8 @@ async function processDocumentImage(
                     await db('documents').where({ id: initialDocId }).update({ name: `${docType} (verso)`, status: 'aprovado', notes: notesJsonBack });
                     backDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
-                    const { filePath: backFilePath, fileData: backFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, `${docType}_verso`);
-                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: imageMimeType, file_path: backFilePath, file_data: backFileData, status: 'aprovado', notes: notesJsonBack }).returning('id');
+                    const { filePath: backFilePath, fileData: backFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, `${docType}_verso`);
+                    const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: fileMimeType, file_path: backFilePath, file_data: backFileData, status: 'aprovado', notes: notesJsonBack }).returning('id');
                     backDocUrl = `/api/leads/${leadId}/documents/${backDocId}/download`;
                 }
                 // Also try to fill fields from the back (CNH back has CPF)
@@ -1502,11 +1538,11 @@ async function processDocumentImage(
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docType} verso aprovado` });
                 
-                const contentStrBack = `[Imagem recebida — ${docType} verso ✅]`;
+                const contentStrBack = `[${isPDF ? 'PDF' : 'Imagem'} recebido — ${docType} verso ✅]`;
                 if (initialMsgId) {
                     await db('messages').where({ id: initialMsgId }).update({ content: contentStrBack, image_url: backDocUrl });
                 } else {
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrBack, direction: 'inbound', sender: 'lead', media_type: 'image', image_url: backDocUrl });
+                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrBack, direction: 'inbound', sender: 'lead', media_type: isPDF ? 'document' : 'image', image_url: backDocUrl });
                 }
 
                 docState.id_back_done = true;
@@ -1562,17 +1598,17 @@ async function processDocumentImage(
                     await db('documents').where({ id: initialDocId }).update({ name: docSavedName, status: 'aprovado', notes: notesJsonGeneric });
                     genericDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
                 } else {
-                    const { filePath: genericFilePath, fileData: genericFileData } = await saveImageAndPersist(leadId, imageBase64, imageMimeType, docSavedName.replace(/\s+/g, '_'));
-                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: imageMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: notesJsonGeneric }).returning('id');
+                    const { filePath: genericFilePath, fileData: genericFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, docSavedName.replace(/\s+/g, '_'));
+                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: fileMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: notesJsonGeneric }).returning('id');
                     genericDocUrl = `/api/leads/${leadId}/documents/${genericDocId}/download`;
                 }
                 await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docSavedName} aprovado | Dados: ${textData.substring(0, 100) || 'N/D'}` });
                 
-                const contentStrGen = `[Imagem recebida — ${docSavedName} ✅]`;
+                const contentStrGen = `[${isPDF ? 'PDF' : 'Imagem'} recebido — ${docSavedName} ✅]`;
                 if (initialMsgId) {
                     await db('messages').where({ id: initialMsgId }).update({ content: contentStrGen, image_url: genericDocUrl });
                 } else {
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrGen, direction: 'inbound', sender: 'lead', media_type: 'image', image_url: genericDocUrl });
+                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrGen, direction: 'inbound', sender: 'lead', media_type: isPDF ? 'document' : 'image', image_url: genericDocUrl });
                 }
             }
 
@@ -1605,7 +1641,7 @@ async function processDocumentImage(
             }
 
             const wss = getWebSocketServer();
-            if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[Imagem — ${docSavedName}]`, conversation_id: conversationId });
+            if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[${isPDF ? 'PDF' : 'Imagem'} — ${docSavedName}]`, conversation_id: conversationId });
             
             await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
                 await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
