@@ -104,8 +104,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-this-in-production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       GOOGLE_AI_API_KEY: ${GOOGLE_AI_API_KEY:-}
-      GOOGLE_AI_MODEL: ${GOOGLE_AI_MODEL:-gemini-3.1-flash-lite-preview}
-      GOOGLE_AI_MEDIA_MODEL: ${GOOGLE_AI_MEDIA_MODEL:-gemini-2.0-flash-lite}
+      GOOGLE_AI_MODEL: ${GOOGLE_AI_MODEL:-gemini-2.5-flash}
+      GOOGLE_AI_MEDIA_MODEL: ${GOOGLE_AI_MEDIA_MODEL:-gemini-2.5-flash}
       WHATSAPP_API_URL: http://whatsapp-bridge:8081
       WHATSAPP_API_KEY: ${EVOLUTION_API_KEY:-legacy-evolution-api-key-2026}
       WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-legacy-crm}

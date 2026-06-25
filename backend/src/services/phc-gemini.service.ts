@@ -172,7 +172,7 @@ export async function generateDocumentText(
   lawyer: PhcLawyerData
 ): Promise<string> {
   const model = genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model: config.googleAi.model,
     generationConfig: {
       temperature: 0.2,
       maxOutputTokens: 4096,

@@ -733,7 +733,7 @@ async function selfAuditReply(draft: string, context: string): Promise<string> {
         const hasColdSignal = AUDIT_COLD_SIGNALS.some(s => draft.toLowerCase().includes(s));
         if (!hasColdSignal) return draft; // Sem sinal frio: não audita, economiza token
 
-        const auditModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+        const auditModel = genAI.getGenerativeModel({ model: config.googleAi.model });
         const auditPrompt = `Você é um revisor de qualidade de atendimento via WhatsApp para um escritório jurídico.
 Analise a RESPOSTA abaixo que foi gerada para um cliente. Verifique se ela:
 1. Soa robotizada, formal demais ou fria para uma conversa de WhatsApp

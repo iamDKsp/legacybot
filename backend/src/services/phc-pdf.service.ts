@@ -17,7 +17,7 @@ const _genAI = new GoogleGenerativeAI(config.googleAi.apiKey);
  */
 async function applyArguments(docText: string, userArgs: string): Promise<string> {
   try {
-    const model = _genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const model = _genAI.getGenerativeModel({ model: config.googleAi.model });
     const prompt = `Você é um assistente jurídico especialista em documentos brasileiros.
 Abaixo está um documento jurídico já redigido. Aplique EXATAMENTE as instruções do usuário ao documento.
 As instruções têm prioridade absoluta — elas sobrepõem qualquer padrão do documento.
