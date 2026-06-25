@@ -47,7 +47,7 @@ export const config = {
         apiKey: process.env.GOOGLE_AI_API_KEY || '',
         model: process.env.GOOGLE_AI_MODEL || 'gemini-2.0-flash',
         // mediaModel MUST support vision/images — never fall back to a text-only model
-        mediaModel: process.env.GOOGLE_AI_MEDIA_MODEL || 'gemini-2.5-flash-lite',
+        mediaModel: process.env.GOOGLE_AI_MEDIA_MODEL || 'gemini-2.0-flash',
     },
 
     whatsapp: {

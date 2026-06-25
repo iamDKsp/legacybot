@@ -839,14 +839,15 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             await db('messages').insert({
                 conversation_id: conversation.id,
                 lead_id: lead.id,
-                content: botReply,
+                content: '[Erro técnico - Falha no download da imagem via WhatsApp]',
                 direction: 'outbound',
                 sender: 'bot'
             });
             const wss = getWebSocketServer();
-            if (wss) wss.emit('bot_response', { lead_id: lead.id, message: botReply });
-            const failedPhone = String(lead.whatsapp_id || phone);
-            if (canSendOutbound(failedPhone)) await aiService.sendFragmentedMessage(failedPhone, botReply);
+            if (wss) wss.emit('bot_response', { lead_id: lead.id, message: '[Falha no download da imagem]' });
+            // Commented out to prevent sending error message to client
+            // const failedPhone = String(lead.whatsapp_id || phone);
+            // if (canSendOutbound(failedPhone)) await aiService.sendFragmentedMessage(failedPhone, botReply);
             return;
         }
 
@@ -1176,12 +1177,17 @@ async function processDocumentImage(
     const leadId = lead.id as number;
     const phone = String(lead.phone || '');
     const targetPhone = String(lead.whatsapp_id || phone);
+    
+    const base64SizeKB = Math.round(imageBase64.length * 0.75 / 1024);
+    console.log(`[Doc] 🖼️ [START] processDocumentImage for lead ${leadId} | Size: ${base64SizeKB}KB | Mime: ${imageMimeType}`);
+    
     // Bug #1 Fix: getDocState is now async and reads from DB (survives restarts)
     const docState = await getDocState(leadId);
     console.log(`[DocState] Lead ${leadId}: id_front=${docState.id_front_done} | id_back=${docState.id_back_done} | proof=${docState.proof_of_address_done}`);
 
     try {
-        await aiService.sendWhatsAppMessage(targetPhone, 'só um minuto por favor ⏳');
+        // Commented out to prevent the bot from saying "só um minuto por favor" when analyzing an image
+        // await aiService.sendWhatsAppMessage(targetPhone, 'só um minuto por favor ⏳');
 
         // Get funnel slug for checklist
         const funnel = await db('funnels').where({ id: lead.funnel_id }).first() as { slug: string } | undefined;
@@ -1195,8 +1201,10 @@ async function processDocumentImage(
             : `O cliente está no funil "${funnelSlug}" e pode estar enviando qualquer documento relacionado ao caso.`;
 
         // Analyze image via Gemini Vision
+        console.log(`[Doc] 🔍 Calling analyzeImage for lead ${leadId}...`);
         const analysis = await analyzeImage(imageBase64, imageMimeType, analysisContext);
         const docType = analysis.docType;
+        console.log(`[Doc] 🔍 Analysis result for lead ${leadId}:`, JSON.stringify(analysis, null, 2));
         console.log(`[Doc] 🔍 Analysis: isLegible=${analysis.isLegible} | docType=${docType} | issues=${analysis.issues} | extractedText=${(analysis.extractedText || '').substring(0, 80)}`);
 
         // ── CASE 1: Image is NOT legible ──
@@ -1284,6 +1292,8 @@ async function processDocumentImage(
             }
             await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: isTechnicalError ? `[Análise de mídia] ⚠️ Erro técnico — ${analysis.issues}` : `[Análise de mídia] ❌ Documento rejeitado — ${docType} | Motivo: ${analysis.issues}` });
 
+            // Commented out to prevent sending error message to client when image is not legible
+            /*
             if (canSendOutbound(phone)) {
                 await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
                     await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
@@ -1291,6 +1301,7 @@ async function processDocumentImage(
                     if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
                 });
             }
+            */
             return;
         }
 
@@ -1446,6 +1457,8 @@ async function processDocumentImage(
                         await db('documents').insert({ lead_id: leadId, name: `${docType} (frente - incompleto)`, file_type: imageMimeType, file_path: rFilePath, file_data: rFileData, status: 'pendente', notes: notesJsonRetry });
                     }
                     await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ ${docType} frente legível mas incompleto | ${missingDesc}` });
+                    // Commented out to prevent sending retry message to client when critical fields are missing
+                    /*
                     if (canSendOutbound(targetPhone)) {
                         await aiService.sendFragmentedMessage(targetPhone, retryMsg, undefined, async (fragment) => {
                             await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
@@ -1453,6 +1466,7 @@ async function processDocumentImage(
                             if (wssR) wssR.emit('bot_response', { lead_id: leadId, message: fragment });
                         });
                     }
+                    */
                     return;
                 }
 

@@ -1059,7 +1059,7 @@ REGRAS PARA docType:
             };
         } catch (err) {
             const errorMsg = (err as Error)?.message || String(err);
-            console.error(`[AI] ❌ Image analysis error (attempt ${attempt}):`, errorMsg);
+            console.error(`[AI] ❌ Image analysis error (attempt ${attempt}) [Model: ${config.googleAi.mediaModel}]:`, err);
 
             if (attempt < MAX_ATTEMPTS) {
                 console.log(`[AI] 🔄 Retrying image analysis after error...`);
