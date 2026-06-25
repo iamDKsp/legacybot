@@ -391,6 +391,11 @@ async function flushFileBuffer(phone: string): Promise<void> {
     try {
         console.log(`[FileBuffer] 🚀 Processing batch of ${buf.files.length} document(s) for lead ${leadId}`);
 
+        const wssThinking = getWebSocketServer();
+        if (wssThinking) {
+            wssThinking.emit('sofia_thinking', { lead_id: leadId, thinking: true });
+        }
+
         const results: Array<{
             file: BufferedFile;
             outcome: ProcessDocResult;
@@ -525,6 +530,10 @@ async function flushFileBuffer(phone: string): Promise<void> {
         console.error('[FileBuffer] Error flushing file buffer:', err);
     } finally {
         _processingFileLock.delete(leadId);
+        const wssThinking = getWebSocketServer();
+        if (wssThinking) {
+            wssThinking.emit('sofia_thinking', { lead_id: leadId, thinking: false });
+        }
     }
 }
 
@@ -1840,6 +1849,12 @@ async function processAIBotResponse(
     try {
         const targetPhone = String(lead.whatsapp_id || phone);
 
+        // Emit thinking true
+        const wssThinking = getWebSocketServer();
+        if (wssThinking) {
+            wssThinking.emit('sofia_thinking', { lead_id: lead.id, thinking: true });
+        }
+
         // Get full conversation history with sender info for compression
         const rawHistory = await db('messages')
             .where('conversation_id', conversationId)
@@ -2092,6 +2107,11 @@ async function processAIBotResponse(
         // Clean up only if this is still the active controller for this phone
         if (_activeProcessing.get(phone) === abortController) {
             _activeProcessing.delete(phone);
+        }
+        // Emit thinking false
+        const wssThinking = getWebSocketServer();
+        if (wssThinking) {
+            wssThinking.emit('sofia_thinking', { lead_id: lead.id, thinking: false });
         }
     }
 }

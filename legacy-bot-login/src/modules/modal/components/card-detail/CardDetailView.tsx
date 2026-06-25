@@ -324,10 +324,23 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
   const [sending, setSending] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [sofiaThinking, setSofiaThinking] = useState(false);
+
+  useEffect(() => {
+    setSofiaThinking(false);
+    const handleThinking = (e: Event) => {
+      const customEvent = e as CustomEvent<{ lead_id: number; thinking: boolean }>;
+      if (customEvent.detail && customEvent.detail.lead_id === leadId) {
+        setSofiaThinking(customEvent.detail.thinking);
+      }
+    };
+    window.addEventListener("sofia_thinking", handleThinking);
+    return () => window.removeEventListener("sofia_thinking", handleThinking);
+  }, [leadId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, sofiaThinking]);
   const [copied, setCopied] = useState(false);
 
   const handleCopyConversation = () => {
@@ -504,6 +517,21 @@ function ConversationsPanel({ leadId }: { leadId: number }) {
               </div>
             );
           })}
+
+        {sofiaThinking && (
+          <div className="flex gap-2 animate-pulse mt-2">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1 bg-accent/20">
+              <Bot className="w-3.5 h-3.5 text-accent animate-spin" style={{ animationDuration: '3s' }} />
+            </div>
+            <div className="bg-accent/15 border border-accent/10 rounded-xl rounded-tl-sm px-4 py-3 flex items-center gap-1.5 shadow-sm">
+              <div className="w-2.5 h-2.5 rounded-full bg-accent/50 animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-2.5 h-2.5 rounded-full bg-accent/50 animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-2.5 h-2.5 rounded-full bg-accent/50 animate-bounce" style={{ animationDelay: '300ms' }} />
+              <span className="text-xs text-accent/80 font-semibold ml-2 select-none">Sofia está pensando...</span>
+            </div>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 

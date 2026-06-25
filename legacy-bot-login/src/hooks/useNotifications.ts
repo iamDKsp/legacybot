@@ -109,6 +109,11 @@ export function useNotifications() {
             window.dispatchEvent(new CustomEvent('legacy_new_message', { detail: data }));
         });
 
+        socket.on('sofia_thinking', (raw: { lead_id: number; thinking: boolean }) => {
+            console.log('[Notifications] sofia_thinking:', raw.lead_id, raw.thinking);
+            window.dispatchEvent(new CustomEvent('sofia_thinking', { detail: raw }));
+        });
+
         socket.on('disconnect', (reason) => {
             console.log('[Notifications] Socket.IO disconnected:', reason);
         });
