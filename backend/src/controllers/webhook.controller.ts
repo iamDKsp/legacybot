@@ -162,8 +162,35 @@ interface LeadBuffer {
     timer: ReturnType<typeof setTimeout>;
 }
 
+interface BufferedFile {
+    fileBase64: string;
+    fileMimeType: string;
+    msgId: number;
+    documentId: number;
+}
+
+interface FileBuffer {
+    files: BufferedFile[];
+    lead: Record<string, unknown>;
+    conversationId: number;
+    phone: string;
+    timer: ReturnType<typeof setTimeout>;
+}
+
+interface ProcessDocResult {
+    success: boolean;
+    docType: DocumentType;
+    isLegible: boolean;
+    isIncomplete?: boolean;
+    error?: string;
+    docSavedName?: string;
+}
+
 const _leadBuffers = new Map<string, LeadBuffer>();
+const _fileBuffers = new Map<string, FileBuffer>();
 const DEBOUNCE_MS = 30_000; // 10 seconds of silence before Sofia responds
+const FILE_DEBOUNCE_MS = 8000; // 8 seconds of silence to group multi-uploads
+const _processingFileLock = new Set<number>(); // leadId lock for sequential execution
 
 // ============================================================
 // BUG 1 FIX: Rate limiter para erros de imagem por lead
@@ -302,6 +329,184 @@ async function flushBuffer(phone: string): Promise<void> {
 
     console.log(`[Buffer] 📤 Flushing ${buf.messages.length} msg(s) for ${phone}: "${combined.substring(0, 100)}${combined.length > 100 ? '...' : ''}"`);
     await processAIBotResponse(buf.lead, combined, buf.conversationId, phone);
+}
+
+function addFileToBuffer(
+    phone: string,
+    fileBase64: string,
+    fileMimeType: string,
+    msgId: number,
+    documentId: number,
+    lead: Record<string, unknown>,
+    conversationId: number
+): void {
+    const existing = _fileBuffers.get(phone);
+    const newFile: BufferedFile = {
+        fileBase64,
+        fileMimeType,
+        msgId,
+        documentId
+    };
+
+    if (existing) {
+        clearTimeout(existing.timer);
+        existing.files.push(newFile);
+        existing.lead = lead; // keep freshest lead snapshot
+        existing.timer = setTimeout(() => {
+            flushFileBuffer(phone).catch(err => console.error(`[FileBuffer] Error flushing buffer for ${phone}:`, err));
+        }, FILE_DEBOUNCE_MS);
+        console.log(`[FileBuffer] ➕ Lead ${lead.id} — ${existing.files.length} files pending in buffer, timer reset`);
+    } else {
+        _fileBuffers.set(phone, {
+            files: [newFile],
+            lead,
+            conversationId,
+            phone,
+            timer: setTimeout(() => {
+                flushFileBuffer(phone).catch(err => console.error(`[FileBuffer] Error flushing buffer for ${phone}:`, err));
+            }, FILE_DEBOUNCE_MS),
+        });
+        console.log(`[FileBuffer] 🆕 Lead ${lead.id} — first file buffered, waiting ${FILE_DEBOUNCE_MS / 1000}s`);
+    }
+}
+
+async function flushFileBuffer(phone: string): Promise<void> {
+    const buf = _fileBuffers.get(phone);
+    if (!buf) return;
+    _fileBuffers.delete(phone);
+
+    const leadId = buf.lead.id as number;
+    const conversationId = buf.conversationId;
+    const targetPhone = String(buf.lead.whatsapp_id || phone);
+
+    if (_processingFileLock.has(leadId)) {
+        console.log(`[FileBuffer] 🔒 Queue already being flushed/processed for lead ${leadId} — rescheduling`);
+        _fileBuffers.set(phone, buf);
+        buf.timer = setTimeout(() => { flushFileBuffer(phone).catch(console.error); }, 2000);
+        return;
+    }
+    _processingFileLock.add(leadId);
+
+    try {
+        console.log(`[FileBuffer] 🚀 Processing batch of ${buf.files.length} document(s) for lead ${leadId}`);
+
+        const results: Array<{
+            file: BufferedFile;
+            outcome: ProcessDocResult;
+        }> = [];
+
+        // Sequentially process each buffered file
+        for (const file of buf.files) {
+            const outcome = await processDocumentFile(
+                leadId,
+                conversationId,
+                file.fileBase64,
+                file.fileMimeType,
+                file.msgId,
+                file.documentId
+            );
+            results.push({ file, outcome });
+        }
+
+        const freshLead = await db('leads').where({ id: leadId }).first();
+        if (!freshLead) {
+            console.error(`[FileBuffer] Lead ${leadId} not found during buffer flush`);
+            return;
+        }
+
+        const funnel = await db('funnels').where({ id: freshLead.funnel_id }).first() as { slug: string } | undefined;
+        const funnelSlug = funnel?.slug ?? 'default';
+
+        const updatedChecklist = await getDocumentChecklist(leadId, funnelSlug);
+        const allReceived = updatedChecklist.missing.length === 0;
+
+        let replyMsg = '';
+        
+        const approvedList: string[] = [];
+        const rejectedList: string[] = [];
+
+        for (const res of results) {
+            const docName = res.outcome.docSavedName || res.outcome.docType;
+            if (res.outcome.success) {
+                approvedList.push(`- **${docName}**: Recebido e validado com sucesso! ✅`);
+            } else {
+                const reason = res.outcome.error || 'não foi possível ler o documento';
+                rejectedList.push(`- **${docName}**: Não pudemos aceitar. Motivo: ${reason} ❌`);
+            }
+        }
+
+        if (approvedList.length > 0) {
+            replyMsg += `Recebemos os seguintes documentos:\n${approvedList.join('\n')}\n\n`;
+        }
+
+        if (rejectedList.length > 0) {
+            replyMsg += `Tivemos problemas com alguns documentos:\n${rejectedList.join('\n')}\n\n`;
+        }
+
+        let sendRGGuide = false;
+        let sendProofGuide = false;
+
+        if (allReceived) {
+            const nextBotStage = funnelSlug === 'golpe-pix' ? 'procuracao_docs' : 'analysis';
+            await advanceBotStage(leadId, funnelSlug, nextBotStage, conversationId);
+
+            if (nextBotStage === 'analysis') {
+                generateAndSaveCaseSummary(freshLead, conversationId, funnelSlug).catch(err =>
+                    console.error('[FileBuffer] Background summary failed:', err)
+                );
+            }
+
+            replyMsg += `Perfeito! Todos os documentos necessários foram recebidos e validados com sucesso. 🎉\n\nNossa equipe de assessores jurídicos já foi notificada e vai analisar o seu caso em detalhes. Entraremos em contato em breve para te dar o retorno das próximas etapas. Fique tranquilo(a)! 🙏`;
+        } else {
+            const missingList = updatedChecklist.missing.map(req => {
+                const isID = req === 'RG' || req === 'CNH';
+                if (isID) {
+                    sendRGGuide = true;
+                    return `- **RG ou CNH** (precisamos da frente e do verso)`;
+                }
+                if (req === 'Comprovante de Residência') {
+                    sendProofGuide = true;
+                }
+                return `- **${req}**`;
+            });
+
+            replyMsg += `Ainda faltam os seguintes documentos no seu checklist para darmos início à análise do seu caso:\n${missingList.join('\n')}\n\nPor favor, envie os documentos que faltam assim que puder!`;
+        }
+
+        const wss = getWebSocketServer();
+        if (wss) {
+            wss.emit('new_message', {
+                lead_id: leadId,
+                lead_name: freshLead.name,
+                message: `[Processamento de lote finalizado: ${buf.files.length} arquivo(s)]`,
+                conversation_id: conversationId
+            });
+        }
+
+        await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
+            await db('messages').insert({
+                conversation_id: conversationId,
+                lead_id: leadId,
+                content: fragment,
+                direction: 'outbound',
+                sender: 'bot'
+            });
+            if (wss) {
+                wss.emit('bot_response', { lead_id: leadId, message: fragment });
+            }
+        });
+
+        if (sendRGGuide) {
+            setTimeout(() => sendRGGuideImage(targetPhone).catch(() => {}), 1500);
+        } else if (sendProofGuide) {
+            setTimeout(() => sendComprovanteGuideImage(targetPhone).catch(() => {}), 1500);
+        }
+
+    } catch (err) {
+        console.error('[FileBuffer] Error flushing file buffer:', err);
+    } finally {
+        _processingFileLock.delete(leadId);
+    }
 }
 
 // ============================================================
@@ -1142,21 +1347,23 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 const fileBase64 = isPDF ? pdfBase64! : imageBase64!;
                 const fileMimeType = isPDF ? pdfMimeType! : imageMimeType!;
 
-                if (_leadBuffers.has(phone)) {
-                    const fileLabel = isPDF ? 'PDF' : 'Image';
-                    console.log(`[Buffer] 📁 ${fileLabel} received — flushing pending text for ${phone} before document pipeline`);
-                    await flushBuffer(phone);
+                // Cancel pending text buffer to avoid collision / duplicate replies
+                const existingTextBuf = _leadBuffers.get(phone);
+                if (existingTextBuf) {
+                    clearTimeout(existingTextBuf.timer);
+                    _leadBuffers.delete(phone);
+                    console.log(`[Buffer] 🔇 Cancelled pending text reply for ${phone} because media was received`);
                 }
-                // BUG FIX: Mutex para prevenir duplicatas de galeria (Pastor Nielson)
-                await withImageLock(lead.id as number, () =>
-                    processDocumentImage(
-                        lead,
-                        conversation.id,
-                        fileBase64,
-                        fileMimeType,
-                        msgId,
-                        documentId
-                    )
+
+                // Add to file queue/buffer for sequential batch processing
+                addFileToBuffer(
+                    phone,
+                    fileBase64,
+                    fileMimeType,
+                    msgId,
+                    documentId!,
+                    lead,
+                    conversation.id
                 );
                 return;
             }
@@ -1169,21 +1376,20 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
     }
 }
 
-// ============================================================
-// Full document validation pipeline
-// Called when lead is in document_request stage and sends an image or PDF
-// ============================================================
-async function processDocumentImage(
-    lead: Record<string, unknown>,
+async function processDocumentFile(
+    leadId: number,
     conversationId: number,
     fileBase64: string,
     fileMimeType: string,
     initialMsgId?: number,
     initialDocId?: number
-): Promise<void> {
-    const leadId = lead.id as number;
+): Promise<ProcessDocResult> {
+    // Retrieve fresh lead from DB
+    const lead = await db('leads').where({ id: leadId }).first();
+    if (!lead) {
+        throw new Error(`Lead ${leadId} not found`);
+    }
     const phone = String(lead.phone || '');
-    const targetPhone = String(lead.whatsapp_id || phone);
     const isPDF = fileMimeType === 'application/pdf';
     
     const base64SizeKB = Math.round(fileBase64.length * 0.75 / 1024);
@@ -1194,9 +1400,6 @@ async function processDocumentImage(
     console.log(`[DocState] Lead ${leadId}: id_front=${docState.id_front_done} | id_back=${docState.id_back_done} | proof=${docState.proof_of_address_done}`);
 
     try {
-        // Commented out to prevent the bot from saying "só um minuto por favor" when analyzing an image
-        // await aiService.sendWhatsAppMessage(targetPhone, 'só um minuto por favor ⏳');
-
         // Get funnel slug for checklist
         const funnel = await db('funnels').where({ id: lead.funnel_id }).first() as { slug: string } | undefined;
         const funnelSlug = funnel?.slug ?? 'default';
@@ -1218,23 +1421,11 @@ async function processDocumentImage(
         // ── CASE 1: Image is NOT legible ──
         if (!analysis.isLegible) {
             const isTechnicalError = analysis.issues?.startsWith('technical_error:');
-
-            // BUG 1 FIX: Rate limit — só enviar 1 msg de erro por lead a cada 30s
-            if (!canSendImageError(phone)) {
-                // Silently save the rejected doc to CRM but DON'T spam the client
-                if (initialMsgId) {
-                    await db('messages').where({ id: initialMsgId }).update({ content: '[Imagem recebida — erro silencioso]' });
-                }
-                console.log(`[Doc] 🔇 Image error suppressed (rate limit) for lead ${leadId}`);
-                return;
-            }
-
-            let replyMsg: string;
             let inboundLabel: string;
+            let humanizedIssue: string;
 
             if (isTechnicalError) {
-                // BUG 4 FIX: Mensagem humanizada no lugar de erro técnico
-                replyMsg = 'Ei, tive uma dificuldade aqui por um segundo. Consegue mandar a foto de novo pra mim?';
+                humanizedIssue = 'tivemos um erro técnico ao ler o arquivo';
                 inboundLabel = `[${isPDF ? 'PDF' : 'Imagem'} recebido — erro de processamento]`;
                 console.warn(`[Doc] ⚠️ Technical error during analysis: ${analysis.issues}`);
                 
@@ -1245,17 +1436,14 @@ async function processDocumentImage(
                     payload: JSON.stringify({ fileMimeType, action: 'analyzeImage' }),
                 }).catch(e => console.error('Failed to log AI error:', e));
             } else {
-                // Usa o reading_issues do Gemini se disponível, senão infere do texto
                 const rawIssue = analysis.issues || '';
-                let humanizedIssue: string;
 
                 if (analysis.reading_issues) {
-                    // Gemini explicou diretamente o que impediu a leitura
                     humanizedIssue = analysis.reading_issues;
                 } else if (rawIssue.includes('borrad') || rawIssue.includes('desfocad') || rawIssue.includes('tremid')) {
                     humanizedIssue = 'a foto ficou um pouco tremida';
-                } else if (rawIssue.includes('rosto') || rawIssue.includes('pessoa') || rawIssue.includes('não é um documento') || rawIssue.includes('nao é um documento')) {
-                    humanizedIssue = 'não consegui identificar um documento nessa foto';
+                } else if (rawIssue.includes('rosto') || rawIssue.includes('persona') || rawIssue.includes('não é um documento') || rawIssue.includes('nao é um documento')) {
+                    humanizedIssue = 'não conseguimos identificar um documento nessa foto';
                 } else if (rawIssue.includes('cortad') || rawIssue.includes('enquadramento') || rawIssue.includes('borda')) {
                     humanizedIssue = 'o documento ficou um pouco cortado';
                 } else if (rawIssue.includes('escur') || rawIssue.includes('iluminação') || rawIssue.includes('luz')) {
@@ -1264,20 +1452,6 @@ async function processDocumentImage(
                     humanizedIssue = 'o reflexo cobriu parte do documento';
                 } else {
                     humanizedIssue = 'a foto ficou difícil de ler';
-                }
-
-                // Verifica quantas tentativas já houve para variar a mensagem
-                const failedAttempts = await db('documents')
-                    .where({ lead_id: leadId, status: 'rejeitado' })
-                    .count('id as count')
-                    .first() as { count: string };
-                const attemptCount = parseInt(failedAttempts?.count || '0', 10);
-
-                if (attemptCount >= 2) {
-                    // Terceira+ tentativa: dica mais específica e diferente
-                    replyMsg = `Ei, vamos tentar diferente! Coloca o documento numa superfície plana, abre uma janela com luz natural do lado e tira a foto de cima para baixo. Assim costuma funcionar muito melhor 👍`;
-                } else {
-                    replyMsg = `Poxa, ${humanizedIssue}. Consegue tirar uma foto nova? Se puder, em um lugar com boa iluminação e sem cortar as bordas do documento.`;
                 }
                 inboundLabel = `[${isPDF ? 'PDF' : 'Imagem'} recebido — ilegível]`;
             }
@@ -1300,17 +1474,12 @@ async function processDocumentImage(
             }
             await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: isTechnicalError ? `[Análise de mídia] ⚠️ Erro técnico — ${analysis.issues}` : `[Análise de mídia] ❌ Documento rejeitado — ${docType} | Motivo: ${analysis.issues}` });
 
-            // Commented out to prevent sending error message to client when image is not legible
-            /*
-            if (canSendOutbound(phone)) {
-                await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
-                    const wss = getWebSocketServer();
-                    if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
-                });
-            }
-            */
-            return;
+            return {
+                success: false,
+                docType,
+                isLegible: false,
+                error: humanizedIssue
+            };
         }
 
         // ── CASE 2: Image IS legible — Enforce data extraction ──
@@ -1320,17 +1489,14 @@ async function processDocumentImage(
         const exData = analysis.extractedData || {};
 
         // ── Helper: apply extractedData to lead fields ──
-        // Used both here (auto on receive) and by the manual "extract" button
         const buildLeadUpdates = (data: typeof exData, currentLead: Record<string, unknown>) => {
             const updates: Record<string, string> = {};
-            const phone = String(currentLead.phone || '');
             const currentName = String(currentLead.name || '');
             const isGenericName = !currentName || currentName === phone || currentName.startsWith('Lead ') || /^\d+$/.test(currentName.trim());
 
             if (data.name && isGenericName) updates.name = data.name;
             if (data.cpf && !currentLead.cpf) updates.cpf = data.cpf;
             if (data.rg && !currentLead.rg) updates.rg = data.rg;
-            // Column is "birthdate" (no underscore); AI returns DD/MM/YYYY → convert to YYYY-MM-DD for PostgreSQL
             if (data.birth_date && !currentLead.birthdate) {
                 const raw = String(data.birth_date).trim();
                 const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -1349,15 +1515,12 @@ async function processDocumentImage(
             if (data.father      && !currentLead.father)       updates.father       = data.father;
             if (data.org_emissor && !currentLead.org_emissor)  updates.org_emissor  = data.org_emissor;
             if (data.uf_emissor  && !currentLead.uf_emissor)   updates.uf_emissor   = data.uf_emissor;
-            // Address fields — coluna é 'number' (não 'address_number')
             if (data.street       && !currentLead.street)       updates.street       = data.street;
             if (data.number       && !currentLead.number)       updates.number       = data.number;
             if (data.neighborhood && !currentLead.neighborhood) updates.neighborhood = data.neighborhood;
             if (data.city         && !currentLead.city)         updates.city         = data.city;
             if (data.state        && !currentLead.state)        updates.state        = data.state;
             if (data.zip_code     && !currentLead.zip_code)     updates.zip_code     = data.zip_code;
-            // CPF: formatar 11 dígitos → 000.000.000-00
-            // Descarta se número errado de dígitos (evita varchar(14) overflow)
             if (updates.cpf) {
                 const digits = updates.cpf.replace(/\D/g, '');
                 if (digits.length === 11) {
@@ -1367,12 +1530,10 @@ async function processDocumentImage(
                     delete updates.cpf;
                 }
             }
-            // Limpar o campo legado "address" quando campos granulares chegam (remove banner "Extraído pelo bot")
             if (data.street || data.number || data.neighborhood || data.city) {
                 updates.address = '';
             }
             return updates;
-
         };
 
         const safeUpdateLead = async (id: number, updatesObj: Record<string, any>, currentLead: Record<string, any>) => {
@@ -1382,7 +1543,7 @@ async function processDocumentImage(
                     currentLead[col] = val;
                 } catch (err) {
                     console.warn(`[Doc] ⚠️ Column "${col}" missing in DB — skipping update`);
-                    delete updatesObj[col]; // remove from object so we know it wasn't saved
+                    delete updatesObj[col];
                 }
             }
         };
@@ -1390,15 +1551,12 @@ async function processDocumentImage(
         // ── RG/CNH handling ──
         if (isIDDoc) {
             if (isPDF) {
-                // For PDF ID documents (CNH/RG Digital), we consider both front and back sides received
                 const updates = buildLeadUpdates(exData, lead);
                 if (Object.keys(updates).length > 0) {
                     await safeUpdateLead(leadId, updates, lead);
                     const wssName = getWebSocketServer();
                     if (wssName) wssName.emit('lead_updated', { lead_id: leadId, ...updates });
                     console.log(`[Doc] 📋 Auto-filled lead fields from ${docType} PDF: ${JSON.stringify(updates)}`);
-                } else {
-                    console.log(`[Doc] ℹ️ ${docType} PDF: no new fields to fill (already set or not extracted)`);
                 }
 
                 const notesJson = JSON.stringify({ extractedText: textData, extractedData: exData });
@@ -1416,8 +1574,12 @@ async function processDocumentImage(
                     await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStr, direction: 'inbound', sender: 'lead', media_type: 'document', image_url: docUrl });
                 }
 
-                docState.id_front_done = true;
-                docState.id_back_done = true;
+                return {
+                    success: true,
+                    docType,
+                    isLegible: true,
+                    docSavedName: `${docType} (PDF)`
+                };
             } else if (!docState.id_front_done) {
                 const updates = buildLeadUpdates(exData, lead);
                 if (Object.keys(updates).length > 0) {
@@ -1425,8 +1587,6 @@ async function processDocumentImage(
                     const wssName = getWebSocketServer();
                     if (wssName) wssName.emit('lead_updated', { lead_id: leadId, ...updates });
                     console.log(`[Doc] 📋 Auto-filled lead fields from ${docType}: ${JSON.stringify(updates)}`);
-                } else {
-                    console.log(`[Doc] ℹ️ ${docType} front: no new fields to fill (already set or not extracted)`);
                 }
 
                 // Save document and mark front as done
@@ -1449,40 +1609,16 @@ async function processDocumentImage(
                     await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrFront, direction: 'inbound', sender: 'lead', media_type: 'image', image_url: frontDocUrl });
                 }
 
-                docState.id_front_done = true;
-
                 // ── Verificar campos críticos não extraídos ──
-                // Mesmo que o doc seja legível, se o nome ou número de identidade não foi lido, pede reenvio
                 const missingName = !exData.name;
-                const missingId   = !exData.rg && !exData.cpf; // RG precisa de rg OU cpf
+                const missingId   = !exData.rg && !exData.cpf;
                 const missingCritical = missingName || missingId;
 
                 if (missingCritical) {
-                    // Contar tentativas anteriores (docs aceitos da frente)
-                    const prevFronts = await db('documents')
-                        .where({ lead_id: leadId, status: 'aprovado' })
-                        .count('id as count')
-                        .first() as { count: string };
-                    const attempt = parseInt(prevFronts?.count || '0', 10);
-
                     let missingDesc = '';
-                    if (missingName && missingId) missingDesc = 'não consegui ler o nome nem o número do documento';
-                    else if (missingName) missingDesc = 'não consegui ler o nome claramente';
-                    else missingDesc = 'não consegui ler o número do documento (RG/CPF)';
-
-                    // Usa a explicação do Gemini se ele mesmo descreveu o problema visual
-                    const aiExplain = analysis.reading_issues;
-
-                    let retryMsg: string;
-                    if (attempt === 0) {
-                        retryMsg = aiExplain
-                            ? `A foto chegou, mas ${aiExplain}. Consegue tirar uma nova foto com o documento bem iluminado e completamente enquadrado? 🙏`
-                            : `A foto chegou aqui, mas ${missingDesc}. É possível que a parte com esse dado esteja um pouco sombreada ou fora do enquadramento. Consegue tirar uma nova foto garantindo que o documento esteja bem iluminado e completamente dentro da foto? 🙏`;
-                    } else {
-                        retryMsg = aiExplain
-                            ? `Tentei novamente, mas ${aiExplain}. Dica: coloca o documento numa superfície plana e usa a luz natural (próximo a uma janela) para tirar a foto de cima pra baixo — costuma resolver! 🙏`
-                            : `Tentei novamente mas ainda ${missingDesc}. Pode acontecer por sombra no documento, plástico cobrindo o campo ou iluminação fraca. Dica: coloca o documento numa superfície plana e usa a luz natural (próximo a uma janela) para tirar a foto de cima pra baixo. Pode tentar assim? 🙏`;
-                    }
+                    if (missingName && missingId) missingDesc = 'não conseguimos ler o nome nem o número do documento';
+                    else if (missingName) missingDesc = 'não conseguimos ler o nome claramente';
+                    else missingDesc = 'não conseguimos ler o número do documento (RG/CPF)';
 
                     // Salva o doc mesmo assim (para o CRM ver a tentativa)
                     const notesJsonRetry = JSON.stringify({ extractedText: textData, extractedData: exData, missing_fields: missingCritical ? (missingName ? 'name' : '') + (missingId ? ' rg/cpf' : '') : '' });
@@ -1493,29 +1629,23 @@ async function processDocumentImage(
                         await db('documents').insert({ lead_id: leadId, name: `${docType} (frente - incompleto)`, file_type: fileMimeType, file_path: rFilePath, file_data: rFileData, status: 'pendente', notes: notesJsonRetry });
                     }
                     await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ⚠️ ${docType} frente legível mas incompleto | ${missingDesc}` });
-                    // Commented out to prevent sending retry message to client when critical fields are missing
-                    /*
-                    if (canSendOutbound(targetPhone)) {
-                        await aiService.sendFragmentedMessage(targetPhone, retryMsg, undefined, async (fragment) => {
-                            await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
-                            const wssR = getWebSocketServer();
-                            if (wssR) wssR.emit('bot_response', { lead_id: leadId, message: fragment });
-                        });
-                    }
-                    */
-                    return;
+                    
+                    return {
+                        success: false,
+                        docType,
+                        isLegible: true,
+                        isIncomplete: true,
+                        error: analysis.reading_issues || missingDesc,
+                        docSavedName: `${docType} (frente)`
+                    };
                 }
 
-                // Ask for the back side
-                const askBackMsg = `Perfeito, ${docType} frente validado! ✅\n\nAgora me manda uma foto do VERSO do mesmo documento, por favor.`;
-                const wss = getWebSocketServer();
-                if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[${docType} frente validado]`, conversation_id: conversationId });
-                
-                await aiService.sendFragmentedMessage(targetPhone, askBackMsg, undefined, async (fragment) => {
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
-                    if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
-                });
-                return;
+                return {
+                    success: true,
+                    docType,
+                    isLegible: true,
+                    docSavedName: `${docType} (frente)`
+                };
 
             } else if (!docState.id_back_done) {
                 // This is the BACK — just accept it (less strict, just needs legibility)
@@ -1529,7 +1659,6 @@ async function processDocumentImage(
                     const [{ id: backDocId }] = await db('documents').insert({ lead_id: leadId, name: `${docType} (verso)`, file_type: fileMimeType, file_path: backFilePath, file_data: backFileData, status: 'aprovado', notes: notesJsonBack }).returning('id');
                     backDocUrl = `/api/leads/${leadId}/documents/${backDocId}/download`;
                 }
-                // Also try to fill fields from the back (CNH back has CPF)
                 const backUpdates = buildLeadUpdates(exData, lead);
                 if (Object.keys(backUpdates).length > 0) {
                     await safeUpdateLead(leadId, backUpdates, lead);
@@ -1545,23 +1674,16 @@ async function processDocumentImage(
                     await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrBack, direction: 'inbound', sender: 'lead', media_type: isPDF ? 'document' : 'image', image_url: backDocUrl });
                 }
 
-                docState.id_back_done = true;
-
-                // Ask for comprovante next — send guide image proactively
-                const funnelSlugForAddress = funnelSlug;
-                const askComprovanteMsg = `Verso recebido, obrigada! ✅\n\nAgora preciso do seu comprovante de residência atualizado (últimos 2 meses). Pode ser conta de água, luz, gás ou telefone fixo.`;
-                await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: askComprovanteMsg, direction: 'outbound', sender: 'bot' });
-                const wss = getWebSocketServer();
-                if (wss) wss.emit('bot_response', { lead_id: leadId, message: askComprovanteMsg });
-                if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[${docType} verso validado]`, conversation_id: conversationId });
-                await aiService.sendFragmentedMessage(targetPhone, askComprovanteMsg);
-                // Send guide image after the text
-                await sendComprovanteGuideImage(targetPhone);
-                return;
+                return {
+                    success: true,
+                    docType,
+                    isLegible: true,
+                    docSavedName: `${docType} (verso)`
+                };
             }
         }
 
-        // ── Comprovante de Residência: extract address via AI extractedData ──
+        // ── Comprovante de Residência ──
         if (isComprovante) {
             const addressUpdates = buildLeadUpdates(exData, lead);
             if (Object.keys(addressUpdates).length > 0) {
@@ -1574,84 +1696,53 @@ async function processDocumentImage(
                 console.warn(`[Doc] ⚠️ Comprovante: AI accepted but extractedData has no address fields`);
             }
             await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ Comprovante aprovado | ${exData.street || 'endereço não extraído'}` });
-            docState.proof_of_address_done = true;
         }
 
+        // ── Generic: save document ──
+        const docSavedName = isComprovante ? 'Comprovante de Residência' : docType;
+        const notesJsonGeneric = JSON.stringify({ extractedText: textData, extractedData: exData });
 
-        // ── Generic: save document and check checklist ──
-        if (!isIDDoc || docState.id_back_done) {
-            // For non-ID docs or after both sides of ID are done, save normally
-            const docSavedName = isComprovante ? 'Comprovante de Residência' : docType;
-            const notesJsonGeneric = JSON.stringify({ extractedText: textData, extractedData: exData });
-
-            if (!isIDDoc) {
-                // Also try to fill lead fields from any approved document (Holerite, CTPS, etc.)
-                const genericUpdates = buildLeadUpdates(exData, lead);
-                if (Object.keys(genericUpdates).length > 0) {
-                    await safeUpdateLead(leadId, genericUpdates, lead);
-                    const wssGen = getWebSocketServer();
-                    if (wssGen) wssGen.emit('lead_updated', { lead_id: leadId, ...genericUpdates });
-                }
-                // Save doc normally (for Holerite, CTPS, Comprovante Pix, etc.)
-                let genericDocUrl: string | null = null;
-                if (initialDocId) {
-                    await db('documents').where({ id: initialDocId }).update({ name: docSavedName, status: 'aprovado', notes: notesJsonGeneric });
-                    genericDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
-                } else {
-                    const { filePath: genericFilePath, fileData: genericFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, docSavedName.replace(/\s+/g, '_'));
-                    const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: fileMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: notesJsonGeneric }).returning('id');
-                    genericDocUrl = `/api/leads/${leadId}/documents/${genericDocId}/download`;
-                }
-                await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docSavedName} aprovado | Dados: ${textData.substring(0, 100) || 'N/D'}` });
-                
-                const contentStrGen = `[${isPDF ? 'PDF' : 'Imagem'} recebido — ${docSavedName} ✅]`;
-                if (initialMsgId) {
-                    await db('messages').where({ id: initialMsgId }).update({ content: contentStrGen, image_url: genericDocUrl });
-                } else {
-                    await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrGen, direction: 'inbound', sender: 'lead', media_type: isPDF ? 'document' : 'image', image_url: genericDocUrl });
-                }
+        if (!isIDDoc) {
+            const genericUpdates = buildLeadUpdates(exData, lead);
+            if (Object.keys(genericUpdates).length > 0) {
+                await safeUpdateLead(leadId, genericUpdates, lead);
+                const wssGen = getWebSocketServer();
+                if (wssGen) wssGen.emit('lead_updated', { lead_id: leadId, ...genericUpdates });
             }
-
-            // Recalculate checklist
-            const updatedChecklist = await getDocumentChecklist(leadId, funnelSlug);
-            const allReceived = updatedChecklist.missing.length === 0;
-
-            let replyMsg: string;
-
-            if (allReceived) {
-                const nextBotStage = funnelSlug === 'golpe-pix' ? 'procuracao_docs' : 'analysis';
-                await advanceBotStage(leadId, funnelSlug, nextBotStage, conversationId);
-
-                if (nextBotStage === 'analysis') {
-                    generateAndSaveCaseSummary(lead, conversationId, funnelSlug).catch(err =>
-                        console.error('[Bot] Background summary (docs complete) failed:', err)
-                    );
-                }
-
-                replyMsg = `${docSavedName} recebido e aprovado! ✅\n\nPerfeito! Já tenho todos os documentos necessários. Um dos nossos assessores vai entrar em contato em breve com as próximas etapas. Fique tranquilo(a)! 🙏`;
+            let genericDocUrl: string | null = null;
+            if (initialDocId) {
+                await db('documents').where({ id: initialDocId }).update({ name: docSavedName, status: 'aprovado', notes: notesJsonGeneric });
+                genericDocUrl = `/api/leads/${leadId}/documents/${initialDocId}/download`;
             } else {
-                // Ask for next missing doc
-                const nextMissing = updatedChecklist.missing[0];
-                const isNextID = nextMissing === 'RG';
-                replyMsg = `${docSavedName} recebido! ✅\n\nAgora preciso ${isNextID ? 'do seu RG ou CNH — pode começar pela FRENTE do documento' : `do(a) ${nextMissing}`}.`;
-                if (isNextID) {
-                    // Will send guide image after the text
-                    setTimeout(() => sendRGGuideImage(targetPhone).catch(() => {}), 1500);
-                }
+                const { filePath: genericFilePath, fileData: genericFileData } = await saveImageAndPersist(leadId, fileBase64, fileMimeType, docSavedName.replace(/\s+/g, '_'));
+                const [{ id: genericDocId }] = await db('documents').insert({ lead_id: leadId, name: docSavedName, file_type: fileMimeType, file_path: genericFilePath, file_data: genericFileData, status: 'aprovado', notes: notesJsonGeneric }).returning('id');
+                genericDocUrl = `/api/leads/${leadId}/documents/${genericDocId}/download`;
             }
-
-            const wss = getWebSocketServer();
-            if (wss) wss.emit('new_message', { lead_id: leadId, lead_name: lead.name, message: `[${isPDF ? 'PDF' : 'Imagem'} — ${docSavedName}]`, conversation_id: conversationId });
+            await db('notes').insert({ lead_id: leadId, author_type: 'bot', content: `[Análise de mídia] ✅ ${docSavedName} aprovado | Dados: ${textData.substring(0, 100) || 'N/D'}` });
             
-            await aiService.sendFragmentedMessage(targetPhone, replyMsg, undefined, async (fragment) => {
-                await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: fragment, direction: 'outbound', sender: 'bot' });
-                if (wss) wss.emit('bot_response', { lead_id: leadId, message: fragment });
-            });
-
-            console.log(`[Doc] ✅ Document saved: ${docSavedName} | Lead: ${leadId} | Remaining: ${updatedChecklist.missing.join(', ') || 'none'}`);
+            const contentStrGen = `[${isPDF ? 'PDF' : 'Imagem'} recebido — ${docSavedName} ✅]`;
+            if (initialMsgId) {
+                await db('messages').where({ id: initialMsgId }).update({ content: contentStrGen, image_url: genericDocUrl });
+            } else {
+                await db('messages').insert({ conversation_id: conversationId, lead_id: leadId, content: contentStrGen, direction: 'inbound', sender: 'lead', media_type: isPDF ? 'document' : 'image', image_url: genericDocUrl });
+            }
         }
+
+        return {
+            success: true,
+            docType,
+            isLegible: true,
+            docSavedName
+        };
+
     } catch (err) {
-        console.error('[Doc] processDocumentImage error:', err);
+        console.error('[Doc] processDocumentFile error:', err);
+        return {
+            success: false,
+            docType: 'Outro',
+            isLegible: false,
+            error: (err as Error).message
+        };
     }
 }
 
