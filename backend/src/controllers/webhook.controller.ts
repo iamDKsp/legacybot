@@ -184,6 +184,7 @@ interface ProcessDocResult {
     isIncomplete?: boolean;
     error?: string;
     docSavedName?: string;
+    isTechnicalError?: boolean;
 }
 
 const _leadBuffers = new Map<string, LeadBuffer>();
@@ -424,53 +425,64 @@ async function flushFileBuffer(phone: string): Promise<void> {
         
         const approvedList: string[] = [];
         const rejectedList: string[] = [];
+        let technicalErrorCount = 0;
 
         for (const res of results) {
             const docName = res.outcome.docSavedName || res.outcome.docType;
             if (res.outcome.success) {
                 approvedList.push(`- **${docName}**: Recebido e validado com sucesso! ✅`);
+            } else if (res.outcome.isTechnicalError) {
+                technicalErrorCount++;
             } else {
                 const reason = res.outcome.error || 'não foi possível ler o documento';
                 rejectedList.push(`- **${docName}**: Não pudemos aceitar. Motivo: ${reason} ❌`);
             }
         }
 
-        if (approvedList.length > 0) {
-            replyMsg += `Recebemos os seguintes documentos:\n${approvedList.join('\n')}\n\n`;
-        }
-
-        if (rejectedList.length > 0) {
-            replyMsg += `Tivemos problemas com alguns documentos:\n${rejectedList.join('\n')}\n\n`;
-        }
-
         let sendRGGuide = false;
         let sendProofGuide = false;
 
-        if (allReceived) {
-            const nextBotStage = funnelSlug === 'golpe-pix' ? 'procuracao_docs' : 'analysis';
-            await advanceBotStage(leadId, funnelSlug, nextBotStage, conversationId);
-
-            if (nextBotStage === 'analysis') {
-                generateAndSaveCaseSummary(freshLead, conversationId, funnelSlug).catch(err =>
-                    console.error('[FileBuffer] Background summary failed:', err)
-                );
+        if (technicalErrorCount === results.length) {
+            replyMsg = `Poxa, tive uma pequena dificuldade técnica para processar os arquivos que você enviou agora. Você poderia tentar me enviar novamente em instantes? 🙏`;
+        } else {
+            if (approvedList.length > 0) {
+                replyMsg += `Recebemos os seguintes documentos:\n${approvedList.join('\n')}\n\n`;
             }
 
-            replyMsg += `Perfeito! Todos os documentos necessários foram recebidos e validados com sucesso. 🎉\n\nNossa equipe de assessores jurídicos já foi notificada e vai analisar o seu caso em detalhes. Entraremos em contato em breve para te dar o retorno das próximas etapas. Fique tranquilo(a)! 🙏`;
-        } else {
-            const missingList = updatedChecklist.missing.map(req => {
-                const isID = req === 'RG' || req === 'CNH';
-                if (isID) {
-                    sendRGGuide = true;
-                    return `- **RG ou CNH** (precisamos da frente e do verso)`;
-                }
-                if (req === 'Comprovante de Residência') {
-                    sendProofGuide = true;
-                }
-                return `- **${req}**`;
-            });
+            if (rejectedList.length > 0) {
+                replyMsg += `Tivemos problemas com alguns documentos:\n${rejectedList.join('\n')}\n\n`;
+            }
 
-            replyMsg += `Ainda faltam os seguintes documentos no seu checklist para darmos início à análise do seu caso:\n${missingList.join('\n')}\n\nPor favor, envie os documentos que faltam assim que puder!`;
+            if (allReceived) {
+                const nextBotStage = funnelSlug === 'golpe-pix' ? 'procuracao_docs' : 'analysis';
+                await advanceBotStage(leadId, funnelSlug, nextBotStage, conversationId);
+
+                if (nextBotStage === 'analysis') {
+                    generateAndSaveCaseSummary(freshLead, conversationId, funnelSlug).catch(err =>
+                        console.error('[FileBuffer] Background summary failed:', err)
+                    );
+                }
+
+                replyMsg += `Perfeito! Todos os documentos necessários foram recebidos e validados com sucesso. 🎉\n\nNossa equipe de assessores jurídicos já foi notificada e vai analisar o seu caso em detalhes. Entraremos em contato em breve para te dar o retorno das próximas etapas. Fique tranquilo(a)! 🙏`;
+            } else {
+                const missingList = updatedChecklist.missing.map(req => {
+                    const isID = req === 'RG' || req === 'CNH';
+                    if (isID) {
+                        sendRGGuide = true;
+                        return `- **RG ou CNH** (precisamos da frente e do verso)`;
+                    }
+                    if (req === 'Comprovante de Residência') {
+                        sendProofGuide = true;
+                    }
+                    return `- **${req}**`;
+                });
+
+                replyMsg += `Ainda faltam os seguintes documentos no seu checklist para darmos início à análise do seu caso:\n${missingList.join('\n')}\n\nPor favor, envie os documentos que faltam assim que puder!`;
+            }
+
+            if (technicalErrorCount > 0) {
+                replyMsg += `\n\n⚠️ *Nota:* Tivemos uma oscilação técnica temporária para processar alguns dos arquivos enviados. Se algum documento importante não foi listado acima, por favor, tente enviá-lo novamente em instantes.`;
+            }
         }
 
         const wss = getWebSocketServer();
@@ -1346,26 +1358,67 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             if ((imageBase64 && imageMimeType) || isPDF) {
                 const fileBase64 = isPDF ? pdfBase64! : imageBase64!;
                 const fileMimeType = isPDF ? pdfMimeType! : imageMimeType!;
+                const currentBotStageCheck = String(lead.bot_stage || 'reception');
 
-                // Cancel pending text buffer to avoid collision / duplicate replies
-                const existingTextBuf = _leadBuffers.get(phone);
-                if (existingTextBuf) {
-                    clearTimeout(existingTextBuf.timer);
-                    _leadBuffers.delete(phone);
-                    console.log(`[Buffer] 🔇 Cancelled pending text reply for ${phone} because media was received`);
+                if (currentBotStageCheck === 'doc_request') {
+                    // Cancel pending text buffer to avoid collision / duplicate replies
+                    const existingTextBuf = _leadBuffers.get(phone);
+                    if (existingTextBuf) {
+                        clearTimeout(existingTextBuf.timer);
+                        _leadBuffers.delete(phone);
+                        console.log(`[Buffer] 🔇 Cancelled pending text reply for ${phone} because media was received`);
+                    }
+
+                    // Add to file queue/buffer for sequential batch processing
+                    addFileToBuffer(
+                        phone,
+                        fileBase64,
+                        fileMimeType,
+                        msgId,
+                        documentId!,
+                        lead,
+                        conversation.id
+                    );
+                    return;
+                } else {
+                    // NOT in 'doc_request' stage — process media contextually!
+                    console.log(`[Webhook] 🖼️ Media received in stage "${currentBotStageCheck}". Processing contextually...`);
+                    
+                    let contextMsg = message; // Keep existing extracted PDF text if present
+                    
+                    // If it's an image or a PDF that has no extracted text yet
+                    if (!isPDF || !pdfExtractedText) {
+                        try {
+                            const analysis = await analyzeImage(
+                                fileBase64,
+                                fileMimeType,
+                                'Esta imagem ou PDF foi enviado pelo cliente durante a conversa inicial (não é a etapa de entrega de documentos). Descreva brevemente o que é este arquivo e extraia qualquer texto importante (como valores, nomes, transações, mensagens) para que o atendente consiga entender o contexto.'
+                            );
+
+                            if (analysis && (analysis.description || analysis.extractedText)) {
+                                const desc = analysis.description || 'Sem descrição';
+                                const text = analysis.extractedText || 'Sem texto extraído';
+                                contextMsg = `[Mídia enviada pelo cliente — Descrição: ${desc} | Conteúdo extraído: ${text}]`;
+                            } else {
+                                contextMsg = `[Mídia enviada pelo cliente — Não foi possível analisar a imagem]`;
+                            }
+                        } catch (analysisErr) {
+                            console.error('[Webhook] Contextual media analysis failed:', analysisErr);
+                            contextMsg = `[Mídia enviada pelo cliente — Erro técnico ao processar o arquivo]`;
+                        }
+                    }
+
+                    // Update the message content in DB
+                    await db('messages').where({ id: msgId }).update({ content: contextMsg });
+                    console.log(`[Webhook] 📝 Updated message #${msgId} content with contextual description: "${contextMsg.substring(0, 150)}..."`);
+                    
+                    // Update local message variable so addToBuffer uses it
+                    message = contextMsg;
+                    
+                    // Route to Sofia's conversational response queue
+                    addToBuffer(phone, message, lead, conversation.id);
+                    return;
                 }
-
-                // Add to file queue/buffer for sequential batch processing
-                addFileToBuffer(
-                    phone,
-                    fileBase64,
-                    fileMimeType,
-                    msgId,
-                    documentId!,
-                    lead,
-                    conversation.id
-                );
-                return;
             }
 
             // ── Debounce: buffer text/audio messages ─────────────────────
@@ -1478,7 +1531,8 @@ async function processDocumentFile(
                 success: false,
                 docType,
                 isLegible: false,
-                error: humanizedIssue
+                error: humanizedIssue,
+                isTechnicalError
             };
         }
 
@@ -1741,7 +1795,8 @@ async function processDocumentFile(
             success: false,
             docType: 'Outro',
             isLegible: false,
-            error: (err as Error).message
+            error: 'tivemos uma oscilação técnica temporária para processar este arquivo',
+            isTechnicalError: true
         };
     }
 }
