@@ -40,6 +40,9 @@ const EMPLOYMENT_STATUS_OPTIONS = [
   { value: "outro",               label: "Outro" },
 ];
 
+const STANDARD_STATUS_VALUES = ["registrado", "empregado", "autonomo", "desempregado", "mei", "aposentado", "pensionista", "funcionario_publico", "estudante", "do_lar"];
+const isStandard = (val: string) => STANDARD_STATUS_VALUES.includes(val);
+
 
 export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
   const qc = useQueryClient();
@@ -199,16 +202,24 @@ export function LeadEditModal({ lead, onClose }: LeadEditModalProps) {
                     className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50" />
                 </div>
                 {/* Situação de emprego / Profissão — Select dropdown */}
-                <div className="col-span-2">
+                <div className="col-span-2 space-y-2">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground flex items-center gap-1">
                     <Briefcase className="h-3.5 w-3.5" /> Profissão
                   </label>
                   <StyledSelect
-                    value={form.employment_status}
+                    value={isStandard(form.employment_status) ? form.employment_status : form.employment_status ? "outro" : ""}
                     onChange={(v) => set("employment_status", v)}
                     placeholder="Selecionar profissão..."
                     options={EMPLOYMENT_STATUS_OPTIONS}
                   />
+                  {(form.employment_status === "outro" || (form.employment_status && !isStandard(form.employment_status))) && (
+                    <input
+                      value={form.employment_status === "outro" ? "" : form.employment_status}
+                      onChange={e => set("employment_status", e.target.value)}
+                      placeholder="Escreva a profissão..."
+                      className="w-full rounded-lg border border-border bg-muted py-2.5 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent/50"
+                    />
+                  )}
                 </div>
               </div>
             </div>

@@ -596,6 +596,9 @@ const EMPLOYMENT_STATUS_LABEL: Record<string, string> = {
   outro: "Outro",
 };
 
+const STANDARD_STATUS_VALUES = ["registrado", "empregado", "autonomo", "desempregado", "mei", "aposentado", "pensionista", "funcionario_publico", "estudante", "do_lar"];
+const isStandard = (val: string) => STANDARD_STATUS_VALUES.includes(val);
+
 interface FieldRowProps {
   icon: React.ReactNode;
   label: string;
@@ -687,13 +690,25 @@ function FieldRow({ icon, label, value, fieldKey, type = "text", placeholder, re
               className="flex-1 min-w-0"
             />
           ) : type === "select-employment" ? (
-            <StyledSelect
-              value={draft}
-              onChange={(v) => { setDraft(v); }}
-              placeholder="Selecionar..."
-              options={EMPLOYMENT_STATUS_OPTIONS}
-              className="flex-1 min-w-0"
-            />
+            <div className="flex flex-col gap-2 flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+              <StyledSelect
+                value={isStandard(draft) ? draft : draft ? "outro" : ""}
+                onChange={(v) => { setDraft(v); }}
+                placeholder="Selecionar..."
+                options={EMPLOYMENT_STATUS_OPTIONS}
+                className="w-full"
+              />
+              {(draft === "outro" || (draft && !isStandard(draft))) && (
+                <input
+                  type="text"
+                  value={draft === "outro" ? "" : draft}
+                  placeholder="Escreva a profissão..."
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") cancel(); }}
+                  className="w-full bg-muted rounded-md px-2 py-1 text-sm text-card-foreground border border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/60"
+                />
+              )}
+            </div>
           ) : (
             <input
               ref={inputRef as React.RefObject<HTMLInputElement>}

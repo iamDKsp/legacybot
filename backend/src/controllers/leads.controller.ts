@@ -75,7 +75,7 @@ export async function getLeads(req: Request, res: Response): Promise<void> {
             search,
             assigned_to,
             page = '1',
-            limit = '100',
+            limit = '10000',
         } = req.query;
 
         let query = db('leads as l')
