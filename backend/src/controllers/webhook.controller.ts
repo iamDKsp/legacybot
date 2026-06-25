@@ -443,7 +443,18 @@ async function flushFileBuffer(phone: string): Promise<void> {
         let sendProofGuide = false;
 
         if (technicalErrorCount === results.length) {
-            replyMsg = `Poxa, tive uma pequena dificuldade técnica para processar os arquivos que você enviou agora. Você poderia tentar me enviar novamente em instantes? 🙏`;
+            console.log(`[FileBuffer] 🔇 All files failed technically — Sofia will remain silent`);
+            // Notify CRM via WebSocket (so frontend registers the process completed)
+            const wss = getWebSocketServer();
+            if (wss) {
+                wss.emit('new_message', {
+                    lead_id: leadId,
+                    lead_name: freshLead.name,
+                    message: `[Processamento de lote finalizado com erro técnico: ${buf.files.length} arquivo(s)]`,
+                    conversation_id: conversationId
+                });
+            }
+            return; // Exit silently
         } else {
             if (approvedList.length > 0) {
                 replyMsg += `Recebemos os seguintes documentos:\n${approvedList.join('\n')}\n\n`;
@@ -478,10 +489,6 @@ async function flushFileBuffer(phone: string): Promise<void> {
                 });
 
                 replyMsg += `Ainda faltam os seguintes documentos no seu checklist para darmos início à análise do seu caso:\n${missingList.join('\n')}\n\nPor favor, envie os documentos que faltam assim que puder!`;
-            }
-
-            if (technicalErrorCount > 0) {
-                replyMsg += `\n\n⚠️ *Nota:* Tivemos uma oscilação técnica temporária para processar alguns dos arquivos enviados. Se algum documento importante não foi listado acima, por favor, tente enviá-lo novamente em instantes.`;
             }
         }
 
@@ -1385,7 +1392,8 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                     console.log(`[Webhook] 🖼️ Media received in stage "${currentBotStageCheck}". Processing contextually...`);
                     
                     let contextMsg = message; // Keep existing extracted PDF text if present
-                    
+                    let isTechError = false;
+
                     // If it's an image or a PDF that has no extracted text yet
                     if (!isPDF || !pdfExtractedText) {
                         try {
@@ -1395,15 +1403,24 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                                 'Esta imagem ou PDF foi enviado pelo cliente durante a conversa inicial (não é a etapa de entrega de documentos). Descreva brevemente o que é este arquivo e extraia qualquer texto importante (como valores, nomes, transações, mensagens) para que o atendente consiga entender o contexto.'
                             );
 
-                            if (analysis && (analysis.description || analysis.extractedText)) {
-                                const desc = analysis.description || 'Sem descrição';
-                                const text = analysis.extractedText || 'Sem texto extraído';
-                                contextMsg = `[Mídia enviada pelo cliente — Descrição: ${desc} | Conteúdo extraído: ${text}]`;
+                            if (analysis) {
+                                const isTechnical = analysis.issues?.startsWith('technical_error:');
+                                if (isTechnical) {
+                                    isTechError = true;
+                                    contextMsg = `[Mídia enviada pelo cliente — Erro técnico ao processar o arquivo]`;
+                                } else if (analysis.description || analysis.extractedText) {
+                                    const desc = analysis.description || 'Sem descrição';
+                                    const text = analysis.extractedText || 'Sem texto extraído';
+                                    contextMsg = `[Mídia enviada pelo cliente — Descrição: ${desc} | Conteúdo extraído: ${text}]`;
+                                } else {
+                                    contextMsg = `[Mídia enviada pelo cliente — Não foi possível analisar a imagem]`;
+                                }
                             } else {
                                 contextMsg = `[Mídia enviada pelo cliente — Não foi possível analisar a imagem]`;
                             }
                         } catch (analysisErr) {
                             console.error('[Webhook] Contextual media analysis failed:', analysisErr);
+                            isTechError = true;
                             contextMsg = `[Mídia enviada pelo cliente — Erro técnico ao processar o arquivo]`;
                         }
                     }
@@ -1412,6 +1429,12 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                     await db('messages').where({ id: msgId }).update({ content: contextMsg });
                     console.log(`[Webhook] 📝 Updated message #${msgId} content with contextual description: "${contextMsg.substring(0, 150)}..."`);
                     
+                    // If it was a technical error, stop here and do NOT trigger Sofia
+                    if (isTechError) {
+                        console.log(`[Webhook] 🔇 Contextual media failed technically — Sofia will remain silent`);
+                        return;
+                    }
+
                     // Update local message variable so addToBuffer uses it
                     message = contextMsg;
                     
