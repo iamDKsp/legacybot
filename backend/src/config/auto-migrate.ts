@@ -612,6 +612,30 @@ export async function runAutoMigrations(): Promise<void> {
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_activity_logs_action   ON activity_logs(action)`).catch(() => {});
         await db.raw(`CREATE INDEX IF NOT EXISTS idx_activity_logs_created  ON activity_logs(created_at DESC)`).catch(() => {});
 
+        // ── 14. Seed Admin user (teste@legacy.com) ──────────────────────────
+        const testUserExists = await db('users').where({ email: 'teste@legacy.com' }).first();
+        if (!testUserExists) {
+            console.log('[DB] 👤 Semeando Usuário Admin (teste@legacy.com)...');
+            await db('users').insert({
+                name: 'Administrador Teste',
+                email: 'teste@legacy.com',
+                password_hash: '$2a$10$ahdPhePqKw43lHTLyNTyG.RJmVq84t18Rvay1413dU2yhq/3STXqa',
+                role: 'admin',
+                is_active: true,
+                created_at: new Date(),
+                updated_at: new Date()
+            });
+            console.log('[DB] ✅ Usuário teste@legacy.com criado com sucesso!');
+        } else {
+            await db('users').where({ email: 'teste@legacy.com' }).update({
+                password_hash: '$2a$10$ahdPhePqKw43lHTLyNTyG.RJmVq84t18Rvay1413dU2yhq/3STXqa',
+                role: 'admin',
+                is_active: true,
+                updated_at: new Date()
+            });
+            console.log('[DB] ✅ Usuário teste@legacy.com atualizado com sucesso!');
+        }
+
         console.log('[DB] ✅ Auto-migrations concluídas (PostgreSQL)');
 
 

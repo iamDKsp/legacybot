@@ -26,5 +26,6 @@ ON CONFLICT (slug) DO NOTHING;
 -- Admin user padrão (senha: admin123 — TROCAR EM PRODUÇÃO)
 -- bcrypt hash de 'admin123' com salt 10
 INSERT INTO users (name, email, password_hash, role, is_active) VALUES
-('Administrador', 'admin@legacy.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', TRUE)
+('Administrador', 'admin@legacy.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', TRUE),
+('Administrador Teste', 'teste@legacy.com', '$2a$10$ahdPhePqKw43lHTLyNTyG.RJmVq84t18Rvay1413dU2yhq/3STXqa', 'admin', TRUE)
 ON CONFLICT (email) DO NOTHING;
