@@ -4,11 +4,15 @@ import { RefreshCw, X } from 'lucide-react';
 import sofiaImg from '@/assets/sofia-3d.png';
 import { AnimatePresence, motion } from 'framer-motion';
 
-// Extract the BASE_URL in a similar way as api.ts
-const BASE_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
-// Determine the health endpoint.
-// In the backend, API routes are prefixed with /api, but /health is at the root.
-const HEALTH_URL = BASE_URL.replace(/\/api\/?$/, '') + '/health';
+const getHealthUrl = () => {
+    const envUrl = import.meta.env.VITE_API_URL as string;
+    if (envUrl && envUrl.trim() !== '' && !envUrl.includes('localhost:3001')) {
+        return envUrl.replace(/\/api\/?$/, '') + '/health';
+    }
+    return '/health';
+};
+
+const HEALTH_URL = getHealthUrl();
 
 export const SystemUpdateNotifier = () => {
     const [initialStartTime, setInitialStartTime] = useState<number | null>(null);
