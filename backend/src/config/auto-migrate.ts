@@ -13,6 +13,8 @@
  *  - Sem ENGINE=InnoDB / CHARSET / COLLATE
  */
 
+import fs from 'fs';
+import path from 'path';
 import { db } from './database';
 
 // ── Helper: cria função e trigger de updated_at para uma tabela ──────────────
@@ -41,6 +43,37 @@ export async function runAutoMigrations(): Promise<void> {
     console.log('[DB] Running auto-migrations (PostgreSQL)...');
 
     try {
+        // ── 0. Verificar se banco está totalmente vazio (sem tabela users) ─────
+        const hasUsers = await db.raw("SELECT 1 FROM information_schema.tables WHERE table_name = 'users'").catch(() => null);
+        if (!hasUsers || !hasUsers.rows || hasUsers.rows.length === 0) {
+            console.log('[DB] 🏗️ Database vazio detectado! Executando schema.pg.sql e seed.pg.sql...');
+            const schemaCandidates = [
+                path.resolve(__dirname, '../../database/schema.pg.sql'),
+                path.resolve(process.cwd(), 'database/schema.pg.sql'),
+            ];
+            const seedCandidates = [
+                path.resolve(__dirname, '../../database/seed.pg.sql'),
+                path.resolve(process.cwd(), 'database/seed.pg.sql'),
+            ];
+
+            const schemaPath = schemaCandidates.find(p => fs.existsSync(p));
+            const seedPath = seedCandidates.find(p => fs.existsSync(p));
+
+            if (schemaPath) {
+                const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
+                await db.raw(schemaSql);
+                console.log(`[DB] ✅ schema.pg.sql executado a partir de ${schemaPath}`);
+            } else {
+                console.warn('[DB] ⚠️ schema.pg.sql não encontrado nos candidatos');
+            }
+            if (seedPath) {
+                const seedSql = fs.readFileSync(seedPath, 'utf-8');
+                await db.raw(seedSql);
+                console.log(`[DB] ✅ seed.pg.sql executado a partir de ${seedPath}`);
+            } else {
+                console.warn('[DB] ⚠️ seed.pg.sql não encontrado nos candidatos');
+            }
+        }
 
         // ── 1. conversations: canal + updated_at ────────────────────────────
         await db.raw(`
