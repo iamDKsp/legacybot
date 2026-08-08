@@ -3,7 +3,16 @@ import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 // ============================================================
 // Axios instance configured for the Legacy CRM API
 // ============================================================
-const BASE_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:3001/api';
+const getBaseUrl = () => {
+    const envUrl = import.meta.env.VITE_API_URL as string;
+    if (envUrl && envUrl.trim() !== '' && !envUrl.includes('localhost:3001')) {
+        const clean = envUrl.replace(/\/$/, '');
+        return clean.endsWith('/api') ? clean : `${clean}/api`;
+    }
+    return '/api';
+};
+
+const BASE_URL = getBaseUrl();
 
 const api: AxiosInstance = axios.create({
     baseURL: BASE_URL,

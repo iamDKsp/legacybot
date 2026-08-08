@@ -7,8 +7,15 @@ import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import sofiaAvatar from '../assets/sofia-3d.png';
 
-const BACKEND_URL = (import.meta.env.VITE_API_URL as string || 'http://localhost:3001')
-    .replace('/api', '');
+const getBackendUrl = () => {
+    const envUrl = import.meta.env.VITE_API_URL as string;
+    if (envUrl && envUrl.trim() !== '' && !envUrl.includes('localhost:3001')) {
+        return envUrl.replace(/\/api\/?$/, '');
+    }
+    return typeof window !== 'undefined' ? window.location.origin : '';
+};
+
+const BACKEND_URL = getBackendUrl();
 
 // Backend emits snake_case; we normalise to camelCase for the frontend
 interface RawNewMessageEvent {
