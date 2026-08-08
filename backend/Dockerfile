@@ -1,4 +1,4 @@
-﻿# ── Estágio 1: Build ───────────────────────────────────────────────────────────
+# ── Estágio 1: Build ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -33,9 +33,9 @@ RUN mkdir -p uploads/phc uploads/knowledge
 
 ENV NODE_ENV=production
 
-EXPOSE 3001
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD wget -qO- http://localhost:3001/health || exit 1
+    CMD wget -qO- http://localhost:8080/health || exit 1
 
 CMD ["node", "dist/server.js"]
