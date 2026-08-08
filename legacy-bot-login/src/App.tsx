@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useNotifications } from "@/hooks/useNotifications";
 import { SystemUpdateNotifier } from "@/components/SystemUpdateNotifier";
+import { SystemPaused } from "@/components/SystemPaused";
 import Index from "./pages/Index";
 import CRM from "./pages/CRM";
 import ClientHub from "./pages/ClientHub";
@@ -44,62 +45,67 @@ function NotificationsBootstrap() {
 }
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <NotificationsBootstrap />
-          <SystemUpdateNotifier />
-          <Routes>
-            <Route path="/" element={<Index />} />
-            <Route
-              path="/crm"
-              element={
-                <ProtectedRoute>
-                  <CRM />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/setup"
-              element={
-                <ProtectedRoute>
-                  <Setup />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/ai-config"
-              element={
-                <ProtectedRoute>
-                  <AIConfig />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/client-hub/:id"
-              element={
-                <ProtectedRoute>
-                  <ClientHub />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/database"
-              element={
-                <ProtectedRoute>
-                  <DatabasePage />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
+  <>
+    {/* Tela de sistema pausado — sobrepõe tudo quando ativa */}
+    <SystemPaused />
+
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <NotificationsBootstrap />
+            <SystemUpdateNotifier />
+            <Routes>
+              <Route path="/" element={<Index />} />
+              <Route
+                path="/crm"
+                element={
+                  <ProtectedRoute>
+                    <CRM />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/setup"
+                element={
+                  <ProtectedRoute>
+                    <Setup />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/ai-config"
+                element={
+                  <ProtectedRoute>
+                    <AIConfig />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/client-hub/:id"
+                element={
+                  <ProtectedRoute>
+                    <ClientHub />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/database"
+                element={
+                  <ProtectedRoute>
+                    <DatabasePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  </>
 );
 
 export default App;
