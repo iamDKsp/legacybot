@@ -488,6 +488,12 @@ const Setup = () => {
         let retryTimeout: ReturnType<typeof setTimeout> | null = null;
 
         function connect() {
+            const isLocalhostBridge = BRIDGE_URL.includes('localhost') || BRIDGE_URL.includes('127.0.0.1');
+            const isCloudFrontend = typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname);
+            if (isLocalhostBridge && isCloudFrontend) {
+                return;
+            }
+
             eventSource = new EventSource(`${BRIDGE_URL}/events`);
 
             eventSource.onopen = () => {

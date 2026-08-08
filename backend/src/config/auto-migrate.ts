@@ -61,15 +61,40 @@ export async function runAutoMigrations(): Promise<void> {
 
             if (schemaPath) {
                 const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-                await db.raw(schemaSql);
-                console.log(`[DB] ✅ schema.pg.sql executado a partir de ${schemaPath}`);
+                // Executar comando por comando para evitar que um comando invalide todo o script
+                const statements = schemaSql
+                    .split(';')
+                    .map(s => s.trim())
+                    .filter(s => s.length > 0);
+
+                for (const stmt of statements) {
+                    try {
+                        await db.raw(stmt);
+                    } catch (err: any) {
+                        // Ignorar erros de objetos já existentes
+                        if (!err?.message?.includes('already exists')) {
+                            console.warn(`[DB] Warning executing schema stmt:`, err?.message || err);
+                        }
+                    }
+                }
+                console.log(`[DB] ✅ schema.pg.sql executado (${statements.length} declarações)`);
             } else {
                 console.warn('[DB] ⚠️ schema.pg.sql não encontrado nos candidatos');
             }
+
             if (seedPath) {
                 const seedSql = fs.readFileSync(seedPath, 'utf-8');
-                await db.raw(seedSql);
-                console.log(`[DB] ✅ seed.pg.sql executado a partir de ${seedPath}`);
+                const seedStmts = seedSql.split(';').map(s => s.trim()).filter(s => s.length > 0);
+                for (const stmt of seedStmts) {
+                    try {
+                        await db.raw(stmt);
+                    } catch (err: any) {
+                        if (!err?.message?.includes('duplicate key')) {
+                            console.warn(`[DB] Warning executing seed stmt:`, err?.message || err);
+                        }
+                    }
+                }
+                console.log(`[DB] ✅ seed.pg.sql executado`);
             } else {
                 console.warn('[DB] ⚠️ seed.pg.sql não encontrado nos candidatos');
             }
