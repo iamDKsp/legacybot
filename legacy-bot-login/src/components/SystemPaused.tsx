@@ -5,7 +5,7 @@ import React, { useState } from "react";
 // Defina SYSTEM_PAUSED = true para bloquear o acesso.
 // Defina SYSTEM_PAUSED = false para liberar normalmente.
 // ============================================================
-const SYSTEM_PAUSED = true;
+const SYSTEM_PAUSED = false;
 
 // Senha secreta para o dono do sistema desativar a tela sem alterar o código
 // Mude para uma senha forte de sua preferência
