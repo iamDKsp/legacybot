@@ -1,0 +1,7 @@
+[build]
+builder = "dockerfile"
+watchPatterns = ["legacy-bot-login/**"]
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 30
