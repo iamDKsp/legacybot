@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../config/database';
-import { aiService, buildLeadContext, getRelevantMemories, buildCompressedHistory, transcribeAudio, analyzeImage, generateCaseSummary, sendWhatsAppImage, DocumentType } from '../services/ai.service';
+import { aiService, buildLeadContext, getRelevantMemories, buildCompressedHistory, transcribeAudio, analyzeImage, generateCaseSummary, sendWhatsAppImage, DocumentType, applyGuardrails } from '../services/ai.service';
 import { getWebSocketServer } from '../services/websocket.service';
 import { detectEmotionalState, detectLegalArea, extractCPF, extractName } from '../services/learning.service';
 import axios from 'axios';
@@ -2082,8 +2082,11 @@ async function processAIBotResponse(
             return;
         }
 
+        // Apply post-processing guardrails (forbidden words, single question, emoji filter)
+        const sanitizedReply = applyGuardrails(botReply);
+
         // Send reply in fragments (variable delay, typing presence)
-        await aiService.sendFragmentedMessage(targetPhone, botReply, signal, async (fragment) => {
+        await aiService.sendFragmentedMessage(targetPhone, sanitizedReply, signal, async (fragment) => {
             await db('messages').insert({
                 conversation_id: conversationId,
                 lead_id: lead.id as number,

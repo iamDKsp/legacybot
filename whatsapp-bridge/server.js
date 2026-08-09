@@ -29,7 +29,7 @@ app.use(express.json({ limit: '50mb' }));
 
 const PORT = process.env.PORT || 8081;
 const API_KEY = process.env.EVOLUTION_API_KEY || 'legacy-evolution-api-key-2026';
-const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://backend:3001/api/webhook/whatsapp';
+const WEBHOOK_URL = process.env.WEBHOOK_URL || 'http://legacybot.railway.internal:8080/api/webhook/whatsapp';
 const SESSIONS_DIR = path.join(__dirname, 'sessions');
 
 if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -483,6 +483,8 @@ app.get('/health', (req, res) => {
 
 app.listen(PORT, () => {
     console.log(`Legacy Baileys Bridge v3 running on port ${PORT}`);
+    console.log(`[Config] WEBHOOK_URL: ${WEBHOOK_URL}`);
+
 
     // ============================================================
     // AUTO-START: reconnect all saved sessions on boot

@@ -329,7 +329,7 @@ function StatusBadge({ status }: { status: ConnStatus }) {
 // ─── Constants ────────────────────────────────────────────────
 const BRIDGE_URL = import.meta.env.VITE_BRIDGE_URL || "http://localhost:8081";
 const QR_POLL_INTERVAL_MS = 3000;
-const QR_POLL_MAX_ATTEMPTS = 25; // ~75 seconds max wait for QR
+const QR_POLL_MAX_ATTEMPTS = 200; // ~10 minutes — bridge keeps reconnecting, keep updating QR
 
 // ─── Tab Definitions ──────────────────────────────────────────
 type SetupTab = "whatsapp" | "sofia" | "usuarios";
@@ -436,10 +436,11 @@ const Setup = () => {
                 if (!isMounted.current) return;
 
                 if (data?.qr) {
-                    console.log("[QR Poll] QR code received!");
+                    console.log("[QR Poll] QR code received/updated!");
                     setQrBase64(data.qr);
                     setStatusInfo(prev => ({ ...prev, status: "connecting" }));
-                    stopQrPoll(); // SSE will take over from here
+                    // Do NOT stop polling — bridge regenerates QR every ~90s (code 408)
+                    // Keep polling to always show the latest QR code
                 } else if (data?.state === "open") {
                     console.log("[QR Poll] Already connected!");
                     setStatusInfo(prev => ({ ...prev, status: "connected" }));
@@ -471,6 +472,9 @@ const Setup = () => {
             if (mapped === "connected") {
                 setQrBase64(null);
                 stopQrPoll();
+            } else if (mapped === "connecting" && !qrPollRef.current) {
+                // Bridge already has a QR waiting — start polling to fetch it
+                startQrPoll();
             }
             return mapped;
         } catch {
@@ -480,7 +484,7 @@ const Setup = () => {
         } finally {
             if (isMounted.current) setLoadingStatus(false);
         }
-    }, [stopQrPoll]);
+    }, [stopQrPoll, startQrPoll]);
 
     // ── SSE — Real-time events from bridge ────────────────────
     useEffect(() => {
