@@ -139,9 +139,16 @@ export async function getKnowledgeFiles(req: Request, res: Response): Promise<vo
         const files = await db('knowledge_files')
             .where('funnel_slug', funnel)
             .orderBy('created_at', 'desc')
-            .select('id', 'original_name', 'file_size_kb', 'file_type', 'created_at');
+            .select('id', 'original_name', 'file_size_kb', 'file_type', 'created_at',
+                db.raw("CASE WHEN extracted_text IS NOT NULL AND extracted_text != '' THEN LENGTH(extracted_text) ELSE 0 END AS extracted_chars"));
 
-        res.json({ success: true, data: files });
+        // Add extracted_text indicator so frontend can show "texto extraído ✓" badge
+        const filesWithIndicator = (files as Array<Record<string, unknown>>).map(f => ({
+            ...f,
+            extracted_text: Number(f.extracted_chars) > 0 ? `[${f.extracted_chars} caracteres extraídos]` : null,
+        }));
+
+        res.json({ success: true, data: filesWithIndicator });
     } catch (err) {
         const error = err as { message?: string };
         res.status(500).json({ success: false, error: error.message });
@@ -169,13 +176,14 @@ export async function addKnowledgeFile(req: Request, res: Response): Promise<voi
             const extractedText = await extractTextFromBuffer(file.buffer, file.mimetype, originalName);
             console.log(`[Knowledge] Extracted ${extractedText.length} chars from ${originalName}`);
 
-            const [{ id }] = await db('knowledge_files').insert({
+            const returning = await db('knowledge_files').insert({
                 funnel_slug: funnel,
                 original_name: originalName,
                 file_size_kb: sizeKb,
                 file_type: ext,
                 extracted_text: extractedText || null,
             }).returning('id');
+            const id = typeof returning[0] === 'object' ? (returning[0] as Record<string, unknown>).id : returning[0];
 
             const fileRow = await db('knowledge_files').where('id', id).first();
             res.status(201).json({
@@ -195,11 +203,12 @@ export async function addKnowledgeFile(req: Request, res: Response): Promise<voi
             return;
         }
         try {
-            const [{ id }] = await db('knowledge_files').insert({
+            const returning = await db('knowledge_files').insert({
                 funnel_slug: funnel,
                 original_name,
                 file_size_kb: file_size_kb || null,
             }).returning('id');
+            const id = typeof returning[0] === 'object' ? (returning[0] as Record<string, unknown>).id : returning[0];
             const file = await db('knowledge_files').where('id', id).first();
             res.status(201).json({ success: true, data: file });
         } catch (err) {

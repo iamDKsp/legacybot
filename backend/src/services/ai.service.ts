@@ -217,67 +217,66 @@ Todos os documentos foram coletados. ENCERRE o atendimento de forma calorosa:
 NÃO continue fazendo perguntas. NÃO dê prazo específico.`,
     },
 
-    // ── Golpe do Pix ───────────────────────────────────────
+    // ── Golpe do Pix (v2 — Fluxo Roteirizado com Áudios) ────
     'golpe-pix': {
         reception:
             `[Instrução de Etapa — RECEPÇÃO - GOLPE PIX]
-O cliente acabou de entrar em contato. Cumprimente com calor e pergunte o que trouxe ele à Legacy. Não peça nenhum dado ainda.`,
+ATENÇÃO: Esta etapa é TOTALMENTE CONTROLADA pelo sistema. Você NÃO precisa enviar a apresentação nem o áudio — o sistema já faz isso automaticamente.
+Quando o cliente responder ao áudio (que pergunta qual banco foi usado), apenas aguarde. O sistema vai te mover para a etapa pix_banco.
+Se o cliente mandar algo que não seja o nome do banco (ex: desabafo, dúvida), acolha brevemente e pergunte de forma gentil: "Entendo... me conta, por qual banco foi feito o Pix?"
+NÃO peça nome, CPF, documentos ou qualquer dado pessoal.`,
 
-        approach:
-            `[Instrução de Etapa — ABORDAGEM - GOLPE PIX]
-O cliente relatou um golpe via Pix. Siga a ordem:
-1. Empatia genuína: "Poxa, que situação difícil, sinto muito por isso."
-2. Entenda o básico: para quem mandou o Pix, qual valor, quando aconteceu.
-3. NÃO peça documentos ainda. Isso vem na próxima etapa.
-ATENÇÃO: NÃO peça nome, CPF ou endereço — essas informações serão extraídas dos documentos.`,
+        pix_banco:
+            `[Instrução de Etapa — IDENTIFICAÇÃO DO BANCO - GOLPE PIX]
+O cliente informou por qual banco foi feito o Pix. ATENÇÃO: O sistema já detectou o banco automaticamente e aplicou as regras. Seu papel agora depende do contexto:
 
-        info_collection:
-            `[Instrução de Etapa — COLETA DE INFORMAÇÕES - GOLPE PIX]
-Agora é hora de coletar informações detalhadas do golpe. Siga ESTA ORDEM:
-1. Pergunte o VALOR TOTAL perdido no golpe.
-   - Se o valor for inferior a R$150, encerre cordialmente: "Entendo sua situação e sinto muito. Infelizmente, para valores abaixo de R$150, o processo acaba não sendo viável financeiramente. Mas fica de olho e qualquer coisa nova, estamos aqui."
-2. Pergunte QUAL BANCO fez a transferência.
-   - Se o golpe ocorreu EXCLUSIVAMENTE pela Caixa Econômica Federal (sem envolver outros bancos), encerre cordialmente: "Poxa, sinto muito pela situação. Infelizmente, para casos exclusivos da Caixa Econômica, a gente não consegue atuar nesse momento. Mas se tiver alguma outra situação, pode contar com a gente."
-3. Pergunte se o cliente tem ACESSO AO APLICATIVO do banco.
-   - Se NÃO tiver acesso ao app e não conseguir obter comprovantes, informe: "Para dar andamento, a gente precisa dos comprovantes das transferências. Tenta ver se consegue recuperar o acesso ao app ou pede um extrato numa agência. Quando tiver, me chama aqui."
-4. PRIORIDADE MÁXIMA — Comprovante do Pix em PDF:
-   - Peça EXATAMENTE assim: "Para darmos andamento, preciso que você me envie o comprovante do Pix diretamente pelo aplicativo do seu banco — precisa ser o PDF oficial gerado pelo banco, não pode ser print ou foto."
-   - Se o cliente perguntar como: "No app do seu banco, vá em 'Pix > Histórico', abra a transferência e procure a opção 'Compartilhar comprovante' ou 'Salvar PDF'."
-   - Se o cliente disser que só tem print: "Entendo, mas o comprovante em PDF tem as informações técnicas que precisamos para o processo. Pode tentar baixar pelo app do banco?"
-5. Boletim de Ocorrência (B.O.): "Você já fez um boletim de ocorrência sobre esse golpe?"
-   - Se não tiver: diga que ajuda muito ter, mas que podem continuar mesmo sem.
-6. Contestação junto ao banco: "Você já tentou contestar essa transferência com o seu banco?"
-7. Depoimento completo: como aconteceu o golpe, quem entrou em contato, o que foi prometido.
-ATENÇÃO: Faça UMA PERGUNTA POR VEZ. Não pule ou altere esta ordem.`,
+CASO 1 — CAIXA ECONÔMICA FEDERAL:
+Se o sistema detectou que o banco é a Caixa Econômica:
+- Pergunte se o cliente tem comprovantes de transferências feitas por OUTROS bancos além da Caixa: "Se houver outros comprovantes além do que foi feito pela Caixa Econômica, pode me enviar por gentileza!"
+- Se o cliente disser que NÃO tem outros comprovantes, encerre de forma gentil e envie o link do site:
+"Poxa, sinto muito pela situação. Infelizmente, para casos exclusivos da Caixa Econômica, a gente não consegue atuar nesse momento. Mas se precisar de alguma orientação, dá uma olhada no nosso site:
 
-        doc_request:
-            `[Instrução de Etapa — DOCUMENTAÇÃO - GOLPE PIX]
-Agora coletamos os documentos pessoais. Peça UM DE CADA VEZ nesta ordem exata. Aguarde e valide antes de pedir o próximo:
+https://legacyassessoria-theta.vercel.app
 
-1. FRENTE DO RG/CNH: "Para formalizar o seu atendimento, preciso de uma foto do seu RG ou CNH. [IMAGEM_RG_GUIA] Me manda primeiro a FRENTE do documento, com boa iluminação e sem cortar as bordas."
-   → Aguarde. Após o sistema validar a extração do nome e CPF, passe para o passo 2.
-2. VERSO DO RG/CNH: "Perfeito! Agora a foto do VERSO do mesmo documento."
-   → Aguarde e valide.
-3. COMPROVANTE DE RESIDÊNCIA: "Ótimo! Agora preciso de um comprovante de residência atualizado (últimos 2 meses). [IMAGEM_COMPROVANTE_GUIA] Pode ser conta de água, luz, gás ou telefone fixo, com o seu nome e endereço bem visíveis."
-   → Após validar a extração do endereço, passe para o próximo.
-4. CARTEIRA DE TRABALHO: "Perfeito! Por último, preciso da sua Carteira de Trabalho — pode ser a física ou a digital."
-   - Se for aposentado(a): "Pode mandar o comprovante de pagamento do INSS do mês atual."
-   - Se aceitar link: https://www.youtube.com/watch?v=JASht-CIvss
-NÃO peça nome, CPF ou endereço. Peça UM DOCUMENTO POR VEZ.`,
+Qualquer outra situação, pode contar com a gente!"
+- Se o cliente disser que TEM outros comprovantes, peça para enviar e trate como banco normal (pedir comprovante compartilhado do banco).
 
+CASO 2 — INFINITYPAY:
+O sistema já enviou "Muito obrigado! Só um momento por favor." e pausou o atendimento. Não há nada para você fazer.
 
-        procuracao_docs:
-            `[Instrução de Etapa — PROCURAÇÃO - GOLPE PIX]
-Os documentos pessoais foram recebidos. Agora precisamos emitir uma procuração para que nosso escritório possa atuar. Explique apenas SE o cliente perguntar o que é procuração:
-"É um documento que autoriza nossos profissionais a representar você no processo, de forma totalmente segura e controlada."
+CASO 3 — QUALQUER OUTRO BANCO:
+O sistema já pediu para o cliente compartilhar o comprovante e já enviou o áudio sobre enviar diretamente do banco. Aguarde o cliente enviar.
+Se o cliente perguntar como enviar: "No app do seu banco, vá em 'Pix > Histórico', abra a transferência e procure a opção 'Compartilhar comprovante' ou 'Salvar PDF'."
+Se o cliente mandar mensagem que não é comprovante, relembre gentilmente: "Preciso do comprovante compartilhado diretamente do aplicativo do banco, pode me enviar por gentileza?"
+NÃO peça nome, CPF ou documentos pessoais.`,
 
-Neste momento, informe ao cliente que os documentos foram recebidos e que estamos processando as informações. Diga que em breve um assessor entrará em contato para as próximas etapas (envio da procuração para assinatura).`,
+        pix_comprovante:
+            `[Instrução de Etapa — VALIDAÇÃO DE COMPROVANTE - GOLPE PIX]
+O cliente está enviando comprovantes de transferência Pix. O SISTEMA valida se é um PDF real compartilhado do banco ou um print/screenshot de tela.
+
+SE O COMPROVANTE FOI VALIDADO: O sistema já enviou o áudio de confirmação ("Muito obrigado, chegou certinho aqui...") e moveu para análise. Não há nada para você fazer.
+
+SE O COMPROVANTE FOI REJEITADO (print/screenshot): O sistema já informou o problema. Se o cliente insistir em enviar prints, reforce de forma gentil:
+"Preciso que o comprovante seja compartilhado diretamente do aplicativo do seu banco — não pode ser captura de tela. Lá no app, geralmente tem a opção 'Compartilhar comprovante' ou 'Salvar PDF'. Pode tentar por favor?"
+Se o cliente perguntar como: "No app do seu banco, vá em 'Pix > Histórico', abra a transferência e procure a opção 'Compartilhar comprovante' ou 'Salvar PDF'."
+
+SE O VALOR DO PIX FOR INFERIOR A R$150: O sistema vai detectar isso do comprovante e desqualificar automaticamente. Se precisar encerrar manualmente: "Entendo sua situação e sinto muito. Infelizmente, para valores abaixo de R$150, o processo acaba não sendo viável financeiramente. Mas fica de olho e qualquer coisa nova, estamos aqui."
+
+NÃO peça nome, CPF ou documentos pessoais. Foque APENAS no comprovante.`,
 
         analysis:
             `[Instrução de Etapa — ANÁLISE - GOLPE PIX]
-Todos os documentos e informações foram coletados e validados. ENCERRE seu atendimento:
-"Tudo certo! Recebi todos os seus documentos. Vou passar o seu caso para análise agora — um dos nossos assessores vai entrar em contato em breve com as próximas etapas. Fique tranquilo(a) 🙏"
+O comprovante foi validado e o atendimento está sendo encerrado. Se o cliente enviar alguma mensagem:
+"Tudo certo! Seu caso já está com a nossa equipe. Um dos nossos representantes vai dar continuidade ao seu atendimento em breve. Fique tranquilo(a) 🙏"
 NÃO continue fazendo perguntas. Seu trabalho neste atendimento está concluído.`,
+
+        disqualified:
+            `[Instrução de Etapa — DESQUALIFICADO - GOLPE PIX]
+O cliente foi desqualificado para este processo (banco Caixa Econômica exclusivo ou valor inferior a R$150).
+Se o cliente enviar alguma mensagem, responda de forma gentil e acolhedora. Não peça documentos. Se perguntar sobre o caso, reforce que infelizmente não é possível dar andamento mas que a Legacy está à disposição para outras situações.
+Direcione para o site se necessário:
+
+https://legacyassessoria-theta.vercel.app`,
     },
 
     // ── Trabalhista ────────────────────────────────────────
@@ -832,8 +831,11 @@ function getTemperatureForStage(botStage: string): number {
         case 'reception':      return 0.90; // Mais criativa — é a primeira impressão
         case 'approach':       return 0.88; // Ainda muito humana — escuta ativa
         case 'info_collection': return 0.80; // Equilibrada — coletando fatos
+        case 'pix_banco':      return 0.75; // Golpe Pix — precisa ser direta sobre banco
+        case 'pix_comprovante': return 0.70; // Golpe Pix — validação de comprovante
         case 'doc_request':    return 0.70; // Mais direta — burocrática mas acolhedora
         case 'analysis':       return 0.65; // Encerrando — clara e calorosa
+        case 'disqualified':   return 0.70; // Desqualificado — gentil mas final
         default:               return 0.82;
     }
 }
@@ -1428,6 +1430,70 @@ export async function sendWhatsAppImage(
     }
 }
 
+// ============================================================
+// Send WhatsApp AUDIO (PTT/voice message) via Baileys Bridge
+// audioBase64: base64-encoded OGG Opus audio
+// seconds: estimated duration for presence effect
+// ============================================================
+export async function sendWhatsAppAudio(
+    phone: string,
+    audioBase64: string,
+    seconds = 5
+): Promise<void> {
+    if (!config.whatsapp.apiUrl || !config.whatsapp.apiKey) {
+        console.warn('[WhatsApp] API not configured — skipping audio send');
+        return;
+    }
+
+    const url = `${config.whatsapp.apiUrl}/message/sendAudio/${config.whatsapp.instance}`;
+
+    try {
+        await axios.post(
+            url,
+            {
+                number: phone.includes('@') ? phone : phone.replace(/\D/g, ''),
+                audioBase64,
+                mimetype: 'audio/ogg; codecs=opus',
+                seconds,
+            },
+            {
+                headers: {
+                    apikey: config.whatsapp.apiKey,
+                    'Content-Type': 'application/json',
+                },
+                timeout: 30000,
+            }
+        );
+        console.log(`[WhatsApp] 🎤 Audio PTT sent to ${phone} (~${seconds}s)`);
+    } catch (err) {
+        const error = err as { message?: string };
+        console.error('[WhatsApp] Audio send error:', error.message);
+    }
+}
+
+// ============================================================
+// Send recording presence ("recording audio...") via WhatsApp API
+// Makes it look like a human is recording a voice message
+// ============================================================
+export async function sendRecordingPresence(phone: string, durationMs = 3000): Promise<void> {
+    if (!config.whatsapp.apiUrl || !config.whatsapp.apiKey) return;
+    try {
+        await axios.post(
+            `${config.whatsapp.apiUrl}/chat/sendPresence/${config.whatsapp.instance}`,
+            {
+                number: phone.includes('@') ? phone : phone.replace(/\D/g, ''),
+                options: { presence: 'recording', delay: durationMs },
+            },
+            {
+                headers: { apikey: config.whatsapp.apiKey, 'Content-Type': 'application/json' },
+                timeout: 5000,
+            }
+        );
+    } catch {
+        // Silent — never block the flow for presence errors
+    }
+}
+
 
 
 // ============================================================
@@ -1571,6 +1637,8 @@ export const aiService = {
     generateBotReply,
     sendWhatsAppMessage,
     sendWhatsAppImage,
+    sendWhatsAppAudio,
+    sendRecordingPresence,
     sendFragmentedMessage,
     sendTypingPresence,
     analyzeImage,

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../config/database';
-import { aiService, buildLeadContext, getRelevantMemories, buildCompressedHistory, transcribeAudio, analyzeImage, generateCaseSummary, sendWhatsAppImage, DocumentType, applyGuardrails } from '../services/ai.service';
+import { aiService, buildLeadContext, getRelevantMemories, buildCompressedHistory, transcribeAudio, analyzeImage, generateCaseSummary, sendWhatsAppImage, sendWhatsAppAudio, sendRecordingPresence, DocumentType, applyGuardrails } from '../services/ai.service';
 import { getWebSocketServer } from '../services/websocket.service';
 import { detectEmotionalState, detectLegalArea, extractCPF, extractName } from '../services/learning.service';
 import axios from 'axios';
@@ -46,6 +46,88 @@ async function sendComprovanteGuideImage(phone: string) {
     const base64 = getPublicImageBase64('Como tirar foto do comprovante de residencia.png');
     if (!base64) return;
     await sendWhatsAppImage(phone, base64, 'image/png', 'Como tirar a foto do comprovante para boa leitura 👆');
+}
+
+// ====================================================
+// Sofia pre-recorded audio cache (Golpe do Pix flow)
+// Loaded lazily from backend/assets/audio/
+// ====================================================
+const SOFIA_AUDIO_CACHE: Map<string, string> = new Map();
+
+type SofiaAudioKey = 'sofia_banco' | 'sofia_comprovante' | 'sofia_validado';
+
+const SOFIA_AUDIO_FILES: Record<SofiaAudioKey, { file: string; seconds: number; transcript: string }> = {
+    sofia_banco: {
+        file: 'sofia_banco.ogg',
+        seconds: 7,
+        transcript: 'Estamos aqui para te auxiliar nas possíveis formas de resolver essa situação. O Pix foi feito por qual banco?',
+    },
+    sofia_comprovante: {
+        file: 'sofia_comprovante.ogg',
+        seconds: 12,
+        transcript: 'Nós precisamos que o comprovante seja enviado diretamente do aplicativo do seu banco.',
+    },
+    sofia_validado: {
+        file: 'sofia_validado.ogg',
+        seconds: 10,
+        transcript: 'Muito obrigado, chegou certinho aqui, está válido! Vamos dar seguimento, vou encaminhar você para um de nossos representantes que dará continuidade ao seu atendimento.',
+    },
+};
+
+function getSofiaAudioBase64(key: SofiaAudioKey): string | null {
+    if (SOFIA_AUDIO_CACHE.has(key)) return SOFIA_AUDIO_CACHE.get(key)!;
+    const audioPath = path.resolve(__dirname, '..', '..', 'assets', 'audio', SOFIA_AUDIO_FILES[key].file);
+    try {
+        if (!fs.existsSync(audioPath)) {
+            console.warn(`[SofiaAudio] File not found: ${audioPath}`);
+            return null;
+        }
+        const buffer = fs.readFileSync(audioPath);
+        const base64 = buffer.toString('base64');
+        SOFIA_AUDIO_CACHE.set(key, base64);
+        console.log(`[SofiaAudio] Loaded "${key}" (${Math.round(base64.length * 0.75 / 1024)}KB, ~${SOFIA_AUDIO_FILES[key].seconds}s)`);
+        return base64;
+    } catch (err) {
+        console.error(`[SofiaAudio] Error loading "${key}":`, (err as Error).message);
+        return null;
+    }
+}
+
+// Per-lead tracking of which audios have been sent (avoid repeating)
+const _sentAudios = new Map<number, Set<SofiaAudioKey>>();
+
+/**
+ * Send a pre-recorded Sofia audio to the client.
+ * If the audio has already been sent in this conversation, sends the transcript as text instead.
+ * Returns true if sent successfully, false if already sent (text fallback used).
+ */
+async function sendSofiaAudio(phone: string, leadId: number, audioKey: SofiaAudioKey): Promise<boolean> {
+    const sentSet = _sentAudios.get(leadId) || new Set();
+    const audioInfo = SOFIA_AUDIO_FILES[audioKey];
+
+    if (sentSet.has(audioKey)) {
+        // Audio already used — send text citation instead
+        console.log(`[SofiaAudio] 🔁 Audio "${audioKey}" already sent to lead ${leadId} — using text fallback`);
+        await aiService.sendFragmentedMessage(phone, `${audioInfo.transcript}\n\nPode me responder isso rapidinho por favor? 😊`);
+        return false;
+    }
+
+    const base64 = getSofiaAudioBase64(audioKey);
+    if (!base64) {
+        // Fallback to text if audio file not available
+        console.warn(`[SofiaAudio] Audio "${audioKey}" unavailable — sending as text`);
+        await aiService.sendFragmentedMessage(phone, audioInfo.transcript);
+        sentSet.add(audioKey);
+        _sentAudios.set(leadId, sentSet);
+        return false;
+    }
+
+    // Send the audio as PTT
+    await sendWhatsAppAudio(phone, base64, audioInfo.seconds);
+    sentSet.add(audioKey);
+    _sentAudios.set(leadId, sentSet);
+    console.log(`[SofiaAudio] 🎤 Sent "${audioKey}" to lead ${leadId}`);
+    return true;
 }
 
 // ====================================================
@@ -246,7 +328,7 @@ const TERMINATOR_MESSAGES = new Set([
 ]);
 
 function isTerminatorMessage(msg: string, botStage: string): boolean {
-    if (botStage !== 'analysis') return false;
+    if (botStage !== 'analysis' && botStage !== 'disqualified') return false;
     const normalized = msg.trim().toLowerCase().replace(/[!.?,]/g, '');
     return TERMINATOR_MESSAGES.has(normalized);
 }
@@ -576,11 +658,10 @@ const BOT_STAGE_TO_CRM_STAGE: Record<string, Record<string, string>> = {
     },
     'golpe-pix': {
         reception:       'recebido',
-        approach:        'abordagem',
-        info_collection: 'coleta_info',
-        doc_request:     'documentacao',
-        procuracao_docs: 'assinatura',
+        pix_banco:       'abordagem',
+        pix_comprovante: 'coleta_info',
         analysis:        'analise_espera',
+        disqualified:    'desqualificado',
     },
     trabalhista: {
         reception:  'recebido',
@@ -992,6 +1073,8 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 _leadBuffers.delete(phone);
                 console.log(`[Webhook] 🔄 Debounce buffer cleared for ${phone}`);
             }
+            // Clear sent audios tracking for golpe-pix flow
+            _sentAudios.delete(lead.id as number);
 
             // 1. Delete all messages
             await db('messages').where('lead_id', lead.id).del();
@@ -1297,19 +1380,70 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
             console.warn('[Webhook] Name extraction from message failed (non-critical):', err);
         }
 
+        // Target phone for outbound messages (use whatsapp_id if available)
+        const targetPhone = String(lead.whatsapp_id || phone);
+
         // ── Advance stage: reception → approach on first real message ──
+        // For golpe-pix: scripted reception with fixed greeting + audio
         try {
             const currentBotStage = String(lead.bot_stage || 'reception');
             if (currentBotStage === 'reception') {
                 const funnel = await db('funnels').where({ id: lead.funnel_id }).first() as { slug: string } | undefined;
                 const funnelSlug = funnel?.slug ?? 'trabalhista';
-                await advanceBotStage(lead.id as number, funnelSlug, 'approach', conversation?.id);
-                lead.bot_stage = 'approach';
-                // Detect and save gender when name first arrives
-                if (lead.name && typeof lead.name === 'string' && lead.name !== phone) {
-                    const genderRaw = detectGender(lead.name as string);
-                    const gender = genderRaw === 'masculino' ? 'M' : genderRaw === 'feminino' ? 'F' : null;
-                    if (gender) await db('leads').where({ id: lead.id }).update({ gender });
+
+                if (funnelSlug === 'golpe-pix') {
+                    // ── GOLPE PIX: Scripted reception ──
+                    // 1. Send fixed greeting text
+                    await aiService.sendFragmentedMessage(targetPhone, 'Oi, meu nome é Sofia. Sinto muito pela situação que aconteceu com você.');
+                    // Save outbound greeting as message
+                    try {
+                        await db('messages').insert({
+                            conversation_id: conversation.id,
+                            content: 'Oi, meu nome é Sofia. Sinto muito pela situação que aconteceu com você.',
+                            direction: 'outbound',
+                            sender: 'bot',
+                            sent_at: new Date(),
+                        });
+                    } catch { /* non-critical */ }
+
+                    // 2. Send audio 1 (qual banco) after a brief pause
+                    setTimeout(async () => {
+                        try {
+                            await sendSofiaAudio(targetPhone, lead.id as number, 'sofia_banco');
+                            // Save audio as outbound message for history
+                            await db('messages').insert({
+                                conversation_id: conversation.id,
+                                content: `[Áudio enviado: ${SOFIA_AUDIO_FILES.sofia_banco.transcript}]`,
+                                direction: 'outbound',
+                                sender: 'bot',
+                                sent_at: new Date(),
+                            });
+                        } catch (err) {
+                            console.error('[GolpePix] Failed to send banco audio:', err);
+                        }
+                    }, 1500);
+
+                    // 3. Advance to pix_banco
+                    await advanceBotStage(lead.id as number, funnelSlug, 'pix_banco', conversation?.id);
+                    lead.bot_stage = 'pix_banco';
+
+                    // Skip normal bot processing — we already handled the response
+                    // Detect and save gender
+                    if (lead.name && typeof lead.name === 'string' && lead.name !== phone) {
+                        const genderRaw = detectGender(lead.name as string);
+                        const gender = genderRaw === 'masculino' ? 'M' : genderRaw === 'feminino' ? 'F' : null;
+                        if (gender) await db('leads').where({ id: lead.id }).update({ gender });
+                    }
+                } else {
+                    // Normal flow for other funnels
+                    await advanceBotStage(lead.id as number, funnelSlug, 'approach', conversation?.id);
+                    lead.bot_stage = 'approach';
+                    // Detect and save gender when name first arrives
+                    if (lead.name && typeof lead.name === 'string' && lead.name !== phone) {
+                        const genderRaw = detectGender(lead.name as string);
+                        const gender = genderRaw === 'masculino' ? 'M' : genderRaw === 'feminino' ? 'F' : null;
+                        if (gender) await db('leads').where({ id: lead.id }).update({ gender });
+                    }
                 }
             }
         } catch (err) {
@@ -1367,6 +1501,275 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                 });
                 console.log(`[Bot] 📢 Ad lead detected for ${phone} — sent consistent greeting`);
                 return;
+            }
+
+            // ============================================================
+            // GOLPE PIX — Deterministic Flow Handler
+            // Intercepts messages BEFORE AI processing for scripted stages
+            // ============================================================
+            const pixFunnel = await db('funnels').where({ id: lead.funnel_id }).first() as { slug: string } | undefined;
+            const pixFunnelSlug = pixFunnel?.slug ?? '';
+            const pixBotStage = String(lead.bot_stage || 'reception');
+
+            if (pixFunnelSlug === 'golpe-pix' && (pixBotStage === 'pix_banco' || pixBotStage === 'pix_comprovante' || pixBotStage === 'disqualified')) {
+
+                // ── PIX_BANCO: Bank detection & routing ──
+                if (pixBotStage === 'pix_banco') {
+                    const msgLower = message.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+                    // Detect bank name
+                    const isCaixa = /caixa\s*(econ[oô]mica)?|cef\b/i.test(msgLower);
+                    const isInfinityPay = /infinity\s*pay/i.test(msgLower);
+
+                    if (isInfinityPay) {
+                        // ── INFINITYPAY → Send confirmation + pause → Analysis ──
+                        console.log(`[GolpePix] 🏦 InfinityPay detected for lead ${lead.id}`);
+                        await aiService.sendFragmentedMessage(targetPhone, 'Muito obrigado! Só um momento por favor.');
+                        try {
+                            await db('messages').insert({
+                                conversation_id: conversation.id,
+                                content: 'Muito obrigado! Só um momento por favor.',
+                                direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                            });
+                        } catch { /* non-critical */ }
+
+                        // Pause bot and advance to analysis
+                        await db('leads').where({ id: lead.id }).update({ bot_active: false });
+                        await advanceBotStage(lead.id as number, pixFunnelSlug, 'analysis', conversation?.id);
+                        lead.bot_stage = 'analysis';
+                        console.log(`[GolpePix] ✅ InfinityPay → Analysis, bot paused for lead ${lead.id}`);
+                        return;
+
+                    } else if (isCaixa) {
+                        // ── CAIXA ECONÔMICA → Ask if they have other comprovantes ──
+                        console.log(`[GolpePix] 🏦 Caixa Econômica detected for lead ${lead.id}`);
+                        const caixaReply = 'Se houver outros comprovantes além do que foi feito pela Caixa Econômica, pode me enviar por gentileza!';
+                        await aiService.sendFragmentedMessage(targetPhone, caixaReply);
+                        try {
+                            await db('messages').insert({
+                                conversation_id: conversation.id,
+                                content: caixaReply,
+                                direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                            });
+                        } catch { /* non-critical */ }
+
+                        // Tag lead with caixa_detected for subsequent message handling
+                        await db('leads').where({ id: lead.id }).update({
+                            notes: db.raw(`CONCAT(COALESCE(notes, ''), '\n[SOFIA_PIX_CAIXA_DETECTED]')`),
+                        });
+                        // Stay in pix_banco — next message will determine if they have other comprovantes
+                        return;
+
+                    } else {
+                        // Check if this is a follow-up to Caixa detection (client says "não tenho")
+                        const leadNotes = String((lead as Record<string, unknown>).notes || '');
+                        const caixaDetected = leadNotes.includes('[SOFIA_PIX_CAIXA_DETECTED]');
+
+                        if (caixaDetected) {
+                            // Client responded to "tem outros comprovantes?" question
+                            const isNo = /^(n[aã]o|nao|nop|n[aã]o\s+tenho|so\s+caixa|apenas\s+caixa|nenhum)/i.test(message.trim());
+
+                            if (isNo) {
+                                // ── CAIXA ONLY → Disqualify ──
+                                console.log(`[GolpePix] ❌ Caixa only — disqualifying lead ${lead.id}`);
+                                const disqualifyReply = `Poxa, sinto muito pela situação. Infelizmente, para casos exclusivos da Caixa Econômica, a gente não consegue atuar nesse momento. Mas se precisar de alguma orientação, dá uma olhada no nosso site:\n\nhttps://legacyassessoria-theta.vercel.app\n\nQualquer outra situação, pode contar com a gente!`;
+                                await aiService.sendFragmentedMessage(targetPhone, disqualifyReply);
+                                try {
+                                    await db('messages').insert({
+                                        conversation_id: conversation.id,
+                                        content: disqualifyReply,
+                                        direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                                    });
+                                } catch { /* non-critical */ }
+
+                                await db('leads').where({ id: lead.id }).update({ bot_active: false });
+                                await advanceBotStage(lead.id as number, pixFunnelSlug, 'disqualified', conversation?.id);
+                                lead.bot_stage = 'disqualified';
+                                return;
+                            }
+                            // Client says they HAVE other comprovantes — proceed to ask for them
+                        }
+
+                        // ── OTHER BANK or has non-Caixa comprovantes → Ask for comprovante ──
+                        console.log(`[GolpePix] 🏦 Other bank detected for lead ${lead.id}: "${message.substring(0, 50)}"`);
+                        const comproReply = 'Você pode compartilhar os comprovantes diretamente do seu banco por favor?';
+                        await aiService.sendFragmentedMessage(targetPhone, comproReply);
+                        try {
+                            await db('messages').insert({
+                                conversation_id: conversation.id,
+                                content: comproReply,
+                                direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                            });
+                        } catch { /* non-critical */ }
+
+                        // Send audio 2 (comprovante direto do banco) after 1.5s
+                        setTimeout(async () => {
+                            try {
+                                await sendSofiaAudio(targetPhone, lead.id as number, 'sofia_comprovante');
+                                await db('messages').insert({
+                                    conversation_id: conversation.id,
+                                    content: `[Áudio enviado: ${SOFIA_AUDIO_FILES.sofia_comprovante.transcript}]`,
+                                    direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                                });
+                            } catch (err) {
+                                console.error('[GolpePix] Failed to send comprovante audio:', err);
+                            }
+                        }, 1500);
+
+                        // Advance to pix_comprovante
+                        await advanceBotStage(lead.id as number, pixFunnelSlug, 'pix_comprovante', conversation?.id);
+                        lead.bot_stage = 'pix_comprovante';
+                        return;
+                    }
+                }
+
+                // ── PIX_COMPROVANTE: Validate comprovante (PDF/image) ──
+                if (pixBotStage === 'pix_comprovante') {
+                    const hasFile = !!(imageBase64 && imageMimeType) || !!(pdfBase64 && pdfMimeType);
+
+                    if (hasFile) {
+                        const fileBase64Pix = pdfBase64 || imageBase64!;
+                        const fileMimePix = pdfMimeType || imageMimeType!;
+                        const isPDFfile = !!(pdfBase64 && pdfMimeType);
+
+                        console.log(`[GolpePix] 📄 Comprovante received for lead ${lead.id} (${isPDFfile ? 'PDF' : 'image'})`);
+
+                        try {
+                            // Analyze via Gemini Vision
+                            const analysisCtx = `Este arquivo foi enviado como comprovante de transferência Pix.
+ANALISE E RESPONDA EM JSON:
+{
+  "isComprovantePix": true/false,
+  "isPrint": true/false,
+  "valor": number ou null,
+  "banco": "string" ou null,
+  "destinatario": "string" ou null,
+  "data": "string" ou null,
+  "description": "resumo do documento"
+}
+isComprovantePix=true se for um comprovante real de transferência Pix compartilhado diretamente do app do banco.
+isPrint=true se for um print/screenshot/captura de tela (não o comprovante oficial do banco).`;
+
+                            const analysis = await analyzeImage(fileBase64Pix, fileMimePix, analysisCtx);
+
+                            if (analysis && analysis.extractedText) {
+                                // Try to parse the JSON from Gemini
+                                let pixData: { isComprovantePix?: boolean; isPrint?: boolean; valor?: number; banco?: string; destinatario?: string; data?: string; description?: string } = {};
+                                try {
+                                    const jsonMatch = analysis.extractedText.match(/\{[\s\S]*\}/);
+                                    if (jsonMatch) pixData = JSON.parse(jsonMatch[0]);
+                                } catch {
+                                    console.warn('[GolpePix] Failed to parse Gemini JSON, using raw analysis');
+                                }
+
+                                // Check if it's a print/screenshot
+                                if (pixData.isPrint || (!isPDFfile && !pixData.isComprovantePix)) {
+                                    console.log(`[GolpePix] ❌ Print/screenshot detected for lead ${lead.id}`);
+                                    const printReply = 'Preciso que o comprovante seja compartilhado diretamente do aplicativo do seu banco — não pode ser captura de tela.\n\nLá no app, geralmente tem a opção "Compartilhar comprovante" ou "Salvar PDF". Pode tentar por favor?';
+                                    await aiService.sendFragmentedMessage(targetPhone, printReply);
+                                    try {
+                                        await db('messages').insert({
+                                            conversation_id: conversation.id,
+                                            content: printReply,
+                                            direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                                        });
+                                    } catch { /* non-critical */ }
+                                    return; // Stay in pix_comprovante — wait for proper comprovante
+                                }
+
+                                // Check value < R$150
+                                if (pixData.valor && pixData.valor < 150) {
+                                    console.log(`[GolpePix] ❌ Value too low (R$${pixData.valor}) for lead ${lead.id}`);
+                                    const valorReply = `Entendo sua situação e sinto muito. Infelizmente, para valores abaixo de R$150, o processo acaba não sendo viável financeiramente.\n\nMas fica de olho e qualquer coisa nova, estamos aqui!`;
+                                    await aiService.sendFragmentedMessage(targetPhone, valorReply);
+                                    try {
+                                        await db('messages').insert({
+                                            conversation_id: conversation.id,
+                                            content: valorReply,
+                                            direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                                        });
+                                    } catch { /* non-critical */ }
+
+                                    await db('leads').where({ id: lead.id }).update({ bot_active: false });
+                                    await advanceBotStage(lead.id as number, pixFunnelSlug, 'disqualified', conversation?.id);
+                                    lead.bot_stage = 'disqualified';
+                                    return;
+                                }
+
+                                // ── COMPROVANTE VÁLIDO ──
+                                console.log(`[GolpePix] ✅ Valid comprovante for lead ${lead.id} — R$${pixData.valor || '?'}, ${pixData.banco || '?'}`);
+
+                                // Save extracted data to lead notes
+                                const pixNoteParts: string[] = [];
+                                if (pixData.valor) pixNoteParts.push(`Valor Pix: R$${pixData.valor}`);
+                                if (pixData.banco) pixNoteParts.push(`Banco: ${pixData.banco}`);
+                                if (pixData.destinatario) pixNoteParts.push(`Destinatário: ${pixData.destinatario}`);
+                                if (pixData.data) pixNoteParts.push(`Data: ${pixData.data}`);
+                                if (pixNoteParts.length > 0) {
+                                    await db('leads').where({ id: lead.id }).update({
+                                        notes: db.raw(`CONCAT(COALESCE(notes, ''), '\n[PIX_DATA] ${pixNoteParts.join(' | ')}')`),
+                                    });
+                                }
+
+                                // Save document as approved
+                                try {
+                                    await db('documents').insert({
+                                        lead_id: lead.id,
+                                        document_type: 'Comprovante Pix',
+                                        status: 'aprovado',
+                                        file_name: isPDFfile ? 'comprovante_pix.pdf' : 'comprovante_pix.jpg',
+                                        mime_type: fileMimePix,
+                                        file_data: Buffer.from(fileBase64Pix, 'base64'),
+                                        notes: pixNoteParts.join(' | '),
+                                        uploaded_at: new Date(),
+                                    });
+                                } catch (docErr) {
+                                    console.error('[GolpePix] Document save error:', docErr);
+                                }
+
+                                // Send audio 3 (validado) after brief pause
+                                setTimeout(async () => {
+                                    try {
+                                        await sendSofiaAudio(targetPhone, lead.id as number, 'sofia_validado');
+                                        await db('messages').insert({
+                                            conversation_id: conversation.id,
+                                            content: `[Áudio enviado: ${SOFIA_AUDIO_FILES.sofia_validado.transcript}]`,
+                                            direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                                        });
+                                    } catch (err) {
+                                        console.error('[GolpePix] Failed to send validado audio:', err);
+                                    }
+                                }, 1500);
+
+                                // Pause bot and advance to analysis
+                                await db('leads').where({ id: lead.id }).update({ bot_active: false });
+                                await advanceBotStage(lead.id as number, pixFunnelSlug, 'analysis', conversation?.id);
+                                lead.bot_stage = 'analysis';
+
+                                // Generate case summary in background
+                                generateAndSaveCaseSummary(lead, conversation?.id, pixFunnelSlug).catch(err =>
+                                    console.error('[GolpePix] Background summary failed:', err)
+                                );
+                                return;
+                            }
+
+                            // Gemini couldn't analyze — ask to resend
+                            await aiService.sendFragmentedMessage(targetPhone, 'Não consegui analisar o arquivo. Pode enviar novamente o comprovante? Se possível, compartilha direto do aplicativo do banco.');
+                            return;
+
+                        } catch (analysisErr) {
+                            console.error('[GolpePix] Comprovante analysis error:', analysisErr);
+                            await aiService.sendFragmentedMessage(targetPhone, 'Tive um probleminha para analisar o arquivo. Pode enviar o comprovante novamente por favor?');
+                            return;
+                        }
+                    }
+
+                    // No file — text message in pix_comprovante stage
+                    // Let it fall through to regular AI processing (Sofia will remind about comprovante)
+                }
+
+                // ── DISQUALIFIED: Just let Sofia handle gently via prompt ──
+                // Falls through to regular AI processing with the disqualified prompt
             }
 
             // ── Document image/PDF validation pipeline ──
@@ -1966,48 +2369,40 @@ async function processAIBotResponse(
 
             let nextStage: string | null = null;
 
-            if (currentBotStage === 'approach') {
-                // Golpe Pix: approach → info_collection when Sofia asks about comprovante pix
-                if (funnelSlug === 'golpe-pix' && (replyLower.includes('comprovante do pix') || replyLower.includes('comprovante da transferência') || replyLower.includes('transferência?'))) {
-                    nextStage = 'info_collection';
-                } else if (replyLower.includes('rg') || replyLower.includes('cnh') || replyLower.includes('holerite') || replyLower.includes('carteira de trabalho') || replyLower.includes('comprovante de residência')) {
-                    // Other funnels: approach → doc_request when Sofia asks for documents
-                    nextStage = 'doc_request';
+            // ── GOLPE PIX: Deterministic flow (no semantic detection) ──
+            // Stage transitions are handled programmatically in the bank/comprovante blocks
+            if (funnelSlug === 'golpe-pix') {
+                nextStage = null; // All golpe-pix transitions are deterministic, skip semantic detection
+            } else {
+                // ── Other funnels: semantic stage detection from Sofia's reply ──
+                if (currentBotStage === 'approach') {
+                    if (replyLower.includes('rg') || replyLower.includes('cnh') || replyLower.includes('holerite') || replyLower.includes('carteira de trabalho') || replyLower.includes('comprovante de residência')) {
+                        nextStage = 'doc_request';
+                    }
                 }
-            }
 
-            if (currentBotStage === 'info_collection' && funnelSlug === 'golpe-pix') {
-                // info_collection → doc_request when Sofia pivots to asking personal docs
-                if (replyLower.includes('rg') || replyLower.includes('cnh') || replyLower.includes('comprovante de residência') || replyLower.includes('carteira de trabalho')) {
-                    nextStage = 'doc_request';
+                // ── Negativado: approach → pre_analise quando Sofia confirma recebimento do CPF ──
+                if (currentBotStage === 'approach' && funnelSlug === 'negativado') {
+                    if (replyLower.includes('vou registrar') || replyLower.includes('equipe fazer uma análise') ||
+                        replyLower.includes('análise do seu perfil') || replyLower.includes('aguarda um instante') ||
+                        replyLower.includes('passar para nossa equipe') || replyLower.includes('já passo para')) {
+                        nextStage = 'pre_analise';
+                    }
+                    // NUNCA pular para doc_request ou analysis direto da approach no negativado
+                    if (nextStage === 'doc_request' || nextStage === 'analysis') nextStage = null;
                 }
-            }
 
-            // ── Negativado: approach → pre_analise quando Sofia confirma recebimento do CPF ──
-            // (NÃO avança para doc_request direto)
-            if (currentBotStage === 'approach' && funnelSlug === 'negativado') {
-                if (replyLower.includes('vou registrar') || replyLower.includes('equipe fazer uma análise') ||
-                    replyLower.includes('análise do seu perfil') || replyLower.includes('aguarda um instante') ||
-                    replyLower.includes('passar para nossa equipe') || replyLower.includes('já passo para')) {
-                    nextStage = 'pre_analise';
+                // Negativado: pre_analise → doc_request APENAS quando assessor mover manualmente no CRM
+                if (currentBotStage === 'pre_analise' && funnelSlug === 'negativado') {
+                    nextStage = null;
                 }
-                // NUNCA pular para doc_request ou analysis direto da approach no negativado
-                if (nextStage === 'doc_request' || nextStage === 'analysis') nextStage = null;
-            }
 
-            // Negativado: pre_analise → doc_request APENAS quando assessor mover manualmente no CRM
-            // (Sofia não avança sozinha desta etapa)  
-            if (currentBotStage === 'pre_analise' && funnelSlug === 'negativado') {
-                // Qualquer pedido de documento (RG, CNH, comprovante) só é válido se assessor já moveu
-                // Por segurança: não detectamos avanço automático daqui
-                nextStage = null;
-            }
-
-            // Universal: if Sofia explicitly says case goes to analysis / assessor
-            if (currentBotStage !== 'analysis' && currentBotStage !== 'reception') {
-                if ((replyLower.includes('análise') || replyLower.includes('caso vai para análise')) &&
-                    (replyLower.includes('assessor') && replyLower.includes('contato'))) {
-                    nextStage = 'analysis';
+                // Universal: if Sofia explicitly says case goes to analysis / assessor
+                if (currentBotStage !== 'analysis' && currentBotStage !== 'reception') {
+                    if ((replyLower.includes('análise') || replyLower.includes('caso vai para análise')) &&
+                        (replyLower.includes('assessor') && replyLower.includes('contato'))) {
+                        nextStage = 'analysis';
+                    }
                 }
             }
 

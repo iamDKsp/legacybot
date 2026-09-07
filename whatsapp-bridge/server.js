@@ -467,6 +467,76 @@ app.post('/message/sendImage/:name', authCheck, async (req, res) => {
     }
 });
 
+app.post('/message/sendAudio/:name', authCheck, async (req, res) => {
+    const { name } = req.params;
+    const { number, audioBase64, mimetype, seconds, caption } = req.body;
+    const instance = instances[name];
+
+    if (!instance || !instance.sock) {
+        return res.status(404).json({ error: 'Instance not found or not connected' });
+    }
+    if (!number || !audioBase64) {
+        return res.status(400).json({ error: 'Missing number or audioBase64' });
+    }
+
+    try {
+        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+        
+        await instance.sock.sendPresenceUpdate('recording', jid);
+        const audioDuration = seconds || 5;
+        await new Promise(resolve => setTimeout(resolve, audioDuration * 1000));
+        
+        const mime = mimetype || 'audio/ogg; codecs=opus';
+        const buffer = Buffer.from(audioBase64, 'base64');
+        
+        const messagePayload = { 
+            audio: buffer, 
+            mimetype: mime, 
+            ptt: true, 
+            seconds: audioDuration 
+        };
+        
+        await instance.sock.sendMessage(jid, messagePayload);
+        await instance.sock.sendPresenceUpdate('paused', jid);
+        console.log(`[${name}] Audio sent to ${jid}`);
+        res.json({ success: true });
+    } catch (err) {
+        console.error(`[${name}] Audio send error:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post('/chat/sendPresence/:name', authCheck, async (req, res) => {
+    const { name } = req.params;
+    const { number, options } = req.body;
+    const instance = instances[name];
+
+    if (!instance || !instance.sock) {
+        return res.status(404).json({ error: 'Instance not found or not connected' });
+    }
+    if (!number || !options || !options.presence) {
+        return res.status(400).json({ error: 'Missing number or options.presence' });
+    }
+
+    try {
+        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+        const presence = options.presence;
+        
+        await instance.sock.sendPresenceUpdate(presence, jid);
+        
+        if (options.delay) {
+            await new Promise(resolve => setTimeout(resolve, options.delay));
+            await instance.sock.sendPresenceUpdate('paused', jid);
+        }
+        
+        console.log(`[${name}] Presence ${presence} sent to ${jid}`);
+        res.json({ success: true });
+    } catch (err) {
+        console.error(`[${name}] Presence send error:`, err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 
 // Health check
