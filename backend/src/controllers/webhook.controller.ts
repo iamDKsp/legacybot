@@ -1452,13 +1452,26 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                     await advanceBotStage(lead.id as number, funnelSlug, 'pix_banco', conversation?.id);
                     lead.bot_stage = 'pix_banco';
 
-                    // Skip normal bot processing — we already handled the response
                     // Detect and save gender
                     if (lead.name && typeof lead.name === 'string' && lead.name !== phone) {
                         const genderRaw = detectGender(lead.name as string);
                         const gender = genderRaw === 'masculino' ? 'M' : genderRaw === 'feminino' ? 'F' : null;
                         if (gender) await db('leads').where({ id: lead.id }).update({ gender });
                     }
+
+                    // Notify CRM via WebSocket (real-time update)
+                    const wssPix = getWebSocketServer();
+                    if (wssPix) {
+                        wssPix.emit('new_message', {
+                            lead_id: lead.id,
+                            lead_name: lead.name,
+                            message: message.substring(0, 100),
+                            conversation_id: conversation.id,
+                        });
+                    }
+
+                    console.log(`[GolpePix] 🎤 Reception complete for lead ${lead.id}. Sofia is now WAITING for client to confirm bank.`);
+                    return; // STOP HERE! Wait for client's next message stating their bank
                 } else {
                     // Normal flow for other funnels
                     await advanceBotStage(lead.id as number, funnelSlug, 'approach', conversation?.id);
