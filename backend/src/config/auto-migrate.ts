@@ -294,12 +294,11 @@ export async function runAutoMigrations(): Promise<void> {
                 ],
                 'golpe-pix': [
                     { slug: 'recebido',       ord: 1, auto: true,  trig: 'reception'       },
-                    { slug: 'abordagem',      ord: 2, auto: true,  trig: 'approach'        },
-                    { slug: 'coleta_info',    ord: 3, auto: true,  trig: 'info_collection' },
-                    { slug: 'documentacao',   ord: 4, auto: true,  trig: 'doc_request'     },
-                    { slug: 'assinatura',     ord: 5, auto: false, trig: null              },
-                    { slug: 'analise_espera', ord: 6, auto: false, trig: null              },
-                    { slug: 'finalizado',     ord: 7, auto: false, trig: null              },
+                    { slug: 'abordagem',      ord: 2, auto: true,  trig: 'pix_banco'       },
+                    { slug: 'coleta_info',    ord: 3, auto: true,  trig: 'pix_comprovante' },
+                    { slug: 'analise_espera', ord: 4, auto: false, trig: null              },
+                    { slug: 'desqualificado', ord: 5, auto: true,  trig: 'disqualified'    },
+                    { slug: 'finalizado',     ord: 6, auto: false, trig: null              },
                 ],
             };
 
@@ -436,6 +435,49 @@ export async function runAutoMigrations(): Promise<void> {
                     .catch(() => {});
             }
             console.log('[DB] ✅ Negativado: etapa pré-análise inserida/garantida.');
+        }
+
+        // ── 9f. Golpe Pix v2: inserir stage 'desqualificado' + atualizar funnel_stages ──
+        await db.raw(`
+            INSERT INTO stages (name, slug, display_order)
+            VALUES ('Desqualificado', 'desqualificado', 99)
+            ON CONFLICT (slug) DO NOTHING
+        `);
+
+        const golpePixFunnel = await db('funnels').where({ slug: 'golpe-pix' }).first() as { id: number } | undefined;
+        const desqualStage   = await db('stages').where({ slug: 'desqualificado' }).first() as { id: number } | undefined;
+        const coletaStage    = await db('stages').where({ slug: 'coleta_info' }).first() as { id: number } | undefined;
+
+        if (golpePixFunnel && desqualStage) {
+            // Inserir 'desqualificado' no golpe-pix
+            await db('funnel_stages')
+                .insert({
+                    funnel_id:         golpePixFunnel.id,
+                    stage_id:          desqualStage.id,
+                    display_order:     8,
+                    is_auto:           true,
+                    bot_stage_trigger: 'disqualified',
+                })
+                .onConflict(['funnel_id', 'stage_id']).ignore()
+                .catch(() => {});
+
+            // Atualizar triggers das etapas existentes do golpe-pix para o novo fluxo
+            // abordagem agora é acionada por 'pix_banco' (não mais 'approach')
+            if (abordagemStage) {
+                await db('funnel_stages')
+                    .where({ funnel_id: golpePixFunnel.id, stage_id: abordagemStage.id })
+                    .update({ bot_stage_trigger: 'pix_banco' })
+                    .catch(() => {});
+            }
+            // coleta_info agora é acionada por 'pix_comprovante' (não mais 'info_collection')
+            if (coletaStage) {
+                await db('funnel_stages')
+                    .where({ funnel_id: golpePixFunnel.id, stage_id: coletaStage.id })
+                    .update({ bot_stage_trigger: 'pix_comprovante' })
+                    .catch(() => {});
+            }
+
+            console.log('[DB] ✅ Golpe Pix v2: stage Desqualificado + triggers atualizados.');
         }
 
         // ── 9d. Rename all other funnels to CAPS ─────────────────────────────
