@@ -271,7 +271,7 @@ interface ProcessDocResult {
 
 const _leadBuffers = new Map<string, LeadBuffer>();
 const _fileBuffers = new Map<string, FileBuffer>();
-const DEBOUNCE_MS = 30_000; // 10 seconds of silence before Sofia responds
+const DEBOUNCE_MS = 10_000; // 10 seconds of silence before Sofia responds
 const FILE_DEBOUNCE_MS = 8000; // 8 seconds of silence to group multi-uploads
 const _processingFileLock = new Set<number>(); // leadId lock for sequential execution
 

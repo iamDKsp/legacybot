@@ -39,7 +39,7 @@ const clients = []; // SSE clients
 
 // --- Utilities ---
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-const randomDelay = () => Math.floor(Math.random() * (5000 - 2000 + 1)) + 2000;
+const randomDelay = () => Math.floor(Math.random() * (2000 - 1000 + 1)) + 1000;
 
 function sendToClients(data) {
     const payload = `data: ${JSON.stringify(data)}\n\n`;
@@ -484,7 +484,7 @@ app.post('/message/sendAudio/:name', authCheck, async (req, res) => {
         
         await instance.sock.sendPresenceUpdate('recording', jid);
         const audioDuration = seconds || 5;
-        await new Promise(resolve => setTimeout(resolve, audioDuration * 1000));
+        await new Promise(resolve => setTimeout(resolve, Math.min(audioDuration * 1000, 2000)));
         
         const mime = mimetype || 'audio/ogg; codecs=opus';
         const buffer = Buffer.from(audioBase64, 'base64');
