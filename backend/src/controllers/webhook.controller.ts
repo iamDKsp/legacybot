@@ -1310,25 +1310,50 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
 
                     // Only move if target is different from current
                     if (targetFunnel && currentFunnel && currentFunnel.slug !== targetSlug) {
-                        const abordagemStage = await db('stages').where({ slug: 'abordagem' }).first();
-                        const stageId = abordagemStage ? abordagemStage.id : 2;
+                        // ── Special: golpe-pix gets scripted reception at migration time ──
+                        if (targetSlug === 'golpe-pix') {
+                            const recebidoStage = await db('stages').where({ slug: 'recebido' }).first();
+                            const recStageId = recebidoStage ? recebidoStage.id : 1;
 
-                        await db('leads').where({ id: lead.id }).update({
-                            funnel_id: targetFunnel.id,
-                            stage_id: stageId,
-                            bot_stage: 'approach'
-                        });
-                        lead.funnel_id = targetFunnel.id;
-                        lead.stage_id = stageId;
-                        lead.bot_stage = 'approach';
-                        
-                        console.log(`[Webhook] 🔀 Lead ${lead.id} auto-moved (user msg): ${currentFunnel.slug} → ${targetSlug} (detected: ${detectedArea}) | Stage set to Abordagem`);
-                        
-                        // Notify CRM
-                        const wssMsg = getWebSocketServer();
-                        if (wssMsg) {
-                            wssMsg.emit('lead_updated', { lead_id: lead.id, funnel_id: targetFunnel.id, stage_id: stageId, bot_stage: 'approach' });
-                            wssMsg.emit('stage_changed', { lead_id: lead.id, funnel_slug: targetSlug });
+                            await db('leads').where({ id: lead.id }).update({
+                                funnel_id: targetFunnel.id,
+                                stage_id: recStageId,
+                                bot_stage: 'reception'
+                            });
+                            lead.funnel_id = targetFunnel.id;
+                            lead.stage_id = recStageId;
+                            lead.bot_stage = 'reception';
+
+                            console.log(`[Webhook] 🔀 Lead ${lead.id} auto-moved: ${currentFunnel.slug} → golpe-pix | bot_stage=reception (scripted flow will fire)`);
+
+                            // Notify CRM
+                            const wssMsg = getWebSocketServer();
+                            if (wssMsg) {
+                                wssMsg.emit('lead_updated', { lead_id: lead.id, funnel_id: targetFunnel.id, stage_id: recStageId, bot_stage: 'reception' });
+                                wssMsg.emit('stage_changed', { lead_id: lead.id, funnel_slug: targetSlug });
+                            }
+                        } else {
+                            // Normal migration for other funnels
+                            const abordagemStage = await db('stages').where({ slug: 'abordagem' }).first();
+                            const stageId = abordagemStage ? abordagemStage.id : 2;
+
+                            await db('leads').where({ id: lead.id }).update({
+                                funnel_id: targetFunnel.id,
+                                stage_id: stageId,
+                                bot_stage: 'approach'
+                            });
+                            lead.funnel_id = targetFunnel.id;
+                            lead.stage_id = stageId;
+                            lead.bot_stage = 'approach';
+                            
+                            console.log(`[Webhook] 🔀 Lead ${lead.id} auto-moved (user msg): ${currentFunnel.slug} → ${targetSlug} (detected: ${detectedArea}) | Stage set to Abordagem`);
+
+                            // Notify CRM
+                            const wssMsg = getWebSocketServer();
+                            if (wssMsg) {
+                                wssMsg.emit('lead_updated', { lead_id: lead.id, funnel_id: targetFunnel.id, stage_id: stageId, bot_stage: 'approach' });
+                                wssMsg.emit('stage_changed', { lead_id: lead.id, funnel_slug: targetSlug });
+                            }
                         }
                     }
                 }
