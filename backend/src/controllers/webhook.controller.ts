@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { db } from '../config/database';
-import { aiService, buildLeadContext, getRelevantMemories, buildCompressedHistory, transcribeAudio, analyzeImage, generateCaseSummary, sendWhatsAppImage, sendWhatsAppAudio, sendRecordingPresence, DocumentType, applyGuardrails } from '../services/ai.service';
+import { aiService, buildLeadContext, getRelevantMemories, buildCompressedHistory, transcribeAudio, analyzeImage, generateCaseSummary, sendWhatsAppImage, sendWhatsAppAudio, sendRecordingPresence, DocumentType, applyGuardrails, validatePixComprovante } from '../services/ai.service';
 import { getWebSocketServer } from '../services/websocket.service';
 import { detectEmotionalState, detectLegalArea, extractCPF, extractName } from '../services/learning.service';
 import axios from 'axios';
@@ -1673,126 +1673,100 @@ async function processIncomingMessage(payload: Record<string, unknown>): Promise
                         console.log(`[GolpePix] 📄 Comprovante received for lead ${lead.id} (${isPDFfile ? 'PDF' : 'image'})`);
 
                         try {
-                            // Analyze via Gemini Vision
-                            const analysisCtx = `Este arquivo foi enviado como comprovante de transferência Pix.
-ANALISE E RESPONDA EM JSON:
-{
-  "isComprovantePix": true/false,
-  "isPrint": true/false,
-  "valor": number ou null,
-  "banco": "string" ou null,
-  "destinatario": "string" ou null,
-  "data": "string" ou null,
-  "description": "resumo do documento"
-}
-isComprovantePix=true se for um comprovante real de transferência Pix compartilhado diretamente do app do banco.
-isPrint=true se for um print/screenshot/captura de tela (não o comprovante oficial do banco).`;
+                            const pixResult = await validatePixComprovante(fileBase64Pix, fileMimePix);
+                            console.log(`[GolpePix] 🔍 Comprovante validation result for lead ${lead.id}:`, JSON.stringify(pixResult));
 
-                            const analysis = await analyzeImage(fileBase64Pix, fileMimePix, analysisCtx);
+                            // ── Case 1: NOT a Pix comprovante (WhatsApp print, selfie, random photo, invoice, etc.) ──
+                            if (!pixResult.isValidPix) {
+                                const detected = pixResult.detectedType || pixResult.description || 'uma imagem não relacionada';
+                                console.log(`[GolpePix] ❌ Not a Pix comprovante: "${detected}" for lead ${lead.id}`);
 
-                            if (analysis && analysis.extractedText) {
-                                // Try to parse the JSON from Gemini
-                                let pixData: { isComprovantePix?: boolean; isPrint?: boolean; valor?: number; banco?: string; destinatario?: string; data?: string; description?: string } = {};
+                                const notPixReply = `Desculpe, isso não é o comprovante da transferência Pix — parece ser ${detected}.\n\nVocê pode compartilhar o comprovante oficial da transação Pix gerado pelo aplicativo do seu banco por gentileza?`;
+                                await aiService.sendFragmentedMessage(targetPhone, notPixReply);
                                 try {
-                                    const jsonMatch = analysis.extractedText.match(/\{[\s\S]*\}/);
-                                    if (jsonMatch) pixData = JSON.parse(jsonMatch[0]);
-                                } catch {
-                                    console.warn('[GolpePix] Failed to parse Gemini JSON, using raw analysis');
-                                }
-
-                                // Check if it's a print/screenshot
-                                if (pixData.isPrint || (!isPDFfile && !pixData.isComprovantePix)) {
-                                    console.log(`[GolpePix] ❌ Print/screenshot detected for lead ${lead.id}`);
-                                    const printReply = 'Preciso que o comprovante seja compartilhado diretamente do aplicativo do seu banco — não pode ser captura de tela.\n\nLá no app, geralmente tem a opção "Compartilhar comprovante" ou "Salvar PDF". Pode tentar por favor?';
-                                    await aiService.sendFragmentedMessage(targetPhone, printReply);
-                                    try {
-                                        await db('messages').insert({
-                                            conversation_id: conversation.id,
-                                            content: printReply,
-                                            direction: 'outbound', sender: 'bot', sent_at: new Date(),
-                                        });
-                                    } catch { /* non-critical */ }
-                                    return; // Stay in pix_comprovante — wait for proper comprovante
-                                }
-
-                                // Check value < R$150
-                                if (pixData.valor && pixData.valor < 150) {
-                                    console.log(`[GolpePix] ❌ Value too low (R$${pixData.valor}) for lead ${lead.id}`);
-                                    const valorReply = `Entendo sua situação e sinto muito. Infelizmente, para valores abaixo de R$150, o processo acaba não sendo viável financeiramente.\n\nMas fica de olho e qualquer coisa nova, estamos aqui!`;
-                                    await aiService.sendFragmentedMessage(targetPhone, valorReply);
-                                    try {
-                                        await db('messages').insert({
-                                            conversation_id: conversation.id,
-                                            content: valorReply,
-                                            direction: 'outbound', sender: 'bot', sent_at: new Date(),
-                                        });
-                                    } catch { /* non-critical */ }
-
-                                    await db('leads').where({ id: lead.id }).update({ bot_active: false });
-                                    await advanceBotStage(lead.id as number, pixFunnelSlug, 'disqualified', conversation?.id);
-                                    lead.bot_stage = 'disqualified';
-                                    return;
-                                }
-
-                                // ── COMPROVANTE VÁLIDO ──
-                                console.log(`[GolpePix] ✅ Valid comprovante for lead ${lead.id} — R$${pixData.valor || '?'}, ${pixData.banco || '?'}`);
-
-                                // Save extracted data to lead notes
-                                const pixNoteParts: string[] = [];
-                                if (pixData.valor) pixNoteParts.push(`Valor Pix: R$${pixData.valor}`);
-                                if (pixData.banco) pixNoteParts.push(`Banco: ${pixData.banco}`);
-                                if (pixData.destinatario) pixNoteParts.push(`Destinatário: ${pixData.destinatario}`);
-                                if (pixData.data) pixNoteParts.push(`Data: ${pixData.data}`);
-                                if (pixNoteParts.length > 0) {
-                                    await db('leads').where({ id: lead.id }).update({
-                                        notes: db.raw(`CONCAT(COALESCE(notes, ''), '\n[PIX_DATA] ${pixNoteParts.join(' | ')}')`),
+                                    await db('messages').insert({
+                                        conversation_id: conversation.id,
+                                        content: notPixReply,
+                                        direction: 'outbound', sender: 'bot', sent_at: new Date(),
                                     });
-                                }
+                                } catch { /* non-critical */ }
+                                return; // Stay in pix_comprovante — wait for real comprovante
+                            }
 
-                                // Save document as approved
+                            // ── Case 2: Pix comprovante, but value < R$ 150 ──
+                            if (pixResult.valor !== null && pixResult.valor < 150) {
+                                console.log(`[GolpePix] ❌ Value too low (R$${pixResult.valor}) for lead ${lead.id}`);
+                                const valorReply = `Entendo sua situação e sinto muito.\n\nInfelizmente, para valores abaixo de R$ 150, o processo acaba não sendo viável financeiramente.\n\nQualquer outra situação, pode contar com a gente!`;
+                                await aiService.sendFragmentedMessage(targetPhone, valorReply);
                                 try {
-                                    await db('documents').insert({
-                                        lead_id: lead.id,
-                                        document_type: 'Comprovante Pix',
-                                        status: 'aprovado',
-                                        file_name: isPDFfile ? 'comprovante_pix.pdf' : 'comprovante_pix.jpg',
-                                        mime_type: fileMimePix,
-                                        file_data: Buffer.from(fileBase64Pix, 'base64'),
-                                        notes: pixNoteParts.join(' | '),
-                                        uploaded_at: new Date(),
+                                    await db('messages').insert({
+                                        conversation_id: conversation.id,
+                                        content: valorReply,
+                                        direction: 'outbound', sender: 'bot', sent_at: new Date(),
                                     });
-                                } catch (docErr) {
-                                    console.error('[GolpePix] Document save error:', docErr);
-                                }
+                                } catch { /* non-critical */ }
 
-                                // Send audio 3 (validado) after brief pause
-                                setTimeout(async () => {
-                                    try {
-                                        await sendSofiaAudio(targetPhone, lead.id as number, 'sofia_validado');
-                                        await db('messages').insert({
-                                            conversation_id: conversation.id,
-                                            content: `[Áudio enviado: ${SOFIA_AUDIO_FILES.sofia_validado.transcript}]`,
-                                            direction: 'outbound', sender: 'bot', sent_at: new Date(),
-                                        });
-                                    } catch (err) {
-                                        console.error('[GolpePix] Failed to send validado audio:', err);
-                                    }
-                                }, 1500);
-
-                                // Pause bot and advance to analysis
                                 await db('leads').where({ id: lead.id }).update({ bot_active: false });
-                                await advanceBotStage(lead.id as number, pixFunnelSlug, 'analysis', conversation?.id);
-                                lead.bot_stage = 'analysis';
-
-                                // Generate case summary in background
-                                generateAndSaveCaseSummary(lead, conversation?.id, pixFunnelSlug).catch(err =>
-                                    console.error('[GolpePix] Background summary failed:', err)
-                                );
+                                await advanceBotStage(lead.id as number, pixFunnelSlug, 'disqualified', conversation?.id);
+                                lead.bot_stage = 'disqualified';
                                 return;
                             }
 
-                            // Gemini couldn't analyze — ask to resend
-                            await aiService.sendFragmentedMessage(targetPhone, 'Não consegui analisar o arquivo. Pode enviar novamente o comprovante? Se possível, compartilha direto do aplicativo do banco.');
+                            // ── Case 3: VALID COMPROVANTE (>= R$ 150 or value not explicitly stated) ──
+                            console.log(`[GolpePix] ✅ Valid comprovante for lead ${lead.id} — R$${pixResult.valor ?? 'N/D'}, ${pixResult.banco ?? 'N/D'}`);
+
+                            // Save extracted data to lead notes
+                            const pixNoteParts: string[] = [];
+                            if (pixResult.valor) pixNoteParts.push(`Valor Pix: R$${pixResult.valor}`);
+                            if (pixResult.banco) pixNoteParts.push(`Banco: ${pixResult.banco}`);
+                            if (pixResult.destinatario) pixNoteParts.push(`Destinatário: ${pixResult.destinatario}`);
+                            if (pixResult.data) pixNoteParts.push(`Data: ${pixResult.data}`);
+                            if (pixResult.autenticacao) pixNoteParts.push(`Autenticação: ${pixResult.autenticacao}`);
+                            if (pixNoteParts.length > 0) {
+                                await db('leads').where({ id: lead.id }).update({
+                                    notes: db.raw(`CONCAT(COALESCE(notes, ''), '\n[PIX_DATA] ${pixNoteParts.join(' | ')}')`),
+                                });
+                            }
+
+                            // Save document as approved
+                            try {
+                                await db('documents').insert({
+                                    lead_id: lead.id,
+                                    document_type: 'Comprovante Pix',
+                                    status: 'aprovado',
+                                    file_name: isPDFfile ? 'comprovante_pix.pdf' : 'comprovante_pix.jpg',
+                                    mime_type: fileMimePix,
+                                    file_data: Buffer.from(fileBase64Pix, 'base64'),
+                                    notes: pixNoteParts.join(' | '),
+                                    uploaded_at: new Date(),
+                                });
+                            } catch (docErr) {
+                                console.error('[GolpePix] Document save error:', docErr);
+                            }
+
+                            // Send audio 3 (validado) after brief pause
+                            setTimeout(async () => {
+                                try {
+                                    await sendSofiaAudio(targetPhone, lead.id as number, 'sofia_validado');
+                                    await db('messages').insert({
+                                        conversation_id: conversation.id,
+                                        content: `[Áudio enviado: ${SOFIA_AUDIO_FILES.sofia_validado.transcript}]`,
+                                        direction: 'outbound', sender: 'bot', sent_at: new Date(),
+                                    });
+                                } catch (err) {
+                                    console.error('[GolpePix] Failed to send validado audio:', err);
+                                }
+                            }, 1500);
+
+                            // Pause bot and advance to analysis
+                            await db('leads').where({ id: lead.id }).update({ bot_active: false });
+                            await advanceBotStage(lead.id as number, pixFunnelSlug, 'analysis', conversation?.id);
+                            lead.bot_stage = 'analysis';
+
+                            // Generate case summary in background
+                            generateAndSaveCaseSummary(lead, conversation?.id, pixFunnelSlug).catch(err =>
+                                console.error('[GolpePix] Background summary failed:', err)
+                            );
                             return;
 
                         } catch (analysisErr) {

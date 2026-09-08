@@ -252,17 +252,18 @@ NÃO peça nome, CPF ou documentos pessoais.`,
 
         pix_comprovante:
             `[Instrução de Etapa — VALIDAÇÃO DE COMPROVANTE - GOLPE PIX]
-O cliente está enviando comprovantes de transferência Pix. O SISTEMA valida se é um PDF real compartilhado do banco ou um print/screenshot de tela.
+O cliente deve enviar o comprovante de transferência do Pix (PDF oficial ou foto/imagem legível do comprovante do aplicativo bancário com os dados da transação).
 
-SE O COMPROVANTE FOI VALIDADO: O sistema já enviou o áudio de confirmação ("Muito obrigado, chegou certinho aqui...") e moveu para análise. Não há nada para você fazer.
+SE O CLIENTE PERGUNTAR COMO ENVIAR OU TIVER DÚVIDAS:
+Responda de forma simples, curta e prestativa:
+"No aplicativo do seu banco, vá em 'Pix > Extrato' ou 'Histórico', abra a transferência e procure a opção de compartilhar o comprovante ou salvar em PDF/imagem."
 
-SE O COMPROVANTE FOI REJEITADO (print/screenshot): O sistema já informou o problema. Se o cliente insistir em enviar prints, reforce de forma gentil:
-"Preciso que o comprovante seja compartilhado diretamente do aplicativo do seu banco — não pode ser captura de tela. Lá no app, geralmente tem a opção 'Compartilhar comprovante' ou 'Salvar PDF'. Pode tentar por favor?"
-Se o cliente perguntar como: "No app do seu banco, vá em 'Pix > Histórico', abra a transferência e procure a opção 'Compartilhar comprovante' ou 'Salvar PDF'."
+SE O CLIENTE ENVIAR UMA FOTO QUE NÃO É O COMPROVANTE:
+O sistema já detecta o que foi enviado e avisa de forma personalizada. Se precisar reforçar por texto:
+"Desculpe, isso não é o comprovante do Pix. Você consegue me enviar o comprovante da transação por gentileza?"
 
-SE O VALOR DO PIX FOR INFERIOR A R$150: O sistema vai detectar isso do comprovante e desqualificar automaticamente. Se precisar encerrar manualmente: "Entendo sua situação e sinto muito. Infelizmente, para valores abaixo de R$150, o processo acaba não sendo viável financeiramente. Mas fica de olho e qualquer coisa nova, estamos aqui."
-
-NÃO peça nome, CPF ou documentos pessoais. Foque APENAS no comprovante.`,
+SE O VALOR DO PIX FOR INFERIOR A R$ 150: O sistema cuida da desqualificação automaticamente.
+NÃO peça nome, CPF ou documentos pessoais. Foque APENAS no comprovante da transferência Pix.`,
 
         analysis:
             `[Instrução de Etapa — ANÁLISE - GOLPE PIX]
@@ -1520,8 +1521,43 @@ export async function sendTypingPresence(phone: string, durationMs = 2000): Prom
 }
 
 // ============================================================
+// Natural WhatsApp message fragmentation helper
+// Splits text into realistic, conversational bubbles
+// ============================================================
+export function splitIntoNaturalFragments(text: string): string[] {
+    const rawParagraphs = text
+        .split(/\r?\n+/)
+        .map((p) => p.trim())
+        .filter((p) => p.length > 0);
+
+    const result: string[] = [];
+
+    for (const p of rawParagraphs) {
+        // Do not split links, short sentences or single ideas
+        if (p.includes('http://') || p.includes('https://') || p.length <= 110) {
+            result.push(p);
+            continue;
+        }
+
+        // Split on sentence boundaries: . ! ? followed by space and capital letter or number
+        const sentences = p
+            .split(/(?<=[.!?])\s+(?=[A-ZÀ-Ú0-9"'])/)
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
+
+        if (sentences.length > 1) {
+            result.push(...sentences);
+        } else {
+            result.push(p);
+        }
+    }
+
+    return result.length > 0 ? result : [text.trim()];
+}
+
+// ============================================================
 // Send WhatsApp message in fragments (humanized delivery)
-// Splits by paragraph, sends each with variable delay + typing
+// Splits into conversational bubbles with realistic WhatsApp pace
 // ============================================================
 export async function sendFragmentedMessage(
     phone: string, 
@@ -1529,19 +1565,14 @@ export async function sendFragmentedMessage(
     abortSignal?: AbortSignal,
     onFragmentSent?: (fragment: string) => Promise<void>
 ): Promise<void> {
-    // Split by one or more blank lines (\n\n or \r\n\r\n)
-    const fragments = message
-        .split(/\n{2,}|\r\n\r\n/)
-        .map((f) => f.trim())
-        .filter((f) => f.length > 0);
+    const fragments = splitIntoNaturalFragments(message);
 
     if (fragments.length <= 1) {
-        // Single message — still simulate typing
-        const typingDelay = Math.min(8000, 2000 + message.length * 35);
+        // Single message — quick typing indicator (1.2s to 3s)
+        const typingDelay = Math.min(3000, 1000 + message.length * 20);
         await sendTypingPresence(phone, typingDelay);
         await new Promise((resolve) => setTimeout(resolve, typingDelay));
 
-        // 🛑 STOP & RESTART: Check before sending
         if (abortSignal?.aborted) {
             console.log(`[WhatsApp] 🛑 Fragment send cancelled (aborted) for ${phone}`);
             return;
@@ -1552,30 +1583,22 @@ export async function sendFragmentedMessage(
         return;
     }
 
-    console.log(`[WhatsApp] 📨 Sending ${fragments.length} fragments with variable delay`);
+    console.log(`[WhatsApp] 📨 Sending ${fragments.length} fragments with natural WhatsApp pace`);
 
     for (let i = 0; i < fragments.length; i++) {
-        // 🛑 STOP & RESTART: Check before each fragment
         if (abortSignal?.aborted) {
             console.log(`[WhatsApp] 🛑 Fragment ${i + 1}/${fragments.length} cancelled (aborted) for ${phone} — stopping`);
             return;
         }
 
-        // Variable delay based on fragment length
-        let typingDelay = Math.min(12000, 3000 + fragments[i].length * 45);
+        // Realistic typing delays (1.2s to 3.2s max)
+        const typingDelay = i === 0
+            ? Math.min(2500, 1000 + fragments[i].length * 15)
+            : Math.min(3200, 1400 + fragments[i].length * 20);
 
-        if (i > 0) {
-            // Simulate typing before each subsequent fragment
-            await sendTypingPresence(phone, typingDelay);
-            await new Promise((resolve) => setTimeout(resolve, typingDelay));
-        } else {
-            // First fragment: shorter typing indicator
-            typingDelay = Math.min(5000, 1500 + fragments[i].length * 30);
-            await sendTypingPresence(phone, typingDelay);
-            await new Promise((resolve) => setTimeout(resolve, typingDelay));
-        }
+        await sendTypingPresence(phone, typingDelay);
+        await new Promise((resolve) => setTimeout(resolve, typingDelay));
 
-        // 🛑 STOP & RESTART: Re-check after delay (message may have arrived during typing)
         if (abortSignal?.aborted) {
             console.log(`[WhatsApp] 🛑 Fragment ${i + 1}/${fragments.length} cancelled after delay (aborted) for ${phone}`);
             return;
@@ -1585,6 +1608,145 @@ export async function sendFragmentedMessage(
         await sendWhatsAppMessage(phone, fragments[i]);
         if (onFragmentSent) await onFragmentSent(fragments[i]);
     }
+}
+
+// ============================================================
+// Dedicated Pix Comprovante Validator (Gemini Vision)
+// Recognizes real transfer vouchers (PDF/images from Stone, Nubank, etc.)
+// and provides non-generic feedback when an unrelated image is sent
+// ============================================================
+export interface PixValidationResult {
+    isValidPix: boolean;
+    description: string;
+    detectedType: string;
+    valor: number | null;
+    banco: string | null;
+    destinatario: string | null;
+    data: string | null;
+    autenticacao: string | null;
+    motivoInvalido?: string | null;
+}
+
+export async function validatePixComprovante(
+    fileBase64: string,
+    mimeType: string
+): Promise<PixValidationResult> {
+    const base64SizeKB = Math.round(fileBase64.length * 0.75 / 1024);
+    if (fileBase64.length < 3000) {
+        return {
+            isValidPix: false,
+            description: 'Arquivo corrompido ou incompleto',
+            detectedType: 'um arquivo corrompido ou incompleto',
+            valor: null,
+            banco: null,
+            destinatario: null,
+            data: null,
+            autenticacao: null,
+            motivoInvalido: 'arquivo muito pequeno ou corrompido',
+        };
+    }
+
+    console.log(`[AI] 🔍 validatePixComprovante | mime: ${mimeType} | size: ${base64SizeKB}KB`);
+    const model = genAI.getGenerativeModel({ model: config.googleAi.mediaModel });
+
+    const part: Part = {
+        inlineData: {
+            data: fileBase64,
+            mimeType: mimeType as any,
+        },
+    };
+
+    const prompt = `Você é um especialista em validação de comprovantes de transferência Pix de uma assessoria jurídica.
+Analise a imagem ou PDF fornecido com extrema atenção.
+
+CRITÉRIOS DE VALIDAÇÃO (isValidPix = true):
+1. É um comprovante de transferência ou pagamento Pix (seja em PDF oficial, foto de documento, ou captura de tela/print do aplicativo bancário como Stone, Nubank, Itaú, Bradesco, Caixa, Santander, Inter, PagBank, Mercado Pago, C6, etc.).
+2. Contém dados característicos de uma transação Pix: valor, destinatário ou chave Pix, data/hora, banco de origem, código de autenticação ou ID da transação (E2E ID).
+3. ATENÇÃO: Comprovantes bancários como "stone Comprovante de Transferência" (valor R$ 300,00, Tiago para Igor, Pix) ou comprovantes de qualquer outro banco contendo os dados da transferência DEVEM ser considerados válidos (isValidPix: true)!
+4. Marque isValidPix = false APENAS se o arquivo NÃO for um comprovante de transferência Pix (ex: foto de pessoa/selfie, print de conversa do WhatsApp, print de tela inicial de celular, boleto bancário, saldo/extrato geral da conta, fatura de cartão de crédito, foto de objeto ou documento pessoal como RG).
+
+FORMATO DE RESPOSTA OBRIGATÓRIO (APENAS JSON PURO, sem markdown, sem \`\`\`):
+{
+  "isValidPix": boolean,
+  "description": "Breve descrição do que você vê na imagem",
+  "detectedType": "Se NÃO for comprovante Pix, descreva informalmente em português o que parece ser (ex: 'um print de conversa do WhatsApp', 'uma foto pessoal', 'uma fatura de cartão', 'um boleto bancário', 'um comprovante de agendamento', 'um extrato da conta'). Se for comprovante Pix, coloque 'comprovante Pix'",
+  "valor": number ou null,
+  "banco": "string" ou null,
+  "destinatario": "string" ou null,
+  "data": "string" ou null,
+  "autenticacao": "string" ou null,
+  "motivoInvalido": "string" ou null
+}
+
+Exemplo para o comprovante da Stone:
+{
+  "isValidPix": true,
+  "description": "Comprovante de transferência Pix da Stone no valor de R$ 300,00 para IGOR SOUZA GUSMAO",
+  "detectedType": "comprovante Pix",
+  "valor": 300.00,
+  "banco": "Stone",
+  "destinatario": "IGOR SOUZA GUSMAO",
+  "data": "28/10/2022",
+  "autenticacao": "bf7aee00-b771-484f-b4e3-53bf75818665",
+  "motivoInvalido": null
+}`;
+
+    const MAX_ATTEMPTS = 2;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        try {
+            const timeoutMs = 35000;
+            const timeoutPromise = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Pix analysis timeout after ${timeoutMs / 1000}s`)), timeoutMs)
+            );
+            const result = await Promise.race([
+                model.generateContent([prompt, part]),
+                timeoutPromise,
+            ]);
+            const text = result.response.text();
+            console.log(`[AI] 🔍 validatePixComprovante raw response: ${text.substring(0, 400)}`);
+
+            const jsonMatch = text.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0]);
+                let valNum: number | null = null;
+                if (typeof parsed.valor === 'number') {
+                    valNum = parsed.valor;
+                } else if (typeof parsed.valor === 'string') {
+                    const cleanedVal = parsed.valor.replace(/[^\d.,]/g, '').replace(',', '.');
+                    valNum = parseFloat(cleanedVal) || null;
+                }
+
+                return {
+                    isValidPix: Boolean(parsed.isValidPix),
+                    description: String(parsed.description || ''),
+                    detectedType: String(parsed.detectedType || 'imagem não identificada'),
+                    valor: valNum,
+                    banco: parsed.banco ? String(parsed.banco) : null,
+                    destinatario: parsed.destinatario ? String(parsed.destinatario) : null,
+                    data: parsed.data ? String(parsed.data) : null,
+                    autenticacao: parsed.autenticacao ? String(parsed.autenticacao) : null,
+                    motivoInvalido: parsed.motivoInvalido ? String(parsed.motivoInvalido) : null,
+                };
+            }
+        } catch (err) {
+            console.warn(`[AI] ⚠️ validatePixComprovante attempt ${attempt} failed:`, (err as Error).message);
+            if (attempt === MAX_ATTEMPTS) {
+                throw err;
+            }
+        }
+    }
+
+    return {
+        isValidPix: false,
+        description: 'Não foi possível analisar o arquivo',
+        detectedType: 'um arquivo ilegível',
+        valor: null,
+        banco: null,
+        destinatario: null,
+        data: null,
+        autenticacao: null,
+        motivoInvalido: 'erro ao decodificar resposta da IA',
+    };
 }
 
 // Media download via Baileys Bridge
@@ -1649,6 +1811,7 @@ export const aiService = {
     buildLeadContext,
     recordSuccessPattern,
     generateHandoffSummary,
+    validatePixComprovante,
 };
 
 export default aiService;
